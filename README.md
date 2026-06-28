@@ -97,6 +97,7 @@ If you want to point the cache somewhere specific:
 ## Todo
 - [ ] Add support eye tracking
 - [ ] Make the client work with out any tweaks to the server
+- [ ] Eye tracking is not working
 
 ### XR
 - [ ] Create a native XR client
@@ -104,7 +105,6 @@ If you want to point the cache somewhere specific:
 - [ ] Track with XR
 
 ## Bugs
-- [ ] Eye tracking is not working
 - [ ] USB pairing is often unstable
 - [ ] HMD height is too high
 - [ ] Controller tracking is barley working
