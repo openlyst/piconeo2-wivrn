@@ -28,3 +28,4 @@ Our plan for the client is to add openXR and use that for tracking and input but
 - [ ] USB pairing is often unstable
 - [ ] HMD height is too high
 - [ ] Controller tracking is barley working
+- [ ] Rolling head will make the camera freak out.
