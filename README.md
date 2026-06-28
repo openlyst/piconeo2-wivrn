@@ -8,7 +8,7 @@ A native VR client for the Pico Neo 2 and Pico Neo 2 Eye that allows PCVR gamepl
 ## Build
 
 ## Todo
-- [ ] Add support for Pico Neo 2 Eye
+- [ ] Add support eye tracking
 - [ ] Make the client work with out any tweaks to the server
 
 ### XR
