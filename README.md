@@ -1,6 +1,8 @@
 # Pico Neo 2 WiVRn
 A native VR client for the Pico Neo 2 and Pico Neo 2 Eye that allows PCVR gameplay over WiFi and USB for Linux.
 
+Got questions or want to contribute? Join the Discord for dev discussion and help: [https://discord.gg/xYx5s9VaTu](https://discord.gg/xYx5s9VaTu)
+
 ## Status
 ### Experimental
 This project has most everything created however with same issues.
