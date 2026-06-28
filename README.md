@@ -39,7 +39,7 @@ sdkmanager "ndk;28.2.13676358" "cmake;3.31.5"
 
 You need the Pico Neo 2 native SDK — it's not bundled here because of licensing.
 
-1. Sign up at https://developer.picoxr.com/
+1. Sign up at [https://developer.picoxr.com/](https://developer.picoxr.com/) or download from [https://archive.org/details/pico-neo-2-sdks-exes.-7z](https://archive.org/details/pico-neo-2-sdks-exes.-7z)
 2. Download the Android Native SDK (PvrSDK-Native 2.8.5.4 or newer)
 3. Drop `PvrSDK-Native-release.aar` into `external/pvrsdk-native/`
 4. Extract the `jni/` folder so you end up with:
