@@ -1,9 +1,12 @@
 #pragma once
 
+#include <jni.h>
+#include <EGL/egl.h>
+#define XR_USE_PLATFORM_ANDROID 1
+#define XR_USE_GRAPHICS_API_OPENGL_ES 1
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
-#include <openxr/openxr_pico.h>
-#include <EGL/egl.h>
+#include "openxr_pico.h"
 #include <atomic>
 #include <mutex>
 

@@ -2,7 +2,7 @@
 #define OPENXR_PICO_H_ 1
 
 
-#include "openxr.h"
+#include <openxr/openxr.h>
 
 #if defined(__cplusplus)
 extern "C" {
