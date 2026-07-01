@@ -102,7 +102,7 @@ If you want to point the cache somewhere specific:
 ### XR
 - [ ] Create a native XR client
 - [ ] Discard the old WiVRn client.
-- [ ] Track with XR
+- [x] Track with XR
 
 ## Bugs
 - [ ] USB pairing is often unstable

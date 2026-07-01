@@ -21,6 +21,7 @@
 #include "pico_decoder.h"
 #include "pico_audio.h"
 #include "pico_blit.h"
+#include "openxr_tracking.h"
 #include "crypto.h"
 #include "protocol_version.h"
 #include "wivrn_packets.h"
@@ -169,27 +170,9 @@ struct pico_client
 	std::thread connect_thread;
 	std::mutex connect_mutex;
 
-	// Current frame tracking data (from Java callbacks)
-	std::mutex frame_mutex;
-	float head_orientation[4]{};
-	float head_position[3]{};
-	bool has_head_pose = false;
-
-	struct controller_state
-	{
-		float orientation[4]{};
-		float position[3]{};
-		int trigger = 0;
-		int touch[2]{};
-		int battery = 0;
-		bool connected = false;
-		bool button_a = false;
-		bool button_b = false;
-		bool grip = false;
-		bool thumbstick_click = false;
-		bool menu = false;
-	};
-	controller_state controllers[2];
+	// OpenXR tracking (replaces Java callback tracking)
+	openxr_tracker xr_tracker;
+	bool xr_initialized = false;
 
 	~pico_client()
 	{
@@ -458,68 +441,47 @@ void pico_client::network_loop()
 	}
 }
 
-// Pico SDK tracking data is already in OpenXR's coordinate system.
-// Controller has a 34° pitch offset from the Unity SDK.
-static XrQuaternionf pico_to_openxr_quat(const float q[4])
-{
-	return XrQuaternionf{q[0], q[1], q[2], q[3]};
-}
-
-static XrQuaternionf pico_controller_to_openxr_quat(const float q[4])
-{
-	XrQuaternionf base = pico_to_openxr_quat(q);
-	// 34° pitch offset: q_result = base * q_offset
-	// q_offset = (-sin(17°), 0, 0, cos(17°))
-	float ox = -0.29237170f, ow = 0.95630476f;
-	XrQuaternionf result;
-	result.x = base.w * ox + base.x * ow;
-	result.y = base.y * ox + base.z * ow;
-	result.z = base.z * ow - base.y * ox;
-	result.w = base.w * ow - base.x * ox;
-	return result;
-}
-
-static XrVector3f pico_to_openxr_pos(const float p[3])
-{
-	return XrVector3f{p[0], p[1], p[2]};
-}
-
 void pico_client::send_tracking()
 {
 	if (!session)
 		return;
 
+	if (!xr_initialized || !xr_tracker.ready)
+		return;
+
+	xr_tracker.poll_events();
+	xr_tracker.sync_actions();
+
+	XrTime now = to_xr_time(get_timestamp_ns());
+
+	auto head = xr_tracker.get_head_pose(now);
+	if (!head.valid)
+		return;
+
 	from_headset::tracking tracking_packet{};
 
 	tracking_packet.production_timestamp = get_timestamp_ns();
-	tracking_packet.timestamp = to_xr_time(get_timestamp_ns());
+	tracking_packet.timestamp = now;
 	tracking_packet.view_flags = XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_POSITION_VALID_BIT;
 	tracking_packet.state_flags = 0;
 
 	tracking_packet.interaction_profiles[0] = interaction_profile::bytedance_pico_neo3_controller;
 	tracking_packet.interaction_profiles[1] = interaction_profile::bytedance_pico_neo3_controller;
 
-	float head_orient[4], head_pos[3];
-	{
-		std::lock_guard lock(frame_mutex);
-		if (!has_head_pose)
-			return;
-		memcpy(head_orient, head_orientation, sizeof(head_orient));
-		memcpy(head_pos, head_position, sizeof(head_pos));
-	}
-
-	XrPosef head_pose;
-	head_pose.orientation = pico_to_openxr_quat(head_orient);
-	head_pose.position = pico_to_openxr_pos(head_pos);
-
 	for (int eye = 0; eye < 2; eye++)
 	{
-		tracking_packet.views[eye].pose = head_pose;
-		tracking_packet.views[eye].fov = eye_fov[eye];
+		tracking_packet.views[eye].pose = head.eyePoses[eye];
+		tracking_packet.views[eye].fov = head.eyeFovs[eye];
 	}
 
+	XrPosef head_center;
+	head_center.orientation = head.eyePoses[0].orientation;
+	head_center.position.x = (head.eyePoses[0].position.x + head.eyePoses[1].position.x) * 0.5f;
+	head_center.position.y = (head.eyePoses[0].position.y + head.eyePoses[1].position.y) * 0.5f;
+	head_center.position.z = (head.eyePoses[0].position.z + head.eyePoses[1].position.z) * 0.5f;
+
 	from_headset::tracking::pose head_tracking_pose{};
-	head_tracking_pose.pose = head_pose;
+	head_tracking_pose.pose = head_center;
 	head_tracking_pose.device = device_id::HEAD;
 	head_tracking_pose.flags = from_headset::tracking::orientation_valid |
 	                           from_headset::tracking::position_valid |
@@ -529,22 +491,14 @@ void pico_client::send_tracking()
 
 	for (int c = 0; c < 2; c++)
 	{
-		controller_state cs;
-		{
-			std::lock_guard lock(frame_mutex);
-			cs = controllers[c];
-		}
-		if (!cs.connected)
+		auto cp = xr_tracker.get_controller_pose(c, now);
+		if (!cp.connected)
 			continue;
-
-		XrPosef controller_pose;
-		controller_pose.orientation = pico_controller_to_openxr_quat(cs.orientation);
-		controller_pose.position = pico_to_openxr_pos(cs.position);
 
 		bool is_left = (c == 0);
 
 		from_headset::tracking::pose grip_pose{};
-		grip_pose.pose = controller_pose;
+		grip_pose.pose = cp.pose;
 		grip_pose.device = is_left ? device_id::LEFT_GRIP : device_id::RIGHT_GRIP;
 		grip_pose.flags = from_headset::tracking::orientation_valid |
 		                 from_headset::tracking::position_valid |
@@ -562,25 +516,12 @@ void pico_client::send_tracking()
 	static int track_count = 0;
 	if (++track_count % 60 == 1)
 	{
-		spdlog::warn("TRACKING SEND: HMD orient=({:.4f},{:.4f},{:.4f},{:.4f}) pos=({:.4f},{:.4f},{:.4f})",
-			head_pose.orientation.x, head_pose.orientation.y, head_pose.orientation.z, head_pose.orientation.w,
-			head_pose.position.x, head_pose.position.y, head_pose.position.z);
-		for (int c = 0; c < 2; c++)
-		{
-			if (!controllers[c].connected)
-				continue;
-			auto & dp = tracking_packet.device_poses;
-			for (size_t i = 0; i < dp.size(); i++)
-			{
-				if (dp[i].device == (c == 0 ? device_id::LEFT_GRIP : device_id::RIGHT_GRIP))
-				{
-					spdlog::warn("TRACKING SEND {} grip: orient=({:.4f},{:.4f},{:.4f},{:.4f}) pos=({:.4f},{:.4f},{:.4f})",
-						c == 0 ? "LEFT" : "RIGHT",
-						dp[i].pose.orientation.x, dp[i].pose.orientation.y, dp[i].pose.orientation.z, dp[i].pose.orientation.w,
-						dp[i].pose.position.x, dp[i].pose.position.y, dp[i].pose.position.z);
-				}
-			}
-		}
+		spdlog::warn("TRACKING XR: HMD orient=({:.4f},{:.4f},{:.4f},{:.4f}) pos=({:.4f},{:.4f},{:.4f})",
+			head_center.orientation.x, head_center.orientation.y, head_center.orientation.z, head_center.orientation.w,
+			head_center.position.x, head_center.position.y, head_center.position.z);
+		spdlog::warn("  eye[0] pos=({:.4f},{:.4f},{:.4f}) eye[1] pos=({:.4f},{:.4f},{:.4f})",
+			head.eyePoses[0].position.x, head.eyePoses[0].position.y, head.eyePoses[0].position.z,
+			head.eyePoses[1].position.x, head.eyePoses[1].position.y, head.eyePoses[1].position.z);
 	}
 }
 
@@ -589,17 +530,16 @@ void pico_client::send_inputs()
 	if (!session)
 		return;
 
+	if (!xr_initialized || !xr_tracker.ready)
+		return;
+
 	from_headset::inputs inputs_packet{};
 	XrTime now = to_xr_time(get_timestamp_ns());
 
 	for (int c = 0; c < 2; c++)
 	{
-		controller_state cs;
-		{
-			std::lock_guard lock(frame_mutex);
-			cs = controllers[c];
-		}
-		if (!cs.connected)
+		auto ci = xr_tracker.get_controller_input(c);
+		if (!ci.active)
 			continue;
 
 		bool is_left = (c == 0);
@@ -612,35 +552,31 @@ void pico_client::send_inputs()
 			});
 		};
 
-		float trigger_val = cs.trigger / 255.0f;
-		float touch_x = (cs.touch[0] - 128) / 128.0f;
-		float touch_y = (128 - cs.touch[1]) / 128.0f;
-
 		if (is_left)
 		{
-			add_input(device_id::LEFT_TRIGGER_VALUE, trigger_val);
-			add_input(device_id::LEFT_TRIGGER_CLICK, trigger_val > 0.9f ? 1.0f : 0.0f);
-			add_input(device_id::LEFT_THUMBSTICK_X, touch_x);
-			add_input(device_id::LEFT_THUMBSTICK_Y, touch_y);
-			add_input(device_id::LEFT_THUMBSTICK_CLICK, cs.thumbstick_click ? 1.0f : 0.0f);
-			add_input(device_id::X_CLICK, cs.button_a ? 1.0f : 0.0f);
-			add_input(device_id::Y_CLICK, cs.button_b ? 1.0f : 0.0f);
-			add_input(device_id::MENU_CLICK, cs.menu ? 1.0f : 0.0f);
-			add_input(device_id::LEFT_SQUEEZE_VALUE, cs.grip ? 1.0f : 0.0f);
-			add_input(device_id::LEFT_SQUEEZE_CLICK, cs.grip ? 1.0f : 0.0f);
+			add_input(device_id::LEFT_TRIGGER_VALUE, ci.trigger);
+			add_input(device_id::LEFT_TRIGGER_CLICK, ci.trigger > 0.9f ? 1.0f : 0.0f);
+			add_input(device_id::LEFT_THUMBSTICK_X, ci.thumbstickX);
+			add_input(device_id::LEFT_THUMBSTICK_Y, ci.thumbstickY);
+			add_input(device_id::LEFT_THUMBSTICK_CLICK, ci.thumbstickClick ? 1.0f : 0.0f);
+			add_input(device_id::X_CLICK, ci.aButton ? 1.0f : 0.0f);
+			add_input(device_id::Y_CLICK, ci.bButton ? 1.0f : 0.0f);
+			add_input(device_id::MENU_CLICK, ci.menuButton ? 1.0f : 0.0f);
+			add_input(device_id::LEFT_SQUEEZE_VALUE, ci.squeeze);
+			add_input(device_id::LEFT_SQUEEZE_CLICK, ci.squeeze > 0.9f ? 1.0f : 0.0f);
 		}
 		else
 		{
-			add_input(device_id::RIGHT_TRIGGER_VALUE, trigger_val);
-			add_input(device_id::RIGHT_TRIGGER_CLICK, trigger_val > 0.9f ? 1.0f : 0.0f);
-			add_input(device_id::RIGHT_THUMBSTICK_X, touch_x);
-			add_input(device_id::RIGHT_THUMBSTICK_Y, touch_y);
-			add_input(device_id::RIGHT_THUMBSTICK_CLICK, cs.thumbstick_click ? 1.0f : 0.0f);
-			add_input(device_id::A_CLICK, cs.button_a ? 1.0f : 0.0f);
-			add_input(device_id::B_CLICK, cs.button_b ? 1.0f : 0.0f);
-			add_input(device_id::SYSTEM_CLICK, cs.menu ? 1.0f : 0.0f);
-			add_input(device_id::RIGHT_SQUEEZE_VALUE, cs.grip ? 1.0f : 0.0f);
-			add_input(device_id::RIGHT_SQUEEZE_CLICK, cs.grip ? 1.0f : 0.0f);
+			add_input(device_id::RIGHT_TRIGGER_VALUE, ci.trigger);
+			add_input(device_id::RIGHT_TRIGGER_CLICK, ci.trigger > 0.9f ? 1.0f : 0.0f);
+			add_input(device_id::RIGHT_THUMBSTICK_X, ci.thumbstickX);
+			add_input(device_id::RIGHT_THUMBSTICK_Y, ci.thumbstickY);
+			add_input(device_id::RIGHT_THUMBSTICK_CLICK, ci.thumbstickClick ? 1.0f : 0.0f);
+			add_input(device_id::A_CLICK, ci.aButton ? 1.0f : 0.0f);
+			add_input(device_id::B_CLICK, ci.bButton ? 1.0f : 0.0f);
+			add_input(device_id::SYSTEM_CLICK, ci.menuButton ? 1.0f : 0.0f);
+			add_input(device_id::RIGHT_SQUEEZE_VALUE, ci.squeeze);
+			add_input(device_id::RIGHT_SQUEEZE_CLICK, ci.squeeze > 0.9f ? 1.0f : 0.0f);
 		}
 	}
 
@@ -1072,6 +1008,12 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDestroy(JNI
 	if (g_client->tracking_thread.joinable())
 		g_client->tracking_thread.join();
 
+	if (g_client->xr_initialized)
+	{
+		g_client->xr_tracker.shutdown();
+		g_client->xr_initialized = false;
+	}
+
 	if (g_client->activity)
 		env->DeleteGlobalRef(g_client->activity);
 
@@ -1339,6 +1281,32 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInitGL(JNIE
 	g_client->gl_initialized = true;
 
 	spdlog::warn("GLES initialized for PvrSDK-Native");
+
+	// Initialize OpenXR tracking now that EGL is ready
+	EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+	EGLint numConfigs = 0;
+	EGLConfig config;
+	EGLint configAttribs[] = {
+		EGL_RED_SIZE, 8,
+		EGL_GREEN_SIZE, 8,
+		EGL_BLUE_SIZE, 8,
+		EGL_ALPHA_SIZE, 8,
+		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+		EGL_NONE
+	};
+	eglChooseConfig(display, configAttribs, &config, 1, &numConfigs);
+
+	EGLContext context = eglGetCurrentContext();
+
+	if (g_client->xr_tracker.init(g_client->vm, g_client->activity, display, config, context))
+	{
+		g_client->xr_initialized = true;
+		spdlog::info("OpenXR tracking initialized successfully");
+	}
+	else
+	{
+		spdlog::warn("OpenXR tracking init failed, falling back to no tracking");
+	}
 }
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDeInitGL(JNIEnv * env, jobject thiz, jlong ptr)
