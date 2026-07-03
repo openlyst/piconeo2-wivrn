@@ -48,6 +48,8 @@
 #include <netdb.h>
 #include <optional>
 #include <sys/stat.h>
+#include <sys/socket.h>
+#include <netinet/tcp.h>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -497,20 +499,10 @@ void pico_client::network_loop()
 		}
 	}
 
-	if (!shutdown)
-	{
-		spdlog::info("Network loop ended, cleaning up session for reconnection");
-		tracker.stop();
-		tracker.session = nullptr;
-		session.reset();
-		if (connect_thread.joinable())
-			connect_thread.join();
-		if (!shutdown && !server_host.empty())
-		{
-			spdlog::info("Attempting reconnection to {}", server_host);
-			try_connect();
-		}
-	}
+	spdlog::info("Network loop ended, cleaning up session");
+	tracker.stop();
+	tracker.session = nullptr;
+	session.reset();
 }
 
 void pico_client::send_feedback(uint64_t frame_index)
@@ -750,18 +742,32 @@ void pico_client::try_connect()
 	}
 
 	connect_thread = std::thread([this] {
-		for (int attempt = 1; attempt <= 5 && !shutdown; ++attempt)
+		int attempt = 0;
+		while (!shutdown)
 		{
-			spdlog::info("Connection attempt {} of 5", attempt);
+			++attempt;
+			spdlog::info("Connection attempt {}", attempt);
 
 			if (connect_to_server())
 			{
 				try
 				{
+					int fd = session->get_control_fd();
+					int keepalive = 1;
+					setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+					int idle = 3;
+					setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+					int intvl = 1;
+					setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
+					int cnt = 3;
+					setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
+
 					send_headset_info();
 					network_thread = std::thread([] { g_client->network_loop(); });
 					tracker.session = session.get();
 					tracker.start();
+
+					network_thread.join();
 				}
 				catch (std::exception & e)
 				{
@@ -773,22 +779,23 @@ void pico_client::try_connect()
 					spdlog::error("Failed to start client: unknown exception");
 					session.reset();
 				}
-				return;
+				attempt = 0;
+				continue;
 			}
 
 			if (session)
 				session.reset();
 
-			if (attempt < 5 && !shutdown)
+			if (!shutdown)
 			{
-				int delay_s = 1 << (attempt - 1);
+				int delay_s = std::min(1 << std::min(attempt - 1, 4), 16);
 				spdlog::info("Retrying in {} seconds...", delay_s);
 				for (int i = 0; i < delay_s * 10 && !shutdown; ++i)
 					std::this_thread::sleep_for(100ms);
 			}
 		}
 
-		spdlog::error("All connection attempts failed");
+		spdlog::info("Connection thread exiting");
 	});
 }
 
@@ -1308,7 +1315,7 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInitGL(JNIE
 
 	g_client->pvr_initialized = true;
 
-	Pvr_SetSinglePassDepthBufferWidthHeight(w, h);
+	Pvr_SetSinglePassDepthBufferWidthHeight(w / 2, h);
 
 	Pvr_SetAsyncTimeWarp(1);
 	g_client->atw_enabled = true;
