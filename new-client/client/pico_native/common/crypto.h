@@ -115,7 +115,8 @@ protected:
 
 	~cipher_context()
 	{
-		EVP_CIPHER_CTX_free(ctx);
+		if (ctx)
+			EVP_CIPHER_CTX_free(ctx);
 	}
 	size_t key_length_;
 	size_t iv_length_;

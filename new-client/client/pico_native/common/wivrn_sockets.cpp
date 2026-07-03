@@ -159,8 +159,10 @@ void wivrn::TCP::init()
 	int nodelay = 1;
 	if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay)) < 0)
 	{
+		int err = errno;
 		::close(fd);
-		throw std::system_error{errno, std::generic_category()};
+		fd = -1;
+		throw std::system_error{err, std::generic_category()};
 	}
 
 	mutex = std::make_unique<std::mutex>();
@@ -187,8 +189,10 @@ wivrn::TCP::TCP(in6_addr address, int port)
 
 	if (connect(fd, (sockaddr *)&sa, sizeof(sa)) < 0)
 	{
+		int err = errno;
 		::close(fd);
-		throw std::system_error{errno, std::generic_category()};
+		fd = -1;
+		throw std::system_error{err, std::generic_category()};
 	}
 
 	init();
@@ -208,8 +212,10 @@ wivrn::TCP::TCP(in_addr address, int port)
 
 	if (connect(fd, (sockaddr *)&sa, sizeof(sa)) < 0)
 	{
+		int err = errno;
 		::close(fd);
-		throw std::system_error{errno, std::generic_category()};
+		fd = -1;
+		throw std::system_error{err, std::generic_category()};
 	}
 
 	init();

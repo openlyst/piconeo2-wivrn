@@ -498,7 +498,28 @@ bool neo2_client::connect_to_server()
 				{
 					auto * addr = (struct sockaddr_in *)rp->ai_addr;
 					in_addr ip = addr->sin_addr;
-					spdlog::info("Trying IPv4 {}", inet_ntoa(ip));
+					char ip_str[INET_ADDRSTRLEN];
+					inet_ntop(AF_INET, &ip, ip_str, sizeof(ip_str));
+					spdlog::info("Trying IPv4 {}", ip_str);
+
+					int test_fd = socket(AF_INET, SOCK_STREAM, 0);
+					if (test_fd < 0)
+					{
+						spdlog::warn("Failed to create test socket");
+						continue;
+					}
+					sockaddr_in test_sa{};
+					test_sa.sin_family = AF_INET;
+					test_sa.sin_addr = ip;
+					test_sa.sin_port = htons(server_port);
+					int rc = connect(test_fd, (sockaddr *)&test_sa, sizeof(test_sa));
+					int saved_errno = errno;
+					::close(test_fd);
+					if (rc < 0)
+					{
+						spdlog::warn("Cannot connect to {}:{}: errno={}", ip_str, server_port, saved_errno);
+						continue;
+					}
 
 					try
 					{
@@ -527,6 +548,26 @@ bool neo2_client::connect_to_server()
 					auto * addr = (struct sockaddr_in6 *)rp->ai_addr;
 					in6_addr ip = addr->sin6_addr;
 					spdlog::info("Trying IPv6");
+
+					int test_fd = socket(AF_INET6, SOCK_STREAM, 0);
+					if (test_fd < 0)
+					{
+						spdlog::warn("Failed to create test socket");
+						continue;
+					}
+					sockaddr_in6 test_sa{};
+					test_sa.sin6_family = AF_INET6;
+					test_sa.sin6_addr = ip;
+					test_sa.sin6_port = htons(server_port);
+					int rc = connect(test_fd, (sockaddr *)&test_sa, sizeof(test_sa));
+					int saved_errno = errno;
+					::close(test_fd);
+					if (rc < 0)
+					{
+						spdlog::warn("Cannot connect to [IPv6]:{}: errno={}", server_port, saved_errno);
+						continue;
+					}
+
 					try
 					{
 						session = std::make_unique<neo2_session>(

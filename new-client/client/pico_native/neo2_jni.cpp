@@ -7,6 +7,7 @@
 #include "neo2_client.h"
 #include "neo2_blit.h"
 #include "wivrn_packets.h"
+#include "wivrn_config.h"
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/android_sink.h>
@@ -53,7 +54,7 @@ static std::optional<std::string> get_server_uri_from_intent(JNIEnv * env, jobje
 static std::pair<std::string, int> parse_uri(const std::string & uri)
 {
 	std::string host;
-	int port = 5353;
+	int port = wivrn::default_port;
 
 	size_t scheme_end = uri.find("://");
 	if (scheme_end == std::string::npos)
@@ -161,7 +162,7 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInit(JNIEnv
 	{
 		spdlog::warn("No server URI, waiting for intent");
 		client->server_host = "";
-		client->server_port = 5353;
+		client->server_port = wivrn::default_port;
 	}
 }
 
