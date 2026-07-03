@@ -82,9 +82,9 @@ public:
 		fds[1].fd = control.get_fd();
 
 		while (auto packet = stream.receive_pending(&bytes_received_))
-			std::visit(std::forward<T>(visitor), std::move(*packet));
+			std::visit(visitor, std::move(*packet));
 		while (auto packet = control.receive_pending(&bytes_received_))
-			std::visit(std::forward<T>(visitor), std::move(*packet));
+			std::visit(visitor, std::move(*packet));
 
 		int r = ::poll(fds, std::size(fds), timeout.count());
 		if (r < 0)
@@ -100,14 +100,14 @@ public:
 		{
 			auto packet = stream.receive(&bytes_received_);
 			if (packet)
-				std::visit(std::forward<T>(visitor), std::move(*packet));
+				std::visit(visitor, std::move(*packet));
 		}
 
 		if (fds[1].revents & POLLIN)
 		{
 			auto packet = control.receive(&bytes_received_);
 			if (packet)
-				std::visit(std::forward<T>(visitor), std::move(*packet));
+				std::visit(visitor, std::move(*packet));
 		}
 
 		return r;

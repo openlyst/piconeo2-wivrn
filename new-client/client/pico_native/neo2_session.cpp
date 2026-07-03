@@ -161,9 +161,13 @@ void neo2_session::perform_handshake(T address, bool tcp_only, crypto::key & key
 		auto deadline = std::chrono::steady_clock::now() + 10s;
 		while (true)
 		{
-			if (poll_packets([](const auto && packet) {
-			        return std::is_same_v<std::remove_cvref_t<decltype(packet)>, to_headset::handshake>;
-			    }, 100ms))
+			bool got_handshake = false;
+			poll_packets([&got_handshake](const auto && packet) {
+			        if constexpr (std::is_same_v<std::remove_cvref_t<decltype(packet)>, to_headset::handshake>)
+			            got_handshake = true;
+			    }, 100ms);
+
+			if (got_handshake)
 			{
 				handshake_complete = true;
 				spdlog::info("handshake: complete");
