@@ -77,6 +77,8 @@ void  Pvr_DisableBoundary();
 void  Pvr_ShutdownSDKBoundary();
 bool  Pvr_SetSinglePassDepthBufferWidthHeight(int width, int height);
 float Pvr_GetIPD();
+void  Pvr_SetProjectionFov(float fovX, float fovY);
+float Pvr_GetFOV();
 }
 
 enum { EV_InitRenderThread = 1024, EV_Pause = 1025, EV_Resume = 1026 };
@@ -1204,6 +1206,9 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInitGL(JNIE
 
 	g_client->blit_pipeline.init(w, h);
 	load_egl_procs();
+
+	Pvr_SetProjectionFov(101.0f, 101.0f);
+	spdlog::warn("Set SDK projection FOV to 101x101 deg");
 
 	g_client->gl_initialized = true;
 
