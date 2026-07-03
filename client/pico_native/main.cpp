@@ -1175,78 +1175,17 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 		ext_tex = g_client->eye_textures[eye];
 	}
 
-	GLuint swap_tex = g_client->swap_tex[eye][g_client->swap_idx];
-
-	glBindFramebuffer(GL_FRAMEBUFFER, g_client->stream_fbo);
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, swap_tex, 0);
-
-	GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-	if (status != GL_FRAMEBUFFER_COMPLETE)
-	{
-		spdlog::warn("FBO incomplete for eye {} slot {} status={}", eye, g_client->swap_idx, status);
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
-		return;
-	}
-
 	g_client->blit_pipeline.draw(eye, ext_tex);
-
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
 
 	glFlush();
 
 	static int draw_count = 0;
 	if (++draw_count % 300 == 0)
-		spdlog::info("DrawEye {}: ext_tex={} swap_tex={} decoded_valid={}", eye, ext_tex, swap_tex, decoded ? decoded->valid : false);
+		spdlog::info("DrawEye {}: ext_tex={} decoded_valid={}", eye, ext_tex, decoded ? decoded->valid : false);
 }
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnFrameEnd(JNIEnv * env, jobject thiz, jlong ptr)
 {
-	if (!g_client || !g_client->gl_initialized)
-		return;
-
-	int slot = g_client->swap_idx;
-
-	for (int e = 0; e < 2; e++)
-	{
-		PVR_CameraEndFrame(e, g_client->swap_tex[e][slot]);
-	}
-
-	float head_o[4], head_p[3];
-	g_client->tracker.get_head_pose(head_o, head_p);
-
-	float n2 = head_o[0]*head_o[0] + head_o[1]*head_o[1] + head_o[2]*head_o[2] + head_o[3]*head_o[3];
-	if (n2 > 1e-6f)
-	{
-		float inv = 1.0f / sqrtf(n2);
-		head_o[0] *= inv; head_o[1] *= inv; head_o[2] *= inv; head_o[3] *= inv;
-	}
-
-	float ipd = 0.064f;
-	for (int e = 0; e < 2; e++)
-	{
-		float eye_offset = (e == 0 ? -ipd * 0.5f : ipd * 0.5f);
-		float v[3] = {eye_offset, 0, 0};
-		float rotated[3];
-		neo2::rotate_vector({head_o[0], head_o[1], head_o[2], head_o[3]}, v, rotated);
-
-		PvrPoseBlk blk;
-		memset(&blk, 0, sizeof(blk));
-		blk.v[0] = head_o[0];
-		blk.v[1] = head_o[1];
-		blk.v[2] = head_o[2];
-		blk.v[3] = head_o[3];
-		blk.v[4] = head_p[0] + rotated[0];
-		blk.v[5] = head_p[1] + rotated[1];
-		blk.v[6] = head_p[2] + rotated[2];
-		PVR_ChangeRenderPose(e, 0, blk);
-	}
-
-	PVR_TimeWarpEvent(0);
-
-	g_client->swap_idx = (g_client->swap_idx + 1) % g_client->kSwapLen;
 }
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInitGL(JNIEnv * env, jobject thiz, jlong ptr, jint w, jint h)
@@ -1266,90 +1205,9 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInitGL(JNIE
 	g_client->blit_pipeline.init(w, h);
 	load_egl_procs();
 
-	for (int e = 0; e < 2; e++)
-	{
-		glGenTextures(g_client->kSwapLen, g_client->swap_tex[e]);
-		for (int i = 0; i < g_client->kSwapLen; i++)
-		{
-			glBindTexture(GL_TEXTURE_2D, g_client->swap_tex[e][i]);
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		}
-	}
-	glBindTexture(GL_TEXTURE_2D, 0);
-
-	glGenFramebuffers(1, &g_client->stream_fbo);
-	spdlog::warn("Created DIATW swapchain {}x{} x{} slots/eye, fbo={}", w, h, g_client->kSwapLen, g_client->stream_fbo);
-
 	g_client->gl_initialized = true;
-	g_client->swap_idx = 0;
 
-	jclass localVr = env->FindClass("com/psmart/vrlib/VrActivity");
-	jclass vrClass = nullptr;
-	if (localVr)
-	{
-		vrClass = (jclass)env->NewGlobalRef(localVr);
-		env->DeleteLocalRef(localVr);
-	}
-	else
-	{
-		env->ExceptionClear();
-		spdlog::warn("VrActivity class not found; passing null to Pvr_SetInitActivity");
-	}
-
-	Pvr_SetInitActivity((void *)g_client->activity, (void *)vrClass);
-	Pvr_Enable6DofModule(true);
-	int initRc = Pvr_Init(0);
-	int sensRc = InitSensor();
-	int startRc = Pvr_StartSensor(0);
-	spdlog::warn("Pvr_Init={} InitSensor={} Pvr_StartSensor={}", initRc, sensRc, startRc);
-
-	int originRc = Pvr_SetTrackingOriginType(1);
-	spdlog::warn("Pvr_SetTrackingOriginType(FloorLevel) = {}", originRc);
-
-	Pvr_DisableBoundary();
-	Pvr_ShutdownSDKBoundary();
-
-	g_client->pvr_initialized = true;
-
-	Pvr_SetSinglePassDepthBufferWidthHeight(w / 2, h);
-
-	Pvr_SetAsyncTimeWarp(1);
-	g_client->atw_enabled = true;
-	spdlog::warn("Async TimeWarp enabled in initGL");
-
-	for (int e = 0; e < 2; e++)
-	{
-		glBindFramebuffer(GL_FRAMEBUFFER, g_client->stream_fbo);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_client->swap_tex[e][0], 0);
-		glViewport(0, 0, w, h);
-		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glFlush();
-
-		PVR_CameraEndFrame(e, g_client->swap_tex[e][0]);
-
-		PvrPoseBlk blk;
-		memset(&blk, 0, sizeof(blk));
-		blk.v[3] = 1.0f;
-		PVR_ChangeRenderPose(e, 0, blk);
-	}
-	PVR_TimeWarpEvent(0);
-	spdlog::warn("Primed warp with initial black textures");
-
-	RenderEventFunc re = (RenderEventFunc)GetRenderEventFunc();
-	spdlog::warn("GetRenderEventFunc = {}", (void*)re);
-	if (re)
-	{
-		re(EV_InitRenderThread);
-		spdlog::warn("EV_InitRenderThread issued");
-	}
-
-	spdlog::warn("GLES initialized for PvrSDK-Native with DIATW warp");
+	spdlog::warn("GLES initialized");
 }
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDeInitGL(JNIEnv * env, jobject thiz, jlong ptr)
@@ -1358,22 +1216,6 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDeInitGL(JN
 	if (g_client)
 	{
 		g_client->gl_initialized = false;
-
-		if (g_client->stream_fbo)
-		{
-			glDeleteFramebuffers(1, &g_client->stream_fbo);
-			g_client->stream_fbo = 0;
-		}
-		for (int e = 0; e < 2; e++)
-		{
-			if (g_client->swap_tex[e][0] != 0)
-			{
-				glDeleteTextures(g_client->kSwapLen, g_client->swap_tex[e]);
-				for (int i = 0; i < g_client->kSwapLen; i++)
-					g_client->swap_tex[e][i] = 0;
-			}
-		}
-		g_client->atw_enabled = false;
 	}
 }
 
@@ -1390,18 +1232,6 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRenderPause
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRenderResume(JNIEnv * env, jobject thiz, jlong ptr)
 {
 	spdlog::info("nativeRenderResume");
-
-	if (!g_client || !g_client->pvr_initialized.load())
-	{
-		spdlog::warn("nativeRenderResume: PVR SDK not yet initialized, skipping");
-		return;
-	}
-
-	int origin_rc = Pvr_SetTrackingOriginType(1);
-	spdlog::info("Pvr_SetTrackingOriginType(FloorLevel) = {}", origin_rc);
-
-	Pvr_SetAsyncTimeWarp(1);
-	g_client->atw_enabled = true;
 }
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRendererShutdown(JNIEnv * env, jobject thiz, jlong ptr)
