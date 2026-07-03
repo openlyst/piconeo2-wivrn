@@ -1321,6 +1321,26 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInitGL(JNIE
 	g_client->atw_enabled = true;
 	spdlog::warn("Async TimeWarp enabled in initGL");
 
+	for (int e = 0; e < 2; e++)
+	{
+		glBindFramebuffer(GL_FRAMEBUFFER, g_client->stream_fbo);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_client->swap_tex[e][0], 0);
+		glViewport(0, 0, w, h);
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glFlush();
+
+		PVR_CameraEndFrame(e, g_client->swap_tex[e][0]);
+
+		PvrPoseBlk blk;
+		memset(&blk, 0, sizeof(blk));
+		blk.v[3] = 1.0f;
+		PVR_ChangeRenderPose(e, 0, blk);
+	}
+	PVR_TimeWarpEvent(0);
+	spdlog::warn("Primed warp with initial black textures");
+
 	RenderEventFunc re = (RenderEventFunc)GetRenderEventFunc();
 	spdlog::warn("GetRenderEventFunc = {}", (void*)re);
 	if (re)
