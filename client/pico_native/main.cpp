@@ -781,6 +781,7 @@ static std::optional<std::string> parse_pin_from_uri(const std::string & uri)
 }
 
 extern "C" {
+int Pvr_SetTrackingOriginType(int);
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInit(JNIEnv * env, jobject thiz, jlong ptr, jobject intent)
 {
@@ -1089,6 +1090,9 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRenderPause
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRenderResume(JNIEnv * env, jobject thiz, jlong ptr)
 {
 	spdlog::info("nativeRenderResume");
+
+	int origin_rc = Pvr_SetTrackingOriginType(1);
+	spdlog::info("Pvr_SetTrackingOriginType(FloorLevel) = {}", origin_rc);
 }
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRendererShutdown(JNIEnv * env, jobject thiz, jlong ptr)

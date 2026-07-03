@@ -276,9 +276,9 @@ void pico_native_tracker::run()
 			compute_grip_offset(cq, h, grip_world);
 
 			float pos_m[3] = {
-				cs[h].position[0] * 0.001f + grip_world[0],
-				cs[h].position[1] * 0.001f + grip_world[1],
-				cs[h].position[2] * 0.001f + grip_world[2],
+				cs[h].position[0] + grip_world[0],
+				cs[h].position[1] + grip_world[1],
+				cs[h].position[2] + grip_world[2],
 			};
 			step_ctrl_filter(h, pos_m, ts);
 		}
@@ -381,9 +381,9 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 		compute_grip_offset(cq, h, grip_world);
 
 		float pos_m[3] = {
-			cs[h].position[0] * 0.001f + grip_world[0],
-			cs[h].position[1] * 0.001f + grip_world[1],
-			cs[h].position[2] * 0.001f + grip_world[2],
+			cs[h].position[0] + grip_world[0],
+			cs[h].position[1] + grip_world[1],
+			cs[h].position[2] + grip_world[2],
 		};
 
 		XrPosef ctrl_pose;
@@ -407,8 +407,6 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 		aim_p.device = is_left ? device_id::LEFT_AIM : device_id::RIGHT_AIM;
 		pkt.device_poses.push_back(aim_p);
 	}
-
-	session->send_stream(pkt);
 
 	static int track_count = 0;
 	if (++track_count % 120 == 1)
@@ -437,6 +435,8 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 			}
 		}
 	}
+
+	session->send_stream(pkt);
 }
 
 void pico_native_tracker::transmit_inputs(int64_t headset_ns)
