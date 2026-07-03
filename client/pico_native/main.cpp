@@ -423,14 +423,27 @@ void pico_client::network_loop()
 		catch (std::exception & e)
 		{
 			spdlog::error("Network error: {}", e.what());
-			shutdown = true;
 			break;
 		}
 		catch (...)
 		{
 			spdlog::error("Network error: unknown exception");
-			shutdown = true;
 			break;
+		}
+	}
+
+	if (!shutdown)
+	{
+		spdlog::info("Network loop ended, cleaning up session for reconnection");
+		tracker.stop();
+		tracker.session = nullptr;
+		session.reset();
+		if (connect_thread.joinable())
+			connect_thread.join();
+		if (!shutdown && !server_host.empty())
+		{
+			spdlog::info("Attempting reconnection to {}", server_host);
+			try_connect();
 		}
 	}
 }
@@ -819,6 +832,17 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInit(JNIEnv
 		client->server_host = "";
 		client->server_port = 5353;
 	}
+}
+
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeGetHeadData(JNIEnv * env, jobject thiz, jlong ptr, jfloatArray out)
+{
+	if (!g_client || !out)
+		return;
+	if (env->GetArrayLength(out) < 7)
+		return;
+	float buf[7];
+	g_client->tracker.get_head_pose(buf, buf + 4);
+	env->SetFloatArrayRegion(out, 0, 7, buf);
 }
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDestroy(JNIEnv * env, jobject thiz, jlong ptr)
