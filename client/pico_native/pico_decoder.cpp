@@ -8,6 +8,7 @@
 #include <GLES2/gl2ext.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+#include <media/NdkMediaError.h>
 
 namespace
 {
@@ -25,6 +26,141 @@ const char * mime(wivrn::video_codec codec)
 			break;
 	}
 	__builtin_unreachable();
+}
+
+struct nal_unit
+{
+	const uint8_t * data;
+	size_t size;
+	int type;
+};
+
+static int find_nal_units(const uint8_t * buf, size_t buf_size,
+                          std::vector<nal_unit> & out)
+{
+	size_t i = 0;
+	while (i + 3 < buf_size)
+	{
+		size_t sc_len = 0;
+		if (i + 3 < buf_size && buf[i] == 0 && buf[i+1] == 0 && buf[i+2] == 1)
+			sc_len = 3;
+		else if (i + 4 < buf_size && buf[i] == 0 && buf[i+1] == 0 && buf[i+2] == 0 && buf[i+3] == 1)
+			sc_len = 4;
+
+		if (sc_len == 0)
+		{
+			i++;
+			continue;
+		}
+
+		size_t nal_start = i + sc_len;
+		size_t j = nal_start + 1;
+		while (j + 3 < buf_size)
+		{
+			if (buf[j] == 0 && buf[j+1] == 0 && (buf[j+2] == 1 || (j + 4 < buf_size && buf[j+2] == 0 && buf[j+3] == 1)))
+				break;
+			j++;
+		}
+		size_t nal_end = (j + 3 < buf_size) ? j : buf_size;
+
+		int nal_type = -1;
+		if (nal_start < buf_size)
+		{
+			nal_type = buf[nal_start] & 0x1f;
+		}
+
+		out.push_back({buf + nal_start, nal_end - nal_start, nal_type});
+		i = nal_end;
+	}
+	return (int)out.size();
+}
+
+static bool is_csd_nal_h264(int nal_type)
+{
+	return nal_type == 7 || nal_type == 8;
+}
+
+static bool is_csd_nal_h265(int nal_type)
+{
+	return nal_type == 32 || nal_type == 33 || nal_type == 34;
+}
+
+static void extract_csd(const uint8_t * data, size_t size, wivrn::video_codec codec,
+                        std::vector<uint8_t> & csd_out)
+{
+	std::vector<nal_unit> nals;
+	find_nal_units(data, size, nals);
+
+	for (auto & n : nals)
+	{
+		bool is_csd = false;
+		if (codec == wivrn::video_codec::h264)
+			is_csd = is_csd_nal_h264(n.type);
+		else if (codec == wivrn::video_codec::h265)
+		{
+			int h265_type = (n.data[0] >> 1) & 0x3f;
+			is_csd = is_csd_nal_h265(h265_type);
+		}
+
+		if (is_csd)
+		{
+			const uint8_t * start = n.data;
+			while (start > data && *(start - 1) == 0)
+				start--;
+			size_t prefix = (size_t)(n.data - start);
+			const uint8_t * sc = start - prefix;
+			size_t total = n.size + prefix;
+			size_t offset = (size_t)(start - data) - prefix;
+			if (start > data)
+			{
+				size_t back = 0;
+				while (back < 4 && start - 1 - back >= data && *(start - 1 - back) == 0)
+					back++;
+				if (back >= 3)
+				{
+					size_t sc_start = (size_t)(start - data) - back;
+					csd_out.insert(csd_out.end(), data + sc_start, data + sc_start + back + n.size);
+				}
+			}
+			else
+			{
+				csd_out.insert(csd_out.end(), n.data, n.data + n.size);
+			}
+		}
+	}
+}
+
+static std::vector<uint8_t> strip_csd_from_frame(const uint8_t * data, size_t size,
+                                                  wivrn::video_codec codec)
+{
+	std::vector<nal_unit> nals;
+	find_nal_units(data, size, nals);
+
+	std::vector<uint8_t> result;
+	for (auto & n : nals)
+	{
+		bool is_csd = false;
+		if (codec == wivrn::video_codec::h264)
+			is_csd = is_csd_nal_h264(n.type);
+		else if (codec == wivrn::video_codec::h265)
+		{
+			int h265_type = (n.data[0] >> 1) & 0x3f;
+			is_csd = is_csd_nal_h265(h265_type);
+		}
+
+		if (!is_csd)
+		{
+			const uint8_t * nal_start = n.data;
+			size_t back = 0;
+			while (back < 4 && nal_start - 1 - back >= data && *(nal_start - 1 - back) == 0)
+				back++;
+			if (back >= 3)
+				result.insert(result.end(), nal_start - back, nal_start + n.size);
+			else
+				result.insert(result.end(), n.data, n.data + n.size);
+		}
+	}
+	return result;
 }
 
 void check(media_status_t status, const char * msg)
@@ -71,6 +207,7 @@ pico_video_decoder::pico_video_decoder(
 	uint8_t stream_idx,
 	frame_callback callback) :
 	stream_index(stream_idx),
+	codec_type(desc.codec[stream_idx]),
 	on_frame_decoded(std::move(callback))
 {
 	load_egl_procs();
@@ -92,20 +229,25 @@ pico_video_decoder::pico_video_decoder(
 	AImageReader_ImageListener listener{this, on_image_available_cb};
 	check(AImageReader_setImageListener(ir, &listener), "AImageReader_setImageListener");
 
+	int fps = (int)std::ceil(desc.frame_rate);
+
 	AMediaFormat * format = AMediaFormat_new();
-	AMediaFormat_setString(format, AMEDIAFORMAT_KEY_MIME, mime(desc.codec[stream_index]));
+	AMediaFormat_setString(format, AMEDIAFORMAT_KEY_MIME, mime(codec_type));
 	AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_WIDTH, width);
 	AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_HEIGHT, height);
 #if __ANDROID_API__ >= 28
-	AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_OPERATING_RATE, (int32_t)std::ceil(desc.frame_rate));
+	AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_OPERATING_RATE, fps);
 	AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_PRIORITY, 0);
+	AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_FRAME_RATE, fps);
 #endif
+	AMediaFormat_setInt32(format, "vendor.qti-ext-dec-low-latency.enable", 1);
+	AMediaFormat_setInt32(format, "low-latency", 1);
 
-	media_codec = AMediaCodec_createDecoderByType(mime(desc.codec[stream_index]));
+	media_codec = AMediaCodec_createDecoderByType(mime(codec_type));
 	if (!media_codec)
-		throw std::runtime_error(std::string("Cannot create decoder for ") + mime(desc.codec[stream_index]));
+		throw std::runtime_error(std::string("Cannot create decoder for ") + mime(codec_type));
 
-	spdlog::warn("Created MediaCodec decoder for stream {}", stream_index);
+	spdlog::warn("Created MediaCodec decoder for stream {} codec={} fps={}", stream_index, mime(codec_type), fps);
 
 	ANativeWindow * window;
 	check(AImageReader_getWindow(image_reader.get(), &window), "AImageReader_getWindow");
@@ -137,6 +279,39 @@ void pico_video_decoder::worker_loop()
 {
 	while (!exiting)
 	{
+		if (!csd_sent.load() && !csd_data.empty())
+		{
+			ssize_t in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 5000);
+			if (in_idx >= 0)
+			{
+				size_t buf_size;
+				uint8_t * buf = AMediaCodec_getInputBuffer(media_codec, in_idx, &buf_size);
+				if (buf)
+				{
+					size_t copy_size = std::min(csd_data.size(), buf_size);
+					memcpy(buf, csd_data.data(), copy_size);
+					auto status = AMediaCodec_queueInputBuffer(
+						media_codec, in_idx, 0, copy_size, 0,
+						AMEDIACODEC_BUFFER_FLAG_CODEC_CONFIG);
+					if (status == AMEDIA_OK)
+					{
+						csd_sent.store(true);
+						spdlog::warn("Sent CSD buffer ({} bytes) to decoder for stream {}",
+						             copy_size, stream_index);
+					}
+					else
+					{
+						spdlog::error("Failed to queue CSD buffer: error {}", (int)status);
+					}
+				}
+				else
+				{
+					AMediaCodec_queueInputBuffer(media_codec, in_idx, 0, 0, 0, 0);
+				}
+			}
+			continue;
+		}
+
 		ssize_t in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 1000);
 		if (in_idx >= 0)
 		{
@@ -166,8 +341,36 @@ void pico_video_decoder::worker_loop()
 
 			if (has_frame)
 			{
-				size_t copy_size = std::min(frame.data.size(), buf_size);
-				memcpy(buf, frame.data.data(), copy_size);
+				std::vector<uint8_t> frame_data = std::move(frame.data);
+
+				if (!csd_sent.load())
+				{
+					std::vector<uint8_t> csd;
+					extract_csd(frame_data.data(), frame_data.size(), codec_type, csd);
+					if (!csd.empty())
+					{
+						csd_data = std::move(csd);
+						size_t copy_size = std::min(csd_data.size(), buf_size);
+						memcpy(buf, csd_data.data(), copy_size);
+						auto status = AMediaCodec_queueInputBuffer(
+							media_codec, in_idx, 0, copy_size, 0,
+							AMEDIACODEC_BUFFER_FLAG_CODEC_CONFIG);
+						if (status == AMEDIA_OK)
+						{
+							csd_sent.store(true);
+							spdlog::warn("Extracted and sent CSD ({} bytes) from frame {} stream {}",
+							             copy_size, frame.frame_index, stream_index);
+						}
+						else
+						{
+							spdlog::error("Failed to queue extracted CSD: error {}", (int)status);
+						}
+						continue;
+					}
+				}
+
+				size_t copy_size = std::min(frame_data.size(), buf_size);
+				memcpy(buf, frame_data.data(), copy_size);
 				uint64_t timestamp = frame.frame_index * 10'000;
 				auto status = AMediaCodec_queueInputBuffer(
 					media_codec, in_idx, 0, copy_size, timestamp, 0);

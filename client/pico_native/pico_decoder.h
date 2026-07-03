@@ -39,10 +39,14 @@ public:
 
 private:
 	uint8_t stream_index;
+	wivrn::video_codec codec_type;
 
 	std::shared_ptr<AImageReader> image_reader;
 
 	AMediaCodec * media_codec = nullptr;
+
+	std::vector<uint8_t> csd_data;
+	std::atomic<bool> csd_sent{false};
 
 	struct pending_frame
 	{

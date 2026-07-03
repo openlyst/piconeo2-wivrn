@@ -56,6 +56,18 @@
 using namespace std::chrono_literals;
 using namespace wivrn;
 
+extern "C" {
+bool Pvr_SetTrackingOriginType(int trackingOriginType);
+void PVR_CameraEndFrame(unsigned int eye, unsigned int texId);
+void PVR_ChangeRenderPose(unsigned int eye, void * poseData);
+void Pvr_SetAsyncTimeWarp(unsigned char enable);
+void PVR_TimeWarpEvent(unsigned int eye);
+void *GetRenderEventFunc();
+}
+
+enum { EV_InitRenderThread = 1024, EV_Pause = 1025, EV_Resume = 1026 };
+typedef void (*RenderEventFunc)(int);
+
 namespace
 {
 PFNEGLCREATEIMAGEKHRPROC g_eglCreateImageKHR = nullptr;
@@ -142,6 +154,13 @@ struct pico_client
 	EGLImageKHR eye_egl_images[3]{EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR};
 	AHardwareBuffer * last_hb[3]{nullptr, nullptr, nullptr};
 	std::shared_ptr<pico_decoded_frame> eye_current_frames[3];
+
+	// DIATW warp swapchain (GL_TEXTURE_2D textures submitted to PVR warp)
+	static constexpr int kSwapLen = 3;
+	GLuint swap_tex[2][kSwapLen]{{0}};
+	int swap_idx = 0;
+	GLuint stream_fbo = 0;
+	bool atw_enabled = false;
 
 	// Audio
 	std::mutex audio_mutex;
@@ -794,7 +813,6 @@ static std::optional<std::string> parse_pin_from_uri(const std::string & uri)
 }
 
 extern "C" {
-int Pvr_SetTrackingOriginType(int);
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInit(JNIEnv * env, jobject thiz, jlong ptr, jobject intent)
 {
@@ -993,7 +1011,7 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 		return;
 	}
 
-	if (eye < 0 || eye > 2)
+	if (eye < 0 || eye > 1)
 	{
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
@@ -1006,7 +1024,7 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 		decoded = g_client->latest_decoded_frames[eye];
 	}
 
-	GLuint tex = 0;
+	GLuint ext_tex = 0;
 	if (decoded && decoded->valid && decoded->hardware_buffer)
 	{
 		AHardwareBuffer * hb = decoded->hardware_buffer;
@@ -1020,7 +1038,6 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 			glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 			glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 			glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
-			spdlog::info("Created eye texture {} for eye {}", g_client->eye_textures[eye], eye);
 		}
 
 		if (g_client->last_hb[eye] != hb)
@@ -1051,26 +1068,64 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 				glBindTexture(GL_TEXTURE_EXTERNAL_OES, g_client->eye_textures[eye]);
 				g_glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, g_client->eye_egl_images[eye]);
 				glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
-				spdlog::warn("EGLImage created for eye {} tex={} hb={}", eye, g_client->eye_textures[eye], (void*)hb);
-			}
-			else
-			{
-				spdlog::warn("Failed to create EGLImage for eye {} (hb={})", eye, (void*)hb);
 			}
 		}
 
-		tex = g_client->eye_textures[eye];
+		ext_tex = g_client->eye_textures[eye];
 	}
+
+	GLuint swap_tex = g_client->swap_tex[eye][g_client->swap_idx];
+
+	glBindFramebuffer(GL_FRAMEBUFFER, g_client->stream_fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, swap_tex, 0);
+
+	GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+	if (status != GL_FRAMEBUFFER_COMPLETE)
+	{
+		spdlog::warn("FBO incomplete for eye {} slot {} status={}", eye, g_client->swap_idx, status);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+		return;
+	}
+
+	g_client->blit_pipeline.draw(eye, ext_tex);
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+
+	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	PVR_CameraEndFrame(eye, swap_tex);
+
+	float head_o[4], head_p[3];
+	g_client->tracker.get_head_pose(head_o, head_p);
+
+	struct { float v[74]; } poseData;
+	memset(&poseData, 0, sizeof(poseData));
+	poseData.v[0] = head_o[0];
+	poseData.v[1] = head_o[1];
+	poseData.v[2] = head_o[2];
+	poseData.v[3] = head_o[3];
+	poseData.v[4] = head_p[0];
+	poseData.v[5] = head_p[1];
+	poseData.v[6] = head_p[2];
+	PVR_ChangeRenderPose(eye, &poseData);
 
 	static int draw_count = 0;
 	if (++draw_count % 300 == 0)
-		spdlog::info("DrawEye {}: tex={}, decoded_valid={}", eye, tex, decoded ? decoded->valid : false);
-
-	g_client->blit_pipeline.draw(eye, tex);
+		spdlog::info("DrawEye {}: ext_tex={} swap_tex={} decoded_valid={}", eye, ext_tex, swap_tex, decoded ? decoded->valid : false);
 }
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnFrameEnd(JNIEnv * env, jobject thiz, jlong ptr)
 {
+	if (!g_client || !g_client->gl_initialized)
+		return;
+
+	PVR_TimeWarpEvent(0);
+
+	g_client->swap_idx = (g_client->swap_idx + 1) % g_client->kSwapLen;
 }
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInitGL(JNIEnv * env, jobject thiz, jlong ptr, jint w, jint h)
@@ -1089,16 +1144,66 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInitGL(JNIE
 
 	g_client->blit_pipeline.init(w, h);
 	load_egl_procs();
-	g_client->gl_initialized = true;
 
-	spdlog::warn("GLES initialized for PvrSDK-Native");
+	for (int e = 0; e < 2; e++)
+	{
+		glGenTextures(g_client->kSwapLen, g_client->swap_tex[e]);
+		for (int i = 0; i < g_client->kSwapLen; i++)
+		{
+			glBindTexture(GL_TEXTURE_2D, g_client->swap_tex[e][i]);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		}
+	}
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	glGenFramebuffers(1, &g_client->stream_fbo);
+	spdlog::warn("Created DIATW swapchain {}x{} x{} slots/eye, fbo={}", w, h, g_client->kSwapLen, g_client->stream_fbo);
+
+	g_client->gl_initialized = true;
+	g_client->swap_idx = 0;
+
+	Pvr_SetAsyncTimeWarp(1);
+	g_client->atw_enabled = true;
+	spdlog::warn("Async TimeWarp enabled in initGL");
+
+	RenderEventFunc re = (RenderEventFunc)GetRenderEventFunc();
+	spdlog::warn("GetRenderEventFunc = {}", (void*)re);
+	if (re)
+	{
+		re(EV_InitRenderThread);
+		spdlog::warn("EV_InitRenderThread issued");
+	}
+
+	spdlog::warn("GLES initialized for PvrSDK-Native with DIATW warp");
 }
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDeInitGL(JNIEnv * env, jobject thiz, jlong ptr)
 {
 	spdlog::info("nativeWivrnDeInitGL");
 	if (g_client)
+	{
 		g_client->gl_initialized = false;
+
+		if (g_client->stream_fbo)
+		{
+			glDeleteFramebuffers(1, &g_client->stream_fbo);
+			g_client->stream_fbo = 0;
+		}
+		for (int e = 0; e < 2; e++)
+		{
+			if (g_client->swap_tex[e][0] != 0)
+			{
+				glDeleteTextures(g_client->kSwapLen, g_client->swap_tex[e]);
+				for (int i = 0; i < g_client->kSwapLen; i++)
+					g_client->swap_tex[e][i] = 0;
+			}
+		}
+		g_client->atw_enabled = false;
+	}
 }
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnSurfaceChanged(JNIEnv * env, jobject thiz, jlong ptr, jint w, jint h)
@@ -1117,6 +1222,9 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRenderResum
 
 	int origin_rc = Pvr_SetTrackingOriginType(1);
 	spdlog::info("Pvr_SetTrackingOriginType(FloorLevel) = {}", origin_rc);
+
+	if (g_client)
+		g_client->atw_enabled = false;
 }
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRendererShutdown(JNIEnv * env, jobject thiz, jlong ptr)
