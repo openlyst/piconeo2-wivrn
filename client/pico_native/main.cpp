@@ -50,6 +50,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <cmath>
 #include <unistd.h>
 #include <vector>
 
@@ -671,6 +672,16 @@ void pico_client::send_headset_info()
 	spdlog::warn("Sent headset info: {}x{}, {} codecs",
 		info.render_eye_width, info.render_eye_height,
 		info.supported_codecs.size());
+
+	session->send_control(from_headset::session_state_changed{
+		.state = XR_SESSION_STATE_FOCUSED,
+	});
+	spdlog::warn("Sent session_state_changed: FOCUSED");
+
+	session->send_control(from_headset::stream_tab_changed{
+		.tab = wivrn::stream_tab::hidden,
+	});
+	spdlog::warn("Sent stream_tab_changed: hidden");
 }
 
 void pico_client::try_connect()
@@ -1101,6 +1112,13 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 
 	float head_o[4], head_p[3];
 	g_client->tracker.get_head_pose(head_o, head_p);
+
+	float n2 = head_o[0]*head_o[0] + head_o[1]*head_o[1] + head_o[2]*head_o[2] + head_o[3]*head_o[3];
+	if (n2 > 1e-6f)
+	{
+		float inv = 1.0f / sqrtf(n2);
+		head_o[0] *= inv; head_o[1] *= inv; head_o[2] *= inv; head_o[3] *= inv;
+	}
 
 	struct { float v[74]; } poseData;
 	memset(&poseData, 0, sizeof(poseData));
