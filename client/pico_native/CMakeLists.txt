@@ -147,11 +147,13 @@ target_sources(wivrn-neo2 PRIVATE
     pico_decoder.cpp
     pico_audio.cpp
     pico_blit.cpp
+    openxr_tracking.cpp
 )
 
 target_include_directories(wivrn-neo2 PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/common
     ${CMAKE_CURRENT_SOURCE_DIR}/../../external/pico-native-sdk/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/openxr_pico
     ${CMAKE_CURRENT_BINARY_DIR}
 )
 
