@@ -91,6 +91,11 @@ static void extract_csd(const uint8_t * data, size_t size, wivrn::video_codec co
 	std::vector<nal_unit> nals;
 	find_nal_units(data, size, nals);
 
+	static int csd_call_count = 0;
+	if (++csd_call_count % 100 == 1)
+		spdlog::warn("extract_csd: {} NALs found in {} bytes, codec={}",
+			nals.size(), size, (int)codec);
+
 	for (auto & n : nals)
 	{
 		bool is_csd = false;
@@ -104,28 +109,11 @@ static void extract_csd(const uint8_t * data, size_t size, wivrn::video_codec co
 
 		if (is_csd)
 		{
-			const uint8_t * start = n.data;
-			while (start > data && *(start - 1) == 0)
-				start--;
-			size_t prefix = (size_t)(n.data - start);
-			const uint8_t * sc = start - prefix;
-			size_t total = n.size + prefix;
-			size_t offset = (size_t)(start - data) - prefix;
-			if (start > data)
-			{
-				size_t back = 0;
-				while (back < 4 && start - 1 - back >= data && *(start - 1 - back) == 0)
-					back++;
-				if (back >= 3)
-				{
-					size_t sc_start = (size_t)(start - data) - back;
-					csd_out.insert(csd_out.end(), data + sc_start, data + sc_start + back + n.size);
-				}
-			}
-			else
-			{
-				csd_out.insert(csd_out.end(), n.data, n.data + n.size);
-			}
+			const uint8_t * nal_start = n.data;
+			while (nal_start > data && *(nal_start - 1) == 0)
+				nal_start--;
+
+			csd_out.insert(csd_out.end(), nal_start, n.data + n.size);
 		}
 	}
 }
@@ -279,39 +267,6 @@ void pico_video_decoder::worker_loop()
 {
 	while (!exiting)
 	{
-		if (!csd_sent.load() && !csd_data.empty())
-		{
-			ssize_t in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 5000);
-			if (in_idx >= 0)
-			{
-				size_t buf_size;
-				uint8_t * buf = AMediaCodec_getInputBuffer(media_codec, in_idx, &buf_size);
-				if (buf)
-				{
-					size_t copy_size = std::min(csd_data.size(), buf_size);
-					memcpy(buf, csd_data.data(), copy_size);
-					auto status = AMediaCodec_queueInputBuffer(
-						media_codec, in_idx, 0, copy_size, 0,
-						AMEDIACODEC_BUFFER_FLAG_CODEC_CONFIG);
-					if (status == AMEDIA_OK)
-					{
-						csd_sent.store(true);
-						spdlog::warn("Sent CSD buffer ({} bytes) to decoder for stream {}",
-						             copy_size, stream_index);
-					}
-					else
-					{
-						spdlog::error("Failed to queue CSD buffer: error {}", (int)status);
-					}
-				}
-				else
-				{
-					AMediaCodec_queueInputBuffer(media_codec, in_idx, 0, 0, 0, 0);
-				}
-			}
-			continue;
-		}
-
 		ssize_t in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 1000);
 		if (in_idx >= 0)
 		{
@@ -343,35 +298,19 @@ void pico_video_decoder::worker_loop()
 			{
 				std::vector<uint8_t> frame_data = std::move(frame.data);
 
-				if (!csd_sent.load())
-				{
-					std::vector<uint8_t> csd;
-					extract_csd(frame_data.data(), frame_data.size(), codec_type, csd);
-					if (!csd.empty())
-					{
-						csd_data = std::move(csd);
-						size_t copy_size = std::min(csd_data.size(), buf_size);
-						memcpy(buf, csd_data.data(), copy_size);
-						auto status = AMediaCodec_queueInputBuffer(
-							media_codec, in_idx, 0, copy_size, 0,
-							AMEDIACODEC_BUFFER_FLAG_CODEC_CONFIG);
-						if (status == AMEDIA_OK)
-						{
-							csd_sent.store(true);
-							spdlog::warn("Extracted and sent CSD ({} bytes) from frame {} stream {}",
-							             copy_size, frame.frame_index, stream_index);
-						}
-						else
-						{
-							spdlog::error("Failed to queue extracted CSD: error {}", (int)status);
-						}
-						continue;
-					}
-				}
+				static int feed_count = 0;
+				if (++feed_count % 100 == 1)
+					spdlog::warn("Decoder stream {} feeding frame {} bytes={}",
+						stream_index, frame.frame_index, frame_data.size());
 
 				size_t copy_size = std::min(frame_data.size(), buf_size);
 				memcpy(buf, frame_data.data(), copy_size);
 				uint64_t timestamp = frame.frame_index * 10'000;
+				uint64_t timestamp_ns = timestamp * 1'000;
+				{
+					std::lock_guard lock(ts_mutex);
+					ts_to_frame[timestamp_ns] = frame.frame_index;
+				}
 				auto status = AMediaCodec_queueInputBuffer(
 					media_codec, in_idx, 0, copy_size, timestamp, 0);
 				if (status != AMEDIA_OK)
@@ -387,6 +326,11 @@ void pico_video_decoder::worker_loop()
 		ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(media_codec, &info, 1000);
 		if (out_idx >= 0)
 		{
+			static int out_count = 0;
+			if (++out_count % 100 == 1)
+				spdlog::warn("Decoder stream {} output buffer {} flags={} size={} ts={}",
+					stream_index, out_count, info.flags, info.size, info.presentationTimeUs);
+
 			auto status = AMediaCodec_releaseOutputBuffer(media_codec, out_idx, true);
 			if (status != AMEDIA_OK)
 				spdlog::error("AMediaCodec_releaseOutputBuffer: error {}", (int)status);
@@ -396,6 +340,10 @@ void pico_video_decoder::worker_loop()
 			AMediaFormat * fmt = AMediaCodec_getOutputFormat(media_codec);
 			spdlog::warn("MediaCodec output format changed: {}", AMediaFormat_toString(fmt));
 			AMediaFormat_delete(fmt);
+		}
+		else if (out_idx != AMEDIACODEC_INFO_TRY_AGAIN_LATER)
+		{
+			spdlog::warn("Decoder stream {} dequeueOutputBuffer returned {}", stream_index, (long)out_idx);
 		}
 	}
 }
@@ -459,7 +407,40 @@ void pico_video_decoder::on_image_available(AImageReader * reader)
 
 	int64_t fake_ts;
 	check(AImage_getTimestamp(image.get(), &fake_ts), "AImage_getTimestamp");
-	uint64_t frame_index = (fake_ts + 5'000'000) / 10'000'000;
+
+	uint64_t frame_index = 0;
+	bool found_ts = false;
+	{
+		std::lock_guard lock(ts_mutex);
+		auto it = ts_to_frame.find(fake_ts);
+		if (it != ts_to_frame.end())
+		{
+			frame_index = it->second;
+			ts_to_frame.erase(it);
+			found_ts = true;
+		}
+		else if (!ts_to_frame.empty())
+		{
+			auto closest = ts_to_frame.begin();
+			for (auto it2 = ts_to_frame.begin(); it2 != ts_to_frame.end(); ++it2)
+			{
+				if (std::abs((int64_t)it2->first - fake_ts) < std::abs((int64_t)closest->first - fake_ts))
+					closest = it2;
+			}
+			if (std::abs((int64_t)closest->first - fake_ts) < 50'000)
+			{
+				frame_index = closest->second;
+				ts_to_frame.erase(closest);
+				found_ts = true;
+			}
+		}
+	}
+
+	if (!found_ts)
+	{
+		spdlog::warn("No timestamp match for decoded frame ts={}, dropping", fake_ts);
+		return;
+	}
 
 	frame_info info{};
 	bool found = false;

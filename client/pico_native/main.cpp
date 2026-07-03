@@ -272,6 +272,14 @@ void pico_client::setup_audio()
 
 void pico_client::handle_video_shard(to_headset::video_stream_data_shard && shard)
 {
+	static int shard_count = 0;
+	++shard_count;
+	bool has_timing = shard.timing_info.has_value();
+	if (shard_count <= 20 || shard_count % 100 == 0)
+		spdlog::warn("Video shard #{}: stream={} frame={} shard_idx={} payload={} timing={}",
+			shard_count, (int)shard.stream_item_idx, shard.frame_idx,
+			shard.shard_idx, (int)shard.payload.size(), has_timing);
+
 	uint8_t idx = shard.stream_item_idx;
 	if (idx >= 3 || !decoders[idx])
 		return;
@@ -284,7 +292,14 @@ void pico_client::handle_video_shard(to_headset::video_stream_data_shard && shar
 		target = &next_shards[idx];
 	else if (frame_idx > current_shards[idx].frame_index)
 	{
-		current_shards[idx] = std::move(next_shards[idx]);
+		if (next_shards[idx].frame_index == frame_idx)
+		{
+			current_shards[idx] = std::move(next_shards[idx]);
+		}
+		else
+		{
+			current_shards[idx].reset(frame_idx);
+		}
 		next_shards[idx].reset(frame_idx + 1);
 		target = &current_shards[idx];
 	}
@@ -303,7 +318,15 @@ void pico_client::handle_video_shard(to_headset::video_stream_data_shard && shar
 	if (shard.shard_idx >= target->shards.size())
 		target->shards.resize(shard.shard_idx + 1);
 
+	bool is_last_shard = shard.timing_info.has_value();
 	target->shards[shard.shard_idx] = std::move(shard);
+
+	if (!is_last_shard)
+	{
+		if (shard_count <= 20)
+			spdlog::warn("Shard not last (no timing_info), waiting for more shards");
+		return;
+	}
 
 	size_t filled = 0;
 	for (auto & s : target->shards)
@@ -324,6 +347,16 @@ void pico_client::handle_video_shard(to_headset::video_stream_data_shard && shar
 	{
 		if (s)
 			data.push_back(s->payload);
+	}
+
+	static int recon_count = 0;
+	++recon_count;
+	if (recon_count <= 20 || recon_count % 100 == 0)
+	{
+		size_t total_size = 0;
+		for (auto & d : data) total_size += d.size();
+		spdlog::warn("Frame reconstructed #{}: stream={} frame={} shards={} bytes={}",
+			recon_count, idx, frame_idx, data.size(), total_size);
 	}
 
 	wivrn::from_headset::feedback feedback{};
@@ -1144,10 +1177,24 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
 
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
+	glFlush();
 
-	PVR_CameraEndFrame(eye, swap_tex);
+	static int draw_count = 0;
+	if (++draw_count % 300 == 0)
+		spdlog::info("DrawEye {}: ext_tex={} swap_tex={} decoded_valid={}", eye, ext_tex, swap_tex, decoded ? decoded->valid : false);
+}
+
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnFrameEnd(JNIEnv * env, jobject thiz, jlong ptr)
+{
+	if (!g_client || !g_client->gl_initialized)
+		return;
+
+	int slot = g_client->swap_idx;
+
+	for (int e = 0; e < 2; e++)
+	{
+		PVR_CameraEndFrame(e, g_client->swap_tex[e][slot]);
+	}
 
 	float head_o[4], head_p[3];
 	g_client->tracker.get_head_pose(head_o, head_p);
@@ -1159,26 +1206,19 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 		head_o[0] *= inv; head_o[1] *= inv; head_o[2] *= inv; head_o[3] *= inv;
 	}
 
-	struct { float v[74]; } poseData;
-	memset(&poseData, 0, sizeof(poseData));
-	poseData.v[0] = head_o[0];
-	poseData.v[1] = head_o[1];
-	poseData.v[2] = head_o[2];
-	poseData.v[3] = head_o[3];
-	poseData.v[4] = head_p[0];
-	poseData.v[5] = head_p[1];
-	poseData.v[6] = head_p[2];
-	PVR_ChangeRenderPose(eye, &poseData);
-
-	static int draw_count = 0;
-	if (++draw_count % 300 == 0)
-		spdlog::info("DrawEye {}: ext_tex={} swap_tex={} decoded_valid={}", eye, ext_tex, swap_tex, decoded ? decoded->valid : false);
-}
-
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnFrameEnd(JNIEnv * env, jobject thiz, jlong ptr)
-{
-	if (!g_client || !g_client->gl_initialized)
-		return;
+	for (int e = 0; e < 2; e++)
+	{
+		struct { float v[74]; } poseData;
+		memset(&poseData, 0, sizeof(poseData));
+		poseData.v[0] = head_o[0];
+		poseData.v[1] = head_o[1];
+		poseData.v[2] = head_o[2];
+		poseData.v[3] = head_o[3];
+		poseData.v[4] = head_p[0];
+		poseData.v[5] = head_p[1];
+		poseData.v[6] = head_p[2];
+		PVR_ChangeRenderPose(e, &poseData);
+	}
 
 	PVR_TimeWarpEvent(0);
 

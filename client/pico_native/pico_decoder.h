@@ -66,6 +66,9 @@ private:
 	std::mutex frame_info_mutex;
 	std::vector<frame_info> pending_frame_infos;
 
+	std::mutex ts_mutex;
+	std::unordered_map<int64_t, uint64_t> ts_to_frame;
+
 	std::atomic<bool> exiting = false;
 	std::thread worker;
 
