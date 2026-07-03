@@ -61,10 +61,20 @@ using namespace wivrn;
 extern "C" {
 bool Pvr_SetTrackingOriginType(int trackingOriginType);
 void PVR_CameraEndFrame(unsigned int eye, unsigned int texId);
-void PVR_ChangeRenderPose(unsigned int eye, void * poseData);
+struct PvrPoseBlk { float v[22]; };
+void PVR_ChangeRenderPose(unsigned int eye, unsigned int pad, struct PvrPoseBlk blk);
 void Pvr_SetAsyncTimeWarp(unsigned char enable);
 void PVR_TimeWarpEvent(unsigned int eye);
 void *GetRenderEventFunc();
+int   Pvr_Init(int index);
+int   Pvr_StartSensor(int index);
+int   Pvr_Enable6DofModule(bool enable);
+int   InitSensor();
+void  Pvr_SetInitActivity(void *activity, void *vrActivityClass);
+void  Pvr_DisableBoundary();
+void  Pvr_ShutdownSDKBoundary();
+bool  Pvr_SetSinglePassDepthBufferWidthHeight(int width, int height);
+float Pvr_GetIPD();
 }
 
 enum { EV_InitRenderThread = 1024, EV_Pause = 1025, EV_Resume = 1026 };
@@ -97,6 +107,7 @@ struct pico_client
 
 	std::atomic<bool> running{false};
 	std::atomic<bool> shutdown{false};
+	std::atomic<bool> pvr_initialized{false};
 
 	std::unique_ptr<wivrn_session_pico> session;
 
@@ -1206,18 +1217,24 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnFrameEnd(JN
 		head_o[0] *= inv; head_o[1] *= inv; head_o[2] *= inv; head_o[3] *= inv;
 	}
 
+	float ipd = 0.064f;
 	for (int e = 0; e < 2; e++)
 	{
-		struct { float v[74]; } poseData;
-		memset(&poseData, 0, sizeof(poseData));
-		poseData.v[0] = head_o[0];
-		poseData.v[1] = head_o[1];
-		poseData.v[2] = head_o[2];
-		poseData.v[3] = head_o[3];
-		poseData.v[4] = head_p[0];
-		poseData.v[5] = head_p[1];
-		poseData.v[6] = head_p[2];
-		PVR_ChangeRenderPose(e, &poseData);
+		float eye_offset = (e == 0 ? -ipd * 0.5f : ipd * 0.5f);
+		float v[3] = {eye_offset, 0, 0};
+		float rotated[3];
+		neo2::rotate_vector({head_o[0], head_o[1], head_o[2], head_o[3]}, v, rotated);
+
+		PvrPoseBlk blk;
+		memset(&blk, 0, sizeof(blk));
+		blk.v[0] = head_o[0];
+		blk.v[1] = head_o[1];
+		blk.v[2] = head_o[2];
+		blk.v[3] = head_o[3];
+		blk.v[4] = head_p[0] + rotated[0];
+		blk.v[5] = head_p[1] + rotated[1];
+		blk.v[6] = head_p[2] + rotated[2];
+		PVR_ChangeRenderPose(e, 0, blk);
 	}
 
 	PVR_TimeWarpEvent(0);
@@ -1262,6 +1279,36 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInitGL(JNIE
 
 	g_client->gl_initialized = true;
 	g_client->swap_idx = 0;
+
+	jclass localVr = env->FindClass("com/psmart/vrlib/VrActivity");
+	jclass vrClass = nullptr;
+	if (localVr)
+	{
+		vrClass = (jclass)env->NewGlobalRef(localVr);
+		env->DeleteLocalRef(localVr);
+	}
+	else
+	{
+		env->ExceptionClear();
+		spdlog::warn("VrActivity class not found; passing null to Pvr_SetInitActivity");
+	}
+
+	Pvr_SetInitActivity((void *)g_client->activity, (void *)vrClass);
+	Pvr_Enable6DofModule(true);
+	int initRc = Pvr_Init(0);
+	int sensRc = InitSensor();
+	int startRc = Pvr_StartSensor(0);
+	spdlog::warn("Pvr_Init={} InitSensor={} Pvr_StartSensor={}", initRc, sensRc, startRc);
+
+	int originRc = Pvr_SetTrackingOriginType(1);
+	spdlog::warn("Pvr_SetTrackingOriginType(FloorLevel) = {}", originRc);
+
+	Pvr_DisableBoundary();
+	Pvr_ShutdownSDKBoundary();
+
+	g_client->pvr_initialized = true;
+
+	Pvr_SetSinglePassDepthBufferWidthHeight(w, h);
 
 	Pvr_SetAsyncTimeWarp(1);
 	g_client->atw_enabled = true;
@@ -1317,11 +1364,17 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRenderResum
 {
 	spdlog::info("nativeRenderResume");
 
+	if (!g_client || !g_client->pvr_initialized.load())
+	{
+		spdlog::warn("nativeRenderResume: PVR SDK not yet initialized, skipping");
+		return;
+	}
+
 	int origin_rc = Pvr_SetTrackingOriginType(1);
 	spdlog::info("Pvr_SetTrackingOriginType(FloorLevel) = {}", origin_rc);
 
-	if (g_client)
-		g_client->atw_enabled = false;
+	Pvr_SetAsyncTimeWarp(1);
+	g_client->atw_enabled = true;
 }
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRendererShutdown(JNIEnv * env, jobject thiz, jlong ptr)

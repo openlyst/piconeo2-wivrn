@@ -349,9 +349,17 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 	head_pose.orientation = neo2::to_xr_quat(hq);
 	head_pose.position = {h_pos[0], h_pos[1], h_pos[2]};
 
+	constexpr float k_ipd = 0.064f;
 	for (int eye = 0; eye < 2; eye++)
 	{
 		pkt.views[eye].pose = head_pose;
+		float eye_offset = (eye == 0 ? -k_ipd * 0.5f : k_ipd * 0.5f);
+		float v[3] = {eye_offset, 0, 0};
+		float rotated[3];
+		neo2::rotate_vector(hq, v, rotated);
+		pkt.views[eye].pose.position.x += rotated[0];
+		pkt.views[eye].pose.position.y += rotated[1];
+		pkt.views[eye].pose.position.z += rotated[2];
 		pkt.views[eye].fov = eye_fov[eye];
 	}
 
