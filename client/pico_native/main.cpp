@@ -47,6 +47,7 @@
 #include <mutex>
 #include <netdb.h>
 #include <optional>
+#include <sys/stat.h>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -499,6 +500,7 @@ bool pico_client::connect_to_server()
 
 	try
 	{
+		const char * key_dir = "/data/data/org.meumeu.wivrn.neo2.local/files";
 		const char * key_path = "/data/data/org.meumeu.wivrn.neo2.local/files/private_key.pem";
 		spdlog::info("connect: loading keypair from {}", key_path);
 		try
@@ -511,9 +513,15 @@ bool pico_client::connect_to_server()
 		catch (...)
 		{
 			spdlog::info("connect: generating new keypair");
+			mkdir(key_dir, 0700);
 			headset_keypair = crypto::key::generate_x448_keypair();
-			std::ofstream{key_path} << headset_keypair.private_key();
-			spdlog::info("connect: generated and saved new keypair");
+			std::ofstream f{key_path};
+			f << headset_keypair.private_key();
+			f.close();
+			if (f.good())
+				spdlog::info("connect: generated and saved new keypair");
+			else
+				spdlog::error("connect: failed to save keypair to {}", key_path);
 		}
 		std::string model_name = "Pico Neo2";
 
@@ -686,7 +694,7 @@ void pico_client::send_headset_info()
 
 void pico_client::try_connect()
 {
-	if (session || server_host.empty())
+	if (server_host.empty() || shutdown)
 		return;
 
 	std::lock_guard lock(connect_mutex);
@@ -698,24 +706,45 @@ void pico_client::try_connect()
 	}
 
 	connect_thread = std::thread([this] {
-		if (!connect_to_server())
-			return;
+		for (int attempt = 1; attempt <= 5 && !shutdown; ++attempt)
+		{
+			spdlog::info("Connection attempt {} of 5", attempt);
 
-		try
-		{
-			send_headset_info();
-			network_thread = std::thread([] { g_client->network_loop(); });
-			tracker.session = session.get();
-			tracker.start();
+			if (connect_to_server())
+			{
+				try
+				{
+					send_headset_info();
+					network_thread = std::thread([] { g_client->network_loop(); });
+					tracker.session = session.get();
+					tracker.start();
+				}
+				catch (std::exception & e)
+				{
+					spdlog::error("Failed to start client: {}", e.what());
+					session.reset();
+				}
+				catch (...)
+				{
+					spdlog::error("Failed to start client: unknown exception");
+					session.reset();
+				}
+				return;
+			}
+
+			if (session)
+				session.reset();
+
+			if (attempt < 5 && !shutdown)
+			{
+				int delay_s = 1 << (attempt - 1);
+				spdlog::info("Retrying in {} seconds...", delay_s);
+				for (int i = 0; i < delay_s * 10 && !shutdown; ++i)
+					std::this_thread::sleep_for(100ms);
+			}
 		}
-		catch (std::exception & e)
-		{
-			spdlog::error("Failed to start client: {}", e.what());
-		}
-		catch (...)
-		{
-			spdlog::error("Failed to start client: unknown exception");
-		}
+
+		spdlog::error("All connection attempts failed");
 	});
 }
 
@@ -933,6 +962,16 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnNewIntent(J
 		{
 			g_client->pairing_pin = *pin;
 			spdlog::info("PIN from new intent URI: {}", *pin);
+		}
+
+		if (g_client->session)
+		{
+			spdlog::info("Tearing down existing session for reconnection");
+			g_client->tracker.stop();
+			g_client->tracker.session = nullptr;
+			g_client->session.reset();
+			if (g_client->network_thread.joinable())
+				g_client->network_thread.join();
 		}
 
 		g_client->try_connect();
