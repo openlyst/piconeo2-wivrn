@@ -1,0 +1,5 @@
+jniLibs/
+build/
+.gradle/
+*.apk
+*.aab
