@@ -6,3 +6,4 @@ build/
 *.aab
 *.aar
 *.so
+local.properties
