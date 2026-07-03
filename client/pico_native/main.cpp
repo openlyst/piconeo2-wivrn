@@ -117,8 +117,8 @@ struct pico_client
 
 	// GLES
 	pico_blit_pipeline blit_pipeline;
-	int eye_width = 2048;
-	int eye_height = 2048;
+	int eye_width = 1664;
+	int eye_height = 1664;
 	bool gl_initialized = false;
 
 	// Pico Neo 2: 101 deg FOV, 50.50 deg per side (https://vr-compare.com/headset/piconeo2)
