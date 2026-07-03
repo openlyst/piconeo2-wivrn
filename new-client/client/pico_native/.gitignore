@@ -1,9 +1,0 @@
-jniLibs/
-build/
-.gradle/
-.cxx/
-*.apk
-*.aab
-*.aar
-*.so
-local.properties
