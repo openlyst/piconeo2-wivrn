@@ -1,4 +1,5 @@
 #include "pico_decoder.h"
+#include "../core/pico_sched.h"
 
 #include <spdlog/spdlog.h>
 #include <cstring>
@@ -245,7 +246,8 @@ pico_video_decoder::pico_video_decoder(
 
 	AMediaFormat_delete(format);
 
-	worker = std::thread([this]() { worker_loop(); });
+	input_worker = std::thread([this]() { input_loop(); });
+	output_worker = std::thread([this]() { output_loop(); });
 }
 
 pico_video_decoder::~pico_video_decoder()
@@ -259,67 +261,76 @@ pico_video_decoder::~pico_video_decoder()
 		AMediaCodec_delete(media_codec);
 	}
 
-	if (worker.joinable())
-		worker.join();
+	if (input_worker.joinable())
+		input_worker.join();
+	if (output_worker.joinable())
+		output_worker.join();
 }
 
-void pico_video_decoder::worker_loop()
+void pico_video_decoder::input_loop()
 {
+	int prio = (stream_index == 1) ? 3 : 2;
+	int nice = (stream_index == 1) ? -10 : -8;
+	pico_sched::pin_current_thread("decoder input", prio, nice);
+
 	while (!exiting)
 	{
-		ssize_t in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 1000);
-		if (in_idx >= 0)
+		pending_frame frame;
 		{
-			size_t buf_size;
-			uint8_t * buf = AMediaCodec_getInputBuffer(media_codec, in_idx, &buf_size);
-			if (!buf)
-			{
-				AMediaCodec_queueInputBuffer(media_codec, in_idx, 0, 0, 0, 0);
+			std::unique_lock lock(pending_mutex);
+			pending_cv.wait(lock, [&]() { return !pending_frames.empty() || exiting || flushing.load(); });
+			if (exiting)
+				return;
+			if (flushing.load())
 				continue;
-			}
+			frame = std::move(pending_frames.front());
+			pending_frames.erase(pending_frames.begin());
+		}
 
-			pending_frame frame;
-			bool has_frame = false;
-			{
-				std::unique_lock lock(pending_mutex);
-				if (pending_cv.wait_for(lock, std::chrono::milliseconds(10),
-				    [&]() { return !pending_frames.empty() || exiting; }))
-				{
-					if (!pending_frames.empty())
-					{
-						frame = std::move(pending_frames.front());
-						pending_frames.erase(pending_frames.begin());
-						has_frame = true;
-					}
-				}
-			}
+		ssize_t in_idx = -1;
+		while (!exiting && !flushing.load() && in_idx < 0)
+			in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 1000);
+		if (exiting || flushing.load())
+			continue;
 
-			if (has_frame)
-			{
-				std::vector<uint8_t> frame_data = std::move(frame.data);
+		size_t buf_size;
+		uint8_t * buf = AMediaCodec_getInputBuffer(media_codec, in_idx, &buf_size);
+		if (!buf)
+		{
+			AMediaCodec_queueInputBuffer(media_codec, in_idx, 0, 0, 0, 0);
+			continue;
+		}
 
-				static int feed_count = 0;
-				if (++feed_count % 100 == 1)
-					spdlog::warn("Decoder stream {} feeding frame {} bytes={}",
-						stream_index, frame.frame_index, frame_data.size());
+		std::vector<uint8_t> frame_data = std::move(frame.data);
 
-				size_t copy_size = std::min(frame_data.size(), buf_size);
-				memcpy(buf, frame_data.data(), copy_size);
-				uint64_t timestamp = frame.frame_index * 10'000;
-				uint64_t timestamp_ns = timestamp * 1'000;
-				{
-					std::lock_guard lock(ts_mutex);
-					ts_to_frame[timestamp_ns] = frame.frame_index;
-				}
-				auto status = AMediaCodec_queueInputBuffer(
-					media_codec, in_idx, 0, copy_size, timestamp, 0);
-				if (status != AMEDIA_OK)
-					spdlog::error("AMediaCodec_queueInputBuffer: error {}", (int)status);
-			}
-			else
-			{
-				AMediaCodec_queueInputBuffer(media_codec, in_idx, 0, 0, 0, 0);
-			}
+		static int feed_count = 0;
+		if (++feed_count % 100 == 1)
+			spdlog::warn("Decoder stream {} feeding frame {} bytes={}",
+				stream_index, frame.frame_index, frame_data.size());
+
+		size_t copy_size = std::min(frame_data.size(), buf_size);
+		memcpy(buf, frame_data.data(), copy_size);
+
+		uint64_t timestamp = frame.frame_index * 10'000;
+		auto status = AMediaCodec_queueInputBuffer(
+			media_codec, in_idx, 0, copy_size, timestamp, 0);
+		if (status != AMEDIA_OK)
+			spdlog::error("AMediaCodec_queueInputBuffer: error {}", (int)status);
+	}
+}
+
+void pico_video_decoder::output_loop()
+{
+	int prio = (stream_index == 1) ? 3 : 2;
+	int nice = (stream_index == 1) ? -10 : -8;
+	pico_sched::pin_current_thread("decoder output", prio, nice);
+
+	while (!exiting)
+	{
+		if (flushing.load())
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(2));
+			continue;
 		}
 
 		AMediaCodecBufferInfo info;
@@ -359,6 +370,11 @@ void pico_video_decoder::push_data(std::span<std::span<const uint8_t>> data, uin
 	}
 	else
 	{
+		while (pending_frames.size() >= 5)
+		{
+			spdlog::warn("Decoder stream {} dropping frame {} (queue full)", stream_index, pending_frames.front().frame_index);
+			pending_frames.erase(pending_frames.begin());
+		}
 		pending_frames.push_back({.frame_index = frame_index});
 		pf = &pending_frames.back();
 	}
@@ -372,6 +388,27 @@ void pico_video_decoder::push_data(std::span<std::span<const uint8_t>> data, uin
 
 	if (!partial)
 		pending_cv.notify_one();
+}
+
+void pico_video_decoder::flush()
+{
+	flushing.store(true);
+	spdlog::warn("Decoder stream {} flush requested", stream_index);
+
+	AMediaCodec_flush(media_codec);
+
+	{
+		std::lock_guard lock(pending_mutex);
+		pending_frames.clear();
+	}
+	{
+		std::lock_guard lock(frame_info_mutex);
+		pending_frame_infos.clear();
+	}
+	csd_sent.store(false);
+
+	flushing.store(false);
+	spdlog::warn("Decoder stream {} flush complete", stream_index);
 }
 
 void pico_video_decoder::frame_completed(
@@ -402,45 +439,12 @@ void pico_video_decoder::on_image_available_cb(void * ctx, AImageReader * reader
 void pico_video_decoder::on_image_available(AImageReader * reader)
 {
 	AImage * tmp;
-	check(AImageReader_acquireLatestImage(image_reader.get(), &tmp), "AImageReader_acquireLatestImage");
+	check(AImageReader_acquireNextImage(image_reader.get(), &tmp), "AImageReader_acquireNextImage");
 	std::shared_ptr<AImage> image(tmp, [](AImage * img) { AImage_delete(img); });
 
-	int64_t fake_ts;
-	check(AImage_getTimestamp(image.get(), &fake_ts), "AImage_getTimestamp");
-
-	uint64_t frame_index = 0;
-	bool found_ts = false;
-	{
-		std::lock_guard lock(ts_mutex);
-		auto it = ts_to_frame.find(fake_ts);
-		if (it != ts_to_frame.end())
-		{
-			frame_index = it->second;
-			ts_to_frame.erase(it);
-			found_ts = true;
-		}
-		else if (!ts_to_frame.empty())
-		{
-			auto closest = ts_to_frame.begin();
-			for (auto it2 = ts_to_frame.begin(); it2 != ts_to_frame.end(); ++it2)
-			{
-				if (std::abs((int64_t)it2->first - fake_ts) < std::abs((int64_t)closest->first - fake_ts))
-					closest = it2;
-			}
-			if (std::abs((int64_t)closest->first - fake_ts) < 50'000)
-			{
-				frame_index = closest->second;
-				ts_to_frame.erase(closest);
-				found_ts = true;
-			}
-		}
-	}
-
-	if (!found_ts)
-	{
-		spdlog::warn("No timestamp match for decoded frame ts={}, dropping", fake_ts);
-		return;
-	}
+	int64_t fake_timestamp_ns;
+	check(AImage_getTimestamp(image.get(), &fake_timestamp_ns), "AImage_getTimestamp");
+	uint64_t frame_index = (fake_timestamp_ns + 5'000'000) / 10'000'000;
 
 	frame_info info{};
 	bool found = false;
@@ -490,9 +494,12 @@ void pico_video_decoder::on_image_available(AImageReader * reader)
 	{
 		frame->server_pose[i] = info.view_info.pose[i];
 		frame->server_fov[i] = info.view_info.fov[i];
+		frame->foveation[i] = info.view_info.foveation[i];
 	}
 
-	spdlog::warn("Decoded frame {} available ({}x{})", frame_index, desc.width, desc.height);
+	static int decoded_count = 0;
+	if (++decoded_count % 300 == 1)
+		spdlog::warn("Decoded frame {} available ({}x{})", frame_index, desc.width, desc.height);
 
 	if (on_frame_decoded)
 		on_frame_decoded(frame);

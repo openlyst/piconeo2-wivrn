@@ -465,11 +465,36 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 
 void pico_lobby::update_texture(int width, int height, const void * pixels)
 {
-	if (!ui_texture || !pixels)
+	if (!pixels)
 		return;
 
+	std::lock_guard lock(tex_mutex);
+	pending_tex_data.resize(width * height * 4);
+	memcpy(pending_tex_data.data(), pixels, width * height * 4);
+	pending_tex_w = width;
+	pending_tex_h = height;
+	tex_pending = true;
+}
+
+void pico_lobby::flush_pending_texture()
+{
+	if (!tex_pending || !ui_texture)
+		return;
+
+	std::vector<uint8_t> data;
+	int w, h;
+	{
+		std::lock_guard lock(tex_mutex);
+		if (!tex_pending)
+			return;
+		data = std::move(pending_tex_data);
+		w = pending_tex_w;
+		h = pending_tex_h;
+		tex_pending = false;
+	}
+
 	glBindTexture(GL_TEXTURE_2D, ui_texture);
-	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, data.data());
 	glBindTexture(GL_TEXTURE_2D, 0);
 }
 

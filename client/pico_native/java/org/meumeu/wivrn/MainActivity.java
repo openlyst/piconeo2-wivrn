@@ -1,5 +1,6 @@
 package org.meumeu.wivrn;
 
+import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -8,21 +9,17 @@ import android.net.wifi.WifiManager;
 import android.os.BatteryManager;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.Surface;
+import android.view.SurfaceHolder;
 import android.view.Window;
 import android.view.WindowManager;
 
-import com.picovr.cvclient.CVController;
-import com.picovr.cvclient.CVControllerListener;
-import com.picovr.cvclient.CVControllerManager;
-import com.picovr.cvclient.ButtonNum;
-import com.picovr.picovrlib.cvcontrollerclient.ControllerClient;
-import com.picovr.vractivity.Eye;
-import com.picovr.vractivity.HmdState;
-import com.picovr.vractivity.RenderInterface;
-import com.picovr.vractivity.VRActivity;
-import com.psmart.vrlib.PicovrSDK;
+import com.unity3d.player.UnityPlayer;
 
-public class MainActivity extends VRActivity implements RenderInterface {
+import com.picovr.picovrlib.cvcontrollerclient.ControllerClient;
+import com.picovr.picovrlib.cvcontrollerclient.BindControllerCallback;
+
+public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private static final String TAG = "WiVRn-Pico";
 
     static {
@@ -31,53 +28,43 @@ public class MainActivity extends VRActivity implements RenderInterface {
 
     private static final String CTRL_UNITY_VERSION = "2.8.6.9";
 
-    private CVControllerManager cvManager;
-    private CVController leftController;
-    private CVController rightController;
-    private final float[] mHeadData = new float[7];
+    public UnityPlayer mUnityPlayer;
 
-    private long nativePtr;
     private WivrnLobbyView lobbyView;
     private WifiManager.MulticastLock multicastLock;
-    private int frameCount = 0;
     private final float[] mRumble = new float[2];
+    private final float[] mHeadData = new float[7];
+    private long mHomePressSinceMs = 0;
 
-    private CVControllerListener cvListener = new CVControllerListener() {
-        @Override
-        public void onBindSuccess() {
-            Log.d(TAG, "Controller service bound");
-        }
+    private volatile boolean mCtrlRunning = false;
+    private Thread mCtrlThread;
+    private volatile boolean mConn0 = false;
+    private volatile boolean mConn1 = false;
+    private volatile boolean mCtrlThreadStarted = false;
+    private long mBothConnSinceMs = 0;
+    private static final long CTRL_SETTLE_MS = 1500;
+    private volatile boolean mForeground = false;
+    private volatile long mSettleMs = CTRL_SETTLE_MS;
 
-        @Override
-        public void onBindFail() {
-            Log.e(TAG, "Controller service bind failed");
-        }
+    private volatile boolean mUiRenderRunning = false;
+    private Thread mUiRenderThread;
 
-        @Override
-        public void onThreadStart() {
-            leftController = cvManager.getMainController();
-            rightController = cvManager.getSubController();
-            Log.d(TAG, "Controller thread started");
-        }
-
-        @Override
-        public void onConnectStateChanged(int serialNum, int state) {
-            Log.d(TAG, "Controller " + serialNum + " state: " + state);
-        }
-
-        @Override
-        public void onMainControllerChanged(int serialNum) {
-            leftController = cvManager.getMainController();
-            rightController = cvManager.getSubController();
-        }
-
-        @Override
-        public void onChannelChanged(int device, int channel) {
-        }
-    };
+    private static final int EXT_JOY_X      = 0;
+    private static final int EXT_JOY_Y      = 5;
+    private static final int EXT_HOME       = 10;
+    private static final int EXT_MENU       = 15;
+    private static final int EXT_TRIGGER    = 35;
+    private static final int EXT_BATTERY    = 40;
+    private static final int EXT_AX         = 45;
+    private static final int EXT_BY         = 50;
+    private static final int EXT_GRIP_RIGHT = 55;
+    private static final int EXT_GRIP_LEFT  = 60;
+    private static final int EXT_JOY_CLICK  = 20;
+    private static final int LEGACY_TRIG    = 7;
+    private static int pick(int[] a, int i) { return (a != null && i < a.length) ? a[i] : 0; }
 
     @Override
-    public void onCreate(Bundle savedInstanceState) {
+    protected void onCreate(Bundle savedInstanceState) {
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setFlags(
                 WindowManager.LayoutParams.FLAG_FULLSCREEN
@@ -87,17 +74,9 @@ public class MainActivity extends VRActivity implements RenderInterface {
 
         super.onCreate(savedInstanceState);
 
-        try {
-            nativePtr = getNativePtr();
-            Log.d(TAG, "nativePtr = " + nativePtr);
-        } catch (UnsatisfiedLinkError e) {
-            Log.e(TAG, "getNativePtr failed", e);
-            nativePtr = 0;
-        }
-        setIntent(getIntent());
-
-        cvManager = new CVControllerManager(this.getApplicationContext());
-        cvManager.setListener(cvListener);
+        mUnityPlayer = new UnityPlayer(this);
+        setContentView(mUnityPlayer);
+        mUnityPlayer.surfaceView.getHolder().addCallback(this);
 
         lobbyView = new WivrnLobbyView(this);
 
@@ -110,308 +89,210 @@ public class MainActivity extends VRActivity implements RenderInterface {
             Log.e(TAG, "Failed to acquire multicast lock", e);
         }
 
-        try {
-            nativeWivrnInit(nativePtr, getIntent());
-            Log.d(TAG, "nativeWivrnInit called");
-        } catch (UnsatisfiedLinkError e) {
-            Log.e(TAG, "nativeWivrnInit failed", e);
-        }
+        nativeStart(this, getIntent());
+        Log.d(TAG, "nativeStart called");
     }
 
     @Override
-    public void onResume() {
+    protected void onResume() {
         super.onResume();
-        cvManager.bindService();
-        try { ControllerClient.setUnityVersion(CTRL_UNITY_VERSION); } catch (Throwable t) {
-            Log.e(TAG, "setUnityVersion failed", t);
-        }
-        try { ControllerClient.startControllerThread(1, 1); } catch (Throwable t) {
-            Log.e(TAG, "startControllerThread failed", t);
-        }
-        PicovrSDK.startSensor(0);
-        PicovrSDK.setTrackingOriginType(1);
-        Log.d(TAG, "onResume, nativePtr=" + nativePtr);
-        try {
-            nativeWivrnResume(nativePtr);
-        } catch (UnsatisfiedLinkError e) {
-            Log.e(TAG, "nativeWivrnResume failed", e);
-        }
+        mForeground = true;
+        setupControllers();
+        nativeResume();
     }
 
     @Override
-    public void onPause() {
-        nativeWivrnPause(nativePtr);
-        PicovrSDK.stopSensor(0);
-        try { ControllerClient.stopControllerThread(1, 1); } catch (Throwable t) {}
-        cvManager.unbindService();
+    protected void onPause() {
+        mForeground = false;
+        nativePause();
+        stopControllerPoll();
+        stopUiRenderThread();
+        try { ControllerClient.unbindControllerService(this); } catch (Throwable t) {}
         super.onPause();
     }
 
     @Override
-    public void onDestroy() {
-        nativeWivrnDestroy(nativePtr);
+    protected void onDestroy() {
+        nativeStop();
         super.onDestroy();
     }
 
     @Override
     public void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        nativeWivrnNewIntent(nativePtr, intent);
+        nativeNewIntent(intent);
     }
 
     @Override
-    public void onFrameBegin(HmdState hmdState) {
-        float[] orientation = hmdState.getOrientation();
-        float[] position = hmdState.getPos();
-        float[] hmdData = new float[7];
-        hmdData[0] = orientation[0];
-        hmdData[1] = orientation[1];
-        hmdData[2] = orientation[2];
-        hmdData[3] = orientation[3];
-        hmdData[4] = position[0];
-        hmdData[5] = position[1];
-        hmdData[6] = position[2];
+    public void surfaceCreated(SurfaceHolder holder) {
+        Log.i(TAG, "surfaceCreated");
+    }
 
-        cvManager.updateControllerData(hmdData);
-
-        nativeGetHeadData(nativePtr, mHeadData);
-
-        float[] leftPose = null, rightPose = null;
-        float[] leftOrient = null, rightOrient = null;
-        int leftTrigger = 0, rightTrigger = 0;
-        int[] leftTouch = null, rightTouch = null;
-        int leftBattery = 0, rightBattery = 0;
-        boolean leftA = false, leftB = false, leftGrip = false, leftClick = false, leftMenu = false;
-        boolean rightA = false, rightB = false, rightGrip = false, rightClick = false, rightMenu = false;
-
-        int leftConn = 0, rightConn = 0;
-        try { leftConn = ControllerClient.getControllerConnectionState(0); } catch (Throwable t) {}
-        try { rightConn = ControllerClient.getControllerConnectionState(1); } catch (Throwable t) {}
-
-        if (leftConn == 1) {
-            try {
-                float[] sensor = ControllerClient.getControllerSensorState(0, mHeadData);
-                if (sensor != null && sensor.length >= 7) {
-                    leftOrient = new float[]{sensor[0], sensor[1], sensor[2], sensor[3]};
-                    leftPose = new float[]{sensor[4], sensor[5], sensor[6]};
-                    // Filter out default/fake positions from Pico SDK
-                    if (Math.abs(leftPose[0] - 100.0f) < 1.0f && Math.abs(leftPose[2] + 300.0f) < 1.0f) {
-                        leftOrient = null;
-                        leftPose = null;
-                    }
-                }
-            } catch (Throwable t) {}
+    @Override
+    public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+        Log.i(TAG, "surfaceChanged " + width + "x" + height);
+        if (width > 0 && height > 0) {
+            nativeSurfaceChanged(holder.getSurface());
         }
-        if (rightConn == 1) {
-            try {
-                float[] sensor = ControllerClient.getControllerSensorState(1, mHeadData);
-                if (sensor != null && sensor.length >= 7) {
-                    rightOrient = new float[]{sensor[0], sensor[1], sensor[2], sensor[3]};
-                    rightPose = new float[]{sensor[4], sensor[5], sensor[6]};
-                    // Filter out default/fake positions from Pico SDK
-                    if (Math.abs(rightPose[0] - 100.0f) < 1.0f && Math.abs(rightPose[2] + 300.0f) < 1.0f) {
-                        rightOrient = null;
-                        rightPose = null;
-                    }
-                }
-            } catch (Throwable t) {}
-        }
+    }
 
-        if (leftController != null) {
-            leftTrigger = leftController.getTriggerNum();
-            leftTouch = leftController.getTouchPad();
-            leftBattery = leftController.getBatteryLevel();
-            leftA = leftController.getButtonState(ButtonNum.buttonAX);
-            leftB = leftController.getButtonState(ButtonNum.buttonBY);
-            leftClick = leftController.getButtonState(ButtonNum.click);
-            leftMenu = leftController.getButtonState(ButtonNum.app);
-        }
+    @Override
+    public void surfaceDestroyed(SurfaceHolder holder) {
+        Log.i(TAG, "surfaceDestroyed");
+        nativeSurfaceDestroyed();
+    }
 
-        if (rightController != null) {
-            rightTrigger = rightController.getTriggerNum();
-            rightTouch = rightController.getTouchPad();
-            rightBattery = rightController.getBatteryLevel();
-            rightA = rightController.getButtonState(ButtonNum.buttonAX);
-            rightB = rightController.getButtonState(ButtonNum.buttonBY);
-            rightClick = rightController.getButtonState(ButtonNum.click);
-            rightMenu = rightController.getButtonState(ButtonNum.app);
-        }
-
-        // Grip via ControllerClient.getControllerKeyEventUnityExt (like ALVR)
-        // Index 55 = right grip, 60 = left grip
+    private void setupControllers() {
         try {
-            int[] leftExt = ControllerClient.getControllerKeyEventUnityExt(0);
-            if (leftExt != null && leftExt.length > 60) {
-                leftGrip = leftExt[60] != 0;
-            }
-            if (leftExt != null) {
-                StringBuilder sb = new StringBuilder("LEFT ext[" + leftExt.length + "]:");
-                for (int i = 0; i < leftExt.length; i++) {
-                    if (leftExt[i] != 0) sb.append(" [" + i + "]=" + leftExt[i]);
+            ControllerClient.registerBindCallback(new BindControllerCallback() {
+                @Override public void bindSuccess() {
+                    try { ControllerClient.setUnityVersion(CTRL_UNITY_VERSION); } catch (Throwable t) {
+                        Log.e(TAG, "setUnityVersion failed", t);
+                    }
+                    Log.i(TAG, "controller service bound; deferring 6DoF start");
+                    startControllerPoll();
+                    startUiRenderThread();
                 }
-                Log.d(TAG, sb.toString());
-            }
+                @Override public void unbindSuccess() {
+                    Log.i(TAG, "controller service unbound");
+                    stopControllerPoll();
+                    stopUiRenderThread();
+                }
+                @Override public void controllerConnectStateChanged(int hand, int state) {
+                    Log.i(TAG, "controller " + hand + " connect state -> " + state);
+                    if (hand == 0) mConn0 = (state == 1);
+                    else if (hand == 1) mConn1 = (state == 1);
+                }
+                @Override public void onCVChannelChanged(int device, int channel) {
+                }
+                @Override public void onHandNessChanged(int hand) {
+                }
+                @Override public void onMainControllerSerialNumChanged(int serial) {
+                }
+                @Override public void onControllerThreadStarted() {
+                    Log.i(TAG, "controller thread started");
+                }
+            });
+            ControllerClient.bindControllerService(this);
+            Log.i(TAG, "controller service bind requested");
         } catch (Throwable t) {
-            Log.e(TAG, "LEFT getControllerKeyEventUnityExt failed", t);
+            Log.e(TAG, "setupControllers failed", t);
         }
+    }
+
+    private synchronized void maybeStartControllerThread() {
+        if (mCtrlThreadStarted) return;
+        if (!(mConn0 && mConn1)) {
+            mBothConnSinceMs = 0;
+            return;
+        }
+        long now = android.os.SystemClock.uptimeMillis();
+        if (mBothConnSinceMs == 0) {
+            mBothConnSinceMs = now;
+            Log.i(TAG, "both controllers connected -> settling " + mSettleMs + "ms");
+            return;
+        }
+        if (now - mBothConnSinceMs < mSettleMs) return;
         try {
-            int[] rightExt = ControllerClient.getControllerKeyEventUnityExt(1);
-            if (rightExt != null && rightExt.length > 55) {
-                rightGrip = rightExt[55] != 0;
-            }
-            if (rightExt != null) {
-                StringBuilder sb = new StringBuilder("RIGHT ext[" + rightExt.length + "]:");
-                for (int i = 0; i < rightExt.length; i++) {
-                    if (rightExt[i] != 0) sb.append(" [" + i + "]=" + rightExt[i]);
-                }
-                Log.d(TAG, sb.toString());
-            }
+            try { ControllerClient.setUnityVersion(CTRL_UNITY_VERSION); } catch (Throwable t) {}
+            ControllerClient.startControllerThread(1, 1);
+            mCtrlThreadStarted = true;
+            Log.i(TAG, "controller link settled -> startControllerThread");
         } catch (Throwable t) {
-            Log.e(TAG, "RIGHT getControllerKeyEventUnityExt failed", t);
+            Log.e(TAG, "startControllerThread failed", t);
         }
+    }
 
-        nativeWivrnOnFrameBegin(nativePtr, orientation, position,
-                leftOrient, leftPose, leftTrigger, leftTouch, leftBattery,
-                leftA, leftB, leftGrip, leftClick, leftMenu,
-                rightOrient, rightPose, rightTrigger, rightTouch, rightBattery,
-                rightA, rightB, rightGrip, rightClick, rightMenu);
+    private void startControllerPoll() {
+        if (mCtrlRunning) return;
+        mCtrlRunning = true;
+        mCtrlThread = new Thread(() -> {
+            while (mCtrlRunning) {
+                if (!mCtrlThreadStarted) {
+                    try {
+                        mConn0 = (ControllerClient.getControllerConnectionState(0) == 1);
+                        mConn1 = (ControllerClient.getControllerConnectionState(1) == 1);
+                        maybeStartControllerThread();
+                    } catch (Throwable t) {}
+                }
+                for (int h = 0; h < 2; h++) {
+                    try {
+                        int conn = ControllerClient.getControllerConnectionState(h);
+                        nativeGetHeadData(mHeadData);
+                        float[] sensor = null;
+                        try { sensor = ControllerClient.getControllerSensorState(h, mHeadData); } catch (Throwable t) {}
+                        float[] angVel = null;
+                        try { angVel = ControllerClient.getControllerAngularVelocity(h); } catch (Throwable t) {}
+                        int[] ext = null;
+                        try { ext = ControllerClient.getControllerKeyEventUnityExt(h); } catch (Throwable t) {}
+                        int[] legacy = null;
+                        try { legacy = ControllerClient.getControllerKeyEvent(h); } catch (Throwable t) {}
+                        int gripAnalog = 0;
 
-        for (int h = 0; h < 2; h++) {
-            int conn = (h == 0) ? leftConn : rightConn;
-            if (conn != 1) {
-                nativeDrainRumble(nativePtr, h, mRumble);
-                continue;
+                        int[] keys = new int[12];
+                        keys[0] = pick(ext, EXT_JOY_X);
+                        keys[1] = pick(ext, EXT_JOY_Y);
+                        keys[2] = pick(ext, EXT_TRIGGER);
+                        keys[3] = pick(ext, h == 1 ? EXT_GRIP_RIGHT : EXT_GRIP_LEFT);
+                        keys[4] = pick(ext, EXT_JOY_CLICK);
+                        keys[5] = pick(ext, EXT_MENU);
+                        keys[6] = pick(ext, EXT_AX);
+                        keys[7] = pick(ext, EXT_BY);
+                        keys[8] = pick(legacy, LEGACY_TRIG);
+                        keys[9] = gripAnalog;
+                        keys[10] = pick(ext, EXT_BATTERY);
+                        keys[11] = pick(ext, EXT_HOME);
+
+                        int sendConn = mForeground ? conn : 0;
+                        nativeControllerState(h, sendConn, sensor, angVel, keys);
+
+                        boolean haveHaptic = nativeDrainHaptic(h, mRumble);
+                        if (mForeground && conn == 1 && haveHaptic) {
+                            try {
+                                ControllerClient.vibrateCV2ControllerStrength(
+                                        mRumble[0], (int) mRumble[1], h);
+                            } catch (Throwable t) {}
+                        }
+                    } catch (Throwable t) {}
+                }
+
+                try { Thread.sleep(11); } catch (InterruptedException e) { break; }
             }
-            if (nativeDrainRumble(nativePtr, h, mRumble)) {
+        }, "ctrl-poll");
+        mCtrlThread.start();
+        Log.i(TAG, "controller poll thread started");
+    }
+
+    private void startUiRenderThread() {
+        if (mUiRenderRunning) return;
+        mUiRenderRunning = true;
+        mUiRenderThread = new Thread(() -> {
+            while (mUiRenderRunning) {
                 try {
-                    ControllerClient.vibrateCV2ControllerStrength(
-                            mRumble[0], (int) mRumble[1], h);
-                } catch (Throwable t) {
-                    Log.e(TAG, "vibrate failed for hand " + h, t);
-                }
-            }
-        }
-
-        if (frameCount % 60 == 0 && lobbyView != null) {
-            lobbyView.updateWifiStatus();
-
-            int leftBatt = -1, rightBatt = -1;
-            boolean leftBattConn = false, rightBattConn = false;
-            if (leftController != null) {
-                leftBattConn = leftController.getConnectState() == CVController.CONNECT;
-                leftBatt = leftController.getBatteryLevel();
-            }
-            if (rightController != null) {
-                rightBattConn = rightController.getConnectState() == CVController.CONNECT;
-                rightBatt = rightController.getBatteryLevel();
-            }
-
-            int hmdBatt = -1;
-            try {
-                IntentFilter ifilter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
-                Intent batteryStatus = getApplicationContext().registerReceiver(null, ifilter);
-                if (batteryStatus != null) {
-                    int level = batteryStatus.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
-                    int scale = batteryStatus.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
-                    if (level >= 0 && scale > 0) {
-                        hmdBatt = (int)(level * 100.0 / scale);
+                    if (lobbyView != null && lobbyView.isDirty()) {
+                        lobbyView.render();
+                        nativeUpdateLobbyTexture(lobbyView.getBitmap());
+                        lobbyView.markClean();
                     }
+                } catch (Throwable t) {
+                    Log.e(TAG, "ui render thread error", t);
                 }
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to get HMD battery", e);
+                try { Thread.sleep(33); } catch (InterruptedException e) { break; }
             }
-
-            lobbyView.updateBatteryStatus(hmdBatt, leftBatt, leftBattConn, rightBatt, rightBattConn);
-        }
-        frameCount++;
+        }, "ui-render");
+        mUiRenderThread.start();
+        Log.i(TAG, "ui render thread started");
     }
 
-    @Override
-    public void onDrawEye(Eye eye) {
-        if (lobbyView != null && lobbyView.isDirty()) {
-            lobbyView.render();
-            nativeUpdateLobbyTexture(nativePtr, lobbyView.getBitmap());
-            lobbyView.markClean();
-        }
-        nativeWivrnDrawEye(nativePtr, eye.getType());
+    private void stopControllerPoll() {
+        mCtrlRunning = false;
+        if (mCtrlThread != null) { mCtrlThread.interrupt(); mCtrlThread = null; }
     }
 
-    @Override
-    public void onFrameEnd() {
-        nativeWivrnFrameEnd(nativePtr);
+    private void stopUiRenderThread() {
+        mUiRenderRunning = false;
+        if (mUiRenderThread != null) { mUiRenderThread.interrupt(); mUiRenderThread = null; }
     }
-
-    @Override
-    public void onTouchEvent() {
-    }
-
-    @Override
-    public void initGL(int w, int h) {
-        PicovrSDK.SetEyeBufferSize(w, h);
-        nativeWivrnInitGL(nativePtr, w, h);
-    }
-
-    @Override
-    public void deInitGL() {
-        nativeWivrnDeInitGL(nativePtr);
-    }
-
-    @Override
-    public void surfaceChangedCallBack(int w, int h) {
-        nativeWivrnSurfaceChanged(nativePtr, w, h);
-    }
-
-    @Override
-    public void onRenderPause() {
-        nativeWivrnRenderPause(nativePtr);
-    }
-
-    @Override
-    public void onRenderResume() {
-        nativeWivrnRenderResume(nativePtr);
-    }
-
-    @Override
-    public void onRendererShutdown() {
-        nativeWivrnRendererShutdown(nativePtr);
-    }
-
-    @Override
-    public void renderEventCallBack(int event) {
-        nativeWivrnRenderEvent(nativePtr, event);
-    }
-
-    // Native methods - WiVRn-specific (PVR SDK handles its own via VRActivity)
-    public native void nativeWivrnInit(long ptr, Intent intent);
-    public native void nativeGetHeadData(long ptr, float[] out);
-    public native void nativeWivrnDestroy(long ptr);
-    public native void nativeWivrnPause(long ptr);
-    public native void nativeWivrnResume(long ptr);
-    public native void nativeWivrnNewIntent(long ptr, Intent intent);
-    public native void nativeWivrnOnFrameBegin(long ptr, float[] headOrient, float[] headPos,
-            float[] leftOrient, float[] leftPos, int leftTrigger, int[] leftTouch, int leftBattery,
-            boolean leftA, boolean leftB, boolean leftGrip, boolean leftClick, boolean leftMenu,
-            float[] rightOrient, float[] rightPos, int rightTrigger, int[] rightTouch, int rightBattery,
-            boolean rightA, boolean rightB, boolean rightGrip, boolean rightClick, boolean rightMenu);
-    public native void nativeWivrnDrawEye(long ptr, int eye);
-    public native void nativeWivrnFrameEnd(long ptr);
-    public native void nativeWivrnInitGL(long ptr, int w, int h);
-    public native void nativeWivrnDeInitGL(long ptr);
-    public native void nativeWivrnSurfaceChanged(long ptr, int w, int h);
-    public native void nativeWivrnRenderPause(long ptr);
-    public native void nativeWivrnRenderResume(long ptr);
-    public native void nativeWivrnRendererShutdown(long ptr);
-    public native void nativeWivrnRenderEvent(long ptr, int event);
-    public native void nativeWivrnSubmitPin(long ptr, String pin);
-    public native void nativeUpdateLobbyTexture(long ptr, Bitmap bitmap);
-    public native void nativeWivrnConnect(long ptr, String hostname, int port, boolean tcpOnly);
-    public native void nativeWivrnDisconnect(long ptr);
-    public native void nativeWivrnRequestAppList(long ptr);
-    public native void nativeWivrnStartApp(long ptr, String appId);
-    public native void nativeWivrnRequestRunningApps(long ptr);
-    public native void nativeWivrnSetActiveApp(long ptr, int appId);
-    public native void nativeWivrnStopApp(long ptr, int appId);
-    public native boolean nativeDrainRumble(long ptr, int hand, float[] out);
 
     public void onLobbyTouch(float x, float y, boolean down, boolean pressed, float thumbstickY) {
         if (lobbyView != null) {
@@ -457,45 +338,65 @@ public class MainActivity extends VRActivity implements RenderInterface {
 
     public void onServerConnect(String hostname, int port, boolean tcpOnly) {
         Log.d(TAG, "Connect requested: " + hostname + ":" + port + " tcp=" + tcpOnly);
-        nativeWivrnConnect(nativePtr, hostname, port, tcpOnly);
+        nativeConnect(hostname, port, tcpOnly);
     }
 
     public void onPinEntered(String pin) {
         Log.d(TAG, "PIN entered: " + pin);
-        nativeWivrnSubmitPin(nativePtr, pin);
+        nativeSubmitPin(pin);
     }
 
     public void onPinCancelled() {
         Log.d(TAG, "PIN entry cancelled");
-        nativeWivrnSubmitPin(nativePtr, "");
+        nativeSubmitPin("");
     }
 
     public void onDisconnectRequested() {
         Log.d(TAG, "Disconnect requested");
-        nativeWivrnDisconnect(nativePtr);
+        nativeDisconnect();
     }
 
     public void onRequestAppList() {
         Log.d(TAG, "Requesting app list");
-        nativeWivrnRequestAppList(nativePtr);
+        nativeRequestAppList();
     }
 
     public void onStartApp(String appId) {
         Log.d(TAG, "Starting app: " + appId);
-        nativeWivrnStartApp(nativePtr, appId);
+        nativeStartApp(appId);
     }
 
     public void onRequestRunningApps() {
-        nativeWivrnRequestRunningApps(nativePtr);
+        nativeRequestRunningApps();
     }
 
     public void onSetActiveApp(int appId) {
         Log.d(TAG, "Setting active app: " + appId);
-        nativeWivrnSetActiveApp(nativePtr, appId);
+        nativeSetActiveApp(appId);
     }
 
     public void onStopApp(int appId) {
         Log.d(TAG, "Stopping app: " + appId);
-        nativeWivrnStopApp(nativePtr, appId);
+        nativeStopApp(appId);
     }
+
+    public native void nativeStart(Activity activity, Intent intent);
+    public native void nativeSurfaceChanged(Surface surface);
+    public native void nativeSurfaceDestroyed();
+    public native void nativeStop();
+    public native void nativePause();
+    public native void nativeResume();
+    public native void nativeNewIntent(Intent intent);
+    public native void nativeGetHeadData(float[] out);
+    public native void nativeControllerState(int hand, int conn, float[] sensor, float[] angVel, int[] keys);
+    public native boolean nativeDrainHaptic(int hand, float[] out);
+    public native void nativeSubmitPin(String pin);
+    public native void nativeConnect(String hostname, int port, boolean tcpOnly);
+    public native void nativeDisconnect();
+    public native void nativeRequestAppList();
+    public native void nativeStartApp(String appId);
+    public native void nativeRequestRunningApps();
+    public native void nativeSetActiveApp(int appId);
+    public native void nativeStopApp(int appId);
+    public native void nativeUpdateLobbyTexture(android.graphics.Bitmap bitmap);
 }

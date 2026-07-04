@@ -23,24 +23,22 @@ No sorry, this is not a usable client for now please us this ALVR port instead: 
 
 ### Todo before a 1.0
 
-#### Tweaks
-- [ ] Killing a applcation doesn't apply a visual indiactor.
-- [ ] Laucning a applcation doesnt apply a visual indiactor.
-
 #### Known bugs
 - [ ] Client will crash if you pair from the clint rather then server (tested on usb)
-- [ ] Reprojection is broken causing some people to get sick
 
-#### Cleanup
-- [X] Remove the copyed ALVR grid for something custom. 
-- [ ] Clean up the code base 
-- [ ] Orginize the files
+- [ ] Killing a applcation doesn't apply a visual indiactor.
+- [ ] Laucning a applcation doesnt apply a visual indiactor.
+- [ ] Right eye is slightly jittery compared to the left eye
+- [ ] Cursor on the UI doesn't work
+- [ ] Stream will crash while streaming and andriod will say the app is not responing even when it is witch breaks controller input and sends the user to a 2d view
+- [X] Reprojection is broken causing some people to get sick 
+- [X] UI gets super laggy when active (32bit)
 
 #### Features
 - [ ] Create a Gitlab pipeline for building.
+- [ ] Add i18n for Chinese Simplfed and English so we aint hardcoding.
 - [X] Implament Audio; Dekstop -> Client
 - [X] Implament controller haptics
-- [ ] Add i18n for Chinese Simplfed and English so we aint hardcoding.
 
 ### Getting the Pico SDK
 

@@ -1,5 +1,6 @@
 #include "pico_tracking.h"
 #include "wivrn_client_pico.h"
+#include "pico_sdk.h"
 
 #include <spdlog/spdlog.h>
 
@@ -160,6 +161,49 @@ void pico_native_tracker::clear_controller(int hand)
 	controllers[hand].connected = false;
 }
 
+void pico_native_tracker::update_controller_from_jni(int hand, int conn, const float * sensor,
+                                                     const float * ang_vel, const int * keys)
+{
+	if (hand < 0 || hand > 1)
+		return;
+
+	std::lock_guard lock(state_mutex);
+	auto & c = controllers[hand];
+
+	if (conn != 1)
+	{
+		c.connected = false;
+		return;
+	}
+
+	c.connected = true;
+
+	if (sensor)
+	{
+		c.orientation[0] = sensor[0];
+		c.orientation[1] = sensor[1];
+		c.orientation[2] = sensor[2];
+		c.orientation[3] = sensor[3];
+		c.position[0] = sensor[4];
+		c.position[1] = sensor[5];
+		c.position[2] = sensor[6];
+	}
+
+	if (keys)
+	{
+		c.trigger = keys[2];
+		c.touch[0] = keys[0];
+		c.touch[1] = keys[1];
+		c.battery = keys[10];
+		c.button_a = keys[6] != 0;
+		c.button_b = keys[7] != 0;
+		c.grip = keys[3] != 0;
+		c.thumbstick_click = keys[4] != 0;
+		c.menu = keys[5] != 0;
+		c.home = keys[11] != 0;
+	}
+}
+
 void pico_native_tracker::step_head_filter(const float pos[3], const neo2::quat & orient, uint64_t ts)
 {
 	if (head_filter_init)
@@ -251,14 +295,29 @@ void pico_native_tracker::run()
 
 		float h_orient[4], h_pos[3];
 		bool h_valid;
+
+		float qx, qy, qz, qw, px, py, pz, vfov, hfov;
+		int viewNum;
+		int rc = Pvr_GetMainSensorState(&qx, &qy, &qz, &qw, &px, &py, &pz, &vfov, &hfov, &viewNum);
+		h_valid = (rc >= 0);
+		static int sensor_log_count = 0;
+		if (sensor_log_count < 5 || (sensor_log_count % 300) == 0) {
+			spdlog::info("Pvr_GetMainSensorState rc={} q=({:.3f},{:.3f},{:.3f},{:.3f}) p=({:.3f},{:.3f},{:.3f})",
+				rc, qx, qy, qz, qw, px, py, pz);
+			sensor_log_count++;
+		}
+		if (h_valid)
 		{
+			h_orient[0] = qx; h_orient[1] = qy; h_orient[2] = qz; h_orient[3] = qw;
+			h_pos[0] = px; h_pos[1] = py; h_pos[2] = pz;
+
 			std::lock_guard lock(state_mutex);
-			h_valid = head_valid;
-			if (h_valid)
-			{
-				std::memcpy(h_orient, head_orient, sizeof(h_orient));
-				std::memcpy(h_pos, head_pos, sizeof(h_pos));
-			}
+			std::memcpy(head_orient, h_orient, sizeof(head_orient));
+			std::memcpy(head_pos, h_pos, sizeof(head_pos));
+			head_valid = true;
+
+			neo2::quat hq = neo2::normalize_quat({qx, qy, qz, qw});
+			step_head_filter(h_pos, hq, ts);
 		}
 
 		if (!h_valid)
@@ -284,6 +343,28 @@ void pico_native_tracker::run()
 			std::lock_guard lock(state_mutex);
 			cs[0] = controllers[0];
 			cs[1] = controllers[1];
+		}
+
+		static bool prev_home[2] = {false, false};
+		static uint64_t home_press_ts[2] = {0, 0};
+		for (int h = 0; h < 2; h++)
+		{
+			bool home_now = cs[h].connected && cs[h].home;
+			if (home_now && !prev_home[h])
+			{
+				home_press_ts[h] = ts;
+			}
+			else if (!home_now && prev_home[h])
+			{
+				if (home_press_ts[h] > 0 && ts - home_press_ts[h] > 800000000ULL)
+				{
+					spdlog::info("recenter triggered by controller {} home button long press", h);
+					Pvr_ResetSensor(PXR_RESET_ALL);
+					recenter_requested.store(true);
+				}
+				home_press_ts[h] = 0;
+			}
+			prev_home[h] = home_now;
 		}
 
 		for (int h = 0; h < 2; h++)
@@ -352,6 +433,8 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 	pkt.timestamp = to_xr_time(headset_ns + prediction_ns.load());
 	pkt.view_flags = XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_POSITION_VALID_BIT;
 	pkt.state_flags = 0;
+	if (recenter_requested.exchange(false))
+		pkt.state_flags = from_headset::tracking::recentered;
 
 	pkt.interaction_profiles[0] = interaction_profile::bytedance_pico_neo3_controller;
 	pkt.interaction_profiles[1] = interaction_profile::bytedance_pico_neo3_controller;
