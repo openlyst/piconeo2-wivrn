@@ -1,0 +1,114 @@
+# GitLab CI configuration for building the WiVRn Pico Neo 2 APK.
+#
+# Uses GitLab shared runners (no custom runner tags required).
+#
+# Pipeline variables (set via UI, API, or trigger):
+#   BUILD_STAGE       One of: alpha, debug, rc, release  (default: alpha)
+#   PVR_SDK_URL       URL to download the PvrSDK-Native archive
+#                     (zip/tar containing PvrSDK-Native-release.aar and jni/ dir)
+#   KEYSTORE_BASE64   Base64-encoded keystore for signing (rc/release)
+#   KEYSTORE_PASSWORD Password for the keystore
+#   KEY_ALIAS         Key alias (default: default_key)
+#   KEY_PASSWORD      Key password (default: same as KEYSTORE_PASSWORD)
+
+stages:
+  - build
+
+variables:
+  BUILD_STAGE: "alpha"
+  ANDROID_SDK_ROOT: "${CI_PROJECT_DIR}/.android-sdk"
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.caching=true"
+  GIT_STRATEGY: "fetch"
+  GIT_DEPTH: "20"
+
+.build_template: &build_template
+  stage: build
+  image: eclipse-temurin:17-jdk-jammy
+  tags: []  # empty = use any shared runner
+  cache:
+    key:
+      files:
+        - client/pico_native/build.gradle
+        - client/pico_native/gradle/wrapper/gradle-wrapper.properties
+      prefix: "gradle-${BUILD_STAGE}"
+    paths:
+      - client/pico_native/.gradle/caches
+      - client/pico_native/.gradle/wrapper
+      - client/pico_native/build/_deps
+      - .android-sdk
+    policy: pull-push
+  artifacts:
+    name: "wivrn-neo2-${BUILD_STAGE}-${CI_PIPELINE_ID}"
+    paths:
+      - build-output/*.apk
+    expire_in: 30 days
+    reports:
+      dotenv: build-output/build-info.env
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq unzip curl
+    - |
+      if [ ! -d "${ANDROID_SDK_ROOT}/cmdline-tools" ]; then
+        mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools"
+        cd "${ANDROID_SDK_ROOT}/cmdline-tools"
+        curl -fSL -o cmdline-tools.zip "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+        unzip -q cmdline-tools.zip
+        mv cmdline-tools latest
+        rm cmdline-tools.zip
+        cd - > /dev/null
+      fi
+    - export PATH="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${ANDROID_SDK_ROOT}/platform-tools:${PATH}"
+    - yes | sdkmanager --licenses > /dev/null 2>&1 || true
+    - sdkmanager "platform-tools" "platforms;android-34" > /dev/null 2>&1 || true
+    - chmod +x client/pico_native/gradlew
+  script:
+    - export PATH="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${ANDROID_SDK_ROOT}/platform-tools:${PATH}"
+    - ./scripts/build-apk.sh --stage "${BUILD_STAGE}"
+    - |
+      APK_FILE=$(ls build-output/*.apk 2>/dev/null | head -1)
+      if [ -n "$APK_FILE" ]; then
+        APK_NAME=$(basename "$APK_FILE")
+        echo "APK_FILE=${APK_NAME}" > build-output/build-info.env
+        echo "BUILD_STAGE=${BUILD_STAGE}" >> build-output/build-info.env
+      fi
+
+# --- Build jobs ---
+
+build:alpha:
+  <<: *build_template
+  variables:
+    BUILD_STAGE: "alpha"
+  rules:
+    - if: $BUILD_STAGE == "alpha"
+      when: always
+    - when: manual
+      allow_failure: true
+
+build:debug:
+  <<: *build_template
+  variables:
+    BUILD_STAGE: "debug"
+  rules:
+    - if: $BUILD_STAGE == "debug"
+      when: always
+    - when: manual
+      allow_failure: true
+
+build:rc:
+  <<: *build_template
+  variables:
+    BUILD_STAGE: "rc"
+  rules:
+    - if: $BUILD_STAGE == "rc"
+      when: always
+    - when: manual
+      allow_failure: true
+
+build:release:
+  <<: *build_template
+  variables:
+    BUILD_STAGE: "release"
+  rules:
+    - if: $BUILD_STAGE == "release"
+      when: always
+    - when: manual
+      allow_failure: true
