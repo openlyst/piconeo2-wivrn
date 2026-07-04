@@ -643,13 +643,15 @@ void pico_render_thread::run()
 				}
 			}
 
-			bool has_new_frame = false;
+			int new_count = 0;
 			for (int e = 0; e < 2; e++)
 			{
 				if (frames[e] && frames[e]->valid && frames[e]->hardware_buffer
 				    && frames[e]->frame_index != last_frame_idx[e])
-					has_new_frame = true;
+					new_count++;
 			}
+
+			bool has_new_frame = (new_count == 2);
 
 			if (has_new_frame || !prev_swap_valid)
 			{
@@ -659,30 +661,15 @@ void pico_render_thread::run()
 
 				blit_decoded_to_swap(frames);
 
-				int newer_eye = 0;
-				if (frames[0] && frames[0]->valid && frames[1] && frames[1]->valid)
-					newer_eye = (frames[0]->frame_index >= frames[1]->frame_index) ? 0 : 1;
-
 				for (int e = 0; e < 2; e++)
 				{
 					if (frames[e] && frames[e]->valid)
-						g_stutter.on_pose_update(e, frames[e]->frame_index, frames[e]->server_pose[e]);
-				}
-
-				if (frames[newer_eye] && frames[newer_eye]->valid)
-				{
-					for (int e = 0; e < 2; e++)
-						slots[swap_idx].pose[e] = frames[newer_eye]->server_pose[e];
-				}
-				else
-				{
-					for (int e = 0; e < 2; e++)
 					{
-						if (frames[e] && frames[e]->valid)
-							slots[swap_idx].pose[e] = frames[e]->server_pose[e];
-						else
-							slots[swap_idx].pose[e] = {};
+						g_stutter.on_pose_update(e, frames[e]->frame_index, frames[e]->server_pose[e]);
+						slots[swap_idx].pose[e] = frames[e]->server_pose[e];
 					}
+					else
+						slots[swap_idx].pose[e] = {};
 				}
 
 				if (slots[swap_idx].fence) glDeleteSync(slots[swap_idx].fence);
