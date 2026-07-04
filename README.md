@@ -5,7 +5,7 @@ Got questions or want to contribute? Join the Discord for dev discussion and hel
 
 ## Status
 ### Experimental
-This project has most everything created however with same issues.
+This project is really early and still has issues with the code. The project does work but wouldn't say playable. 
 
 ## Supported headsets
 - Pico Neo 2

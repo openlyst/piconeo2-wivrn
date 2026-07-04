@@ -1661,7 +1661,21 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 	}
 	else
 	{
-		g_client->blit_pipeline.draw(eye, ext_tex, {}, {}, {});
+		XrPosef current_pose{};
+		float h_orient[4], h_pos[3];
+		g_client->tracker.get_head_pose(h_orient, h_pos);
+		current_pose.orientation = {h_orient[0], h_orient[1], h_orient[2], h_orient[3]};
+		current_pose.position = {h_pos[0], h_pos[1], h_pos[2]};
+
+		XrPosef server_pose{};
+		XrFovf fov = g_client->eye_fov[eye];
+		if (decoded && decoded->valid)
+		{
+			server_pose = decoded->server_pose[eye];
+			fov = decoded->server_fov[eye];
+		}
+
+		g_client->blit_pipeline.draw(eye, ext_tex, server_pose, current_pose, fov);
 	}
 
 	glFlush();
