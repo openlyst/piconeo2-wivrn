@@ -67,7 +67,9 @@ extern "C" {
 bool Pvr_SetTrackingOriginType(int trackingOriginType);
 void PVR_CameraEndFrame(unsigned int eye, unsigned int texId);
 struct PvrPoseBlk { float v[22]; };
-void PVR_ChangeRenderPose(unsigned int eye, unsigned int pad, struct PvrPoseBlk blk);
+struct pvrSensorState { uint8_t data[296]; };
+pvrSensorState GetPredictedMainSensorState(double predictionTime);
+void PVR_ChangeRenderPose(unsigned int eye, const pvrSensorState * state);
 void Pvr_SetAsyncTimeWarp(unsigned char enable);
 void PVR_TimeWarpEvent(unsigned int eye);
 void *GetRenderEventFunc();
@@ -1661,21 +1663,7 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 	}
 	else
 	{
-		XrPosef current_pose{};
-		float h_orient[4], h_pos[3];
-		g_client->tracker.get_head_pose(h_orient, h_pos);
-		current_pose.orientation = {h_orient[0], h_orient[1], h_orient[2], h_orient[3]};
-		current_pose.position = {h_pos[0], h_pos[1], h_pos[2]};
-
-		XrPosef server_pose{};
-		XrFovf fov = g_client->eye_fov[eye];
-		if (decoded && decoded->valid)
-		{
-			server_pose = decoded->server_pose[eye];
-			fov = decoded->server_fov[eye];
-		}
-
-		g_client->blit_pipeline.draw(eye, ext_tex, server_pose, current_pose, fov);
+		g_client->blit_pipeline.draw(eye, ext_tex, {}, {}, {});
 	}
 
 	glFlush();
@@ -1687,6 +1675,54 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnFrameEnd(JNIEnv * env, jobject thiz, jlong ptr)
 {
+	if (!g_client)
+		return;
+
+	static bool atw_enabled = false;
+	if (!atw_enabled)
+	{
+		Pvr_SetAsyncTimeWarp(1);
+		atw_enabled = true;
+	}
+
+	for (int eye = 0; eye < 2; eye++)
+	{
+		auto decoded = g_client->render_frames[eye];
+		if (!decoded || !decoded->valid)
+			continue;
+
+		XrPosef pose = decoded->server_pose[eye];
+
+		float n2 = pose.orientation.x * pose.orientation.x
+		         + pose.orientation.y * pose.orientation.y
+		         + pose.orientation.z * pose.orientation.z
+		         + pose.orientation.w * pose.orientation.w;
+		if (n2 < 1e-6f)
+		{
+			pose.orientation = {0, 0, 0, 1};
+		}
+		else if (std::abs(n2 - 1.0f) > 1e-4f)
+		{
+			float inv = 1.0f / std::sqrt(n2);
+			pose.orientation.x *= inv;
+			pose.orientation.y *= inv;
+			pose.orientation.z *= inv;
+			pose.orientation.w *= inv;
+		}
+
+		pvrSensorState sensor;
+		memset(&sensor, 0, sizeof(sensor));
+		float * f = reinterpret_cast<float *>(sensor.data);
+		f[0] = pose.orientation.x;
+		f[1] = pose.orientation.y;
+		f[2] = pose.orientation.z;
+		f[3] = pose.orientation.w;
+		f[4] = pose.position.x;
+		f[5] = pose.position.y;
+		f[6] = pose.position.z;
+
+		PVR_ChangeRenderPose(eye, &sensor);
+	}
 }
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInitGL(JNIEnv * env, jobject thiz, jlong ptr, jint w, jint h)

@@ -12,45 +12,19 @@ varying vec2 v_uv;
 void main()
 {
     gl_Position = vec4(a_pos, 0.0, 1.0);
-    v_uv = a_uv;
+    v_uv = vec2(a_uv.x, 1.0 - a_uv.y);
 }
 )";
 
 static const char * frag_src = R"(
 #extension GL_OES_EGL_image_external : require
-precision highp float;
+precision mediump float;
 varying vec2 v_uv;
 uniform samplerExternalOES u_tex;
-uniform vec4 u_delta_q;
-uniform vec2 u_tan_fov;
-
-vec3 rotate_quat(vec3 v, vec4 q)
-{
-    return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
-}
 
 void main()
 {
-    // Convert UV to view direction in eye space
-    vec2 ndc = v_uv * 2.0 - 1.0;
-    vec3 dir_eye = normalize(vec3(ndc.x * u_tan_fov.x, ndc.y * u_tan_fov.y, 1.0));
-
-    // Rotate by delta quaternion (server -> current)
-    vec3 dir_reproj = rotate_quat(dir_eye, u_delta_q);
-
-    // Project back to UV
-    vec3 dir_norm = normalize(dir_reproj);
-    vec2 reproj_ndc = vec2(dir_norm.x / dir_norm.z, dir_norm.y / dir_norm.z);
-    vec2 reproj_uv = reproj_ndc / (u_tan_fov * 2.0) + 0.5;
-
-    if (reproj_uv.x < 0.0 || reproj_uv.x > 1.0 || reproj_uv.y < 0.0 || reproj_uv.y > 1.0)
-    {
-        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-    }
-    else
-    {
-        gl_FragColor = texture2D(u_tex, vec2(reproj_uv.x, 1.0 - reproj_uv.y));
-    }
+    gl_FragColor = texture2D(u_tex, v_uv);
 }
 )";
 
@@ -109,8 +83,6 @@ void pico_blit_pipeline::init(int w, int h)
 	pos_attrib = glGetAttribLocation(program, "a_pos");
 	uv_attrib = glGetAttribLocation(program, "a_uv");
 	tex_uniform = glGetUniformLocation(program, "u_tex");
-	delta_q_uniform = glGetUniformLocation(program, "u_delta_q");
-	tan_fov_uniform = glGetUniformLocation(program, "u_tan_fov");
 
 	float verts[] = {
 		-1.0f, -1.0f,  0.0f, 0.0f,
@@ -143,35 +115,6 @@ void pico_blit_pipeline::draw(int eye, GLuint src_texture,
 	glDisable(GL_CULL_FACE);
 
 	glUseProgram(program);
-
-	// Compute delta quaternion: q_delta = inverse(server) * current
-	// For unit quaternions, inverse = conjugate
-	float sx = server_pose.orientation.x;
-	float sy = server_pose.orientation.y;
-	float sz = server_pose.orientation.z;
-	float sw = server_pose.orientation.w;
-	float sn = std::sqrt(sx*sx + sy*sy + sz*sz + sw*sw);
-	if (sn > 1e-6f) { sx /= sn; sy /= sn; sz /= sn; sw /= sn; }
-
-	float cx = current_pose.orientation.x;
-	float cy = current_pose.orientation.y;
-	float cz = current_pose.orientation.z;
-	float cw = current_pose.orientation.w;
-	float cn = std::sqrt(cx*cx + cy*cy + cz*cz + cw*cw);
-	if (cn > 1e-6f) { cx /= cn; cy /= cn; cz /= cn; cw /= cn; }
-
-	// inverse(server) = conjugate(server) = (-sx, -sy, -sz, sw)
-	// q_delta = inverse(server) * current
-	float dx = -sw*cx + sx*cw - sy*cz + sz*cy;
-	float dy = -sw*cy + sx*cz + sy*cw - sz*cx;
-	float dz = -sw*cz - sx*cy + sy*cx + sz*cw;
-	float dw =  sw*cw + sx*cx + sy*cy + sz*cz;
-
-	glUniform4f(delta_q_uniform, dx, dy, dz, dw);
-
-	float tan_x = (-fov.angleLeft + fov.angleRight) * 0.5f;
-	float tan_y = (-fov.angleDown + fov.angleUp) * 0.5f;
-	glUniform2f(tan_fov_uniform, tan_x, tan_y);
 
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_EXTERNAL_OES, src_texture);

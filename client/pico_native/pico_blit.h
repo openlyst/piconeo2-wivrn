@@ -12,8 +12,6 @@ class pico_blit_pipeline
 	GLint pos_attrib = -1;
 	GLint uv_attrib = -1;
 	GLint tex_uniform = -1;
-	GLint delta_q_uniform = -1;
-	GLint tan_fov_uniform = -1;
 
 	int eye_width = 0;
 	int eye_height = 0;

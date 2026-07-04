@@ -1,7 +1,7 @@
 # Pico Neo 2 WiVRn
-A native VR client for the Pico Neo 2 and Pico Neo 2 Eye that allows PCVR gameplay over WiFi and USB for Linux.
+Native WiVRn client for the Pico Neo 2 and Pico Neo 2 Eye.
 
-Got questions or want to contribute? Join the Discord for dev discussion and help: [https://discord.gg/RQ9nSpmtfU](https://discord.gg/RQ9nSpmtfU) and head to the ``wivrn`` channel.
+Got questions or want to contribute? Join the Discord for dev discussion and help: [https://discord.gg/RQ9nSpmtfU](https://discord.gg/RQ9nSpmtfU).
 
 ## Status
 ### Experimental
@@ -14,21 +14,30 @@ No sorry, this is not a usable client for now please us this ALVR port instead: 
 - Pico Neo 2
 - Pico Neo 2 Eye* (not tested no eye tracking)
 
+## Features
+- [ ] 6/3 DOF Tracking
+- [ ] Controller inputs
+- [ ] Native client and UI (pvr)
+
 ### Todo before a 1.0
 
 #### Tweaks
 - [ ] Killing a applcation doesn't apply a visual indiactor.
 - [ ] Laucning a applcation doesnt apply a visual indiactor.
-- [ ] Remove the copyed ALVR grid for something custom. 
 
 #### Known bugs
 - [ ] Client will crash if you pair from the clint rather then server (tested on usb)
 - [ ] Reprojection is broken causing some people to get sick
 
+#### Cleanup
+- [ ] Remove the copyed ALVR grid for something custom. 
+- [ ] Clean up the code base 
+- [ ] Orginize the files
+
 #### Features
-- [ ] Create a gitlab builder
-- [ ] Implament audio
-- [ ] Implament controller haptics 
+- [ ] Create a Gitlab pipeline for building.
+- [ ] Implament Audio; Dekstop -> Client
+- [ ] Implament controller haptics
 - [ ] Add i18n for Chinese Simplfed and English so we aint hardcoding.
 
 ### Getting the Pico SDK
@@ -41,10 +50,9 @@ You need the Pico Neo 2 native SDK — it's not bundled here because of licensin
 4. Extract the `jni/` folder so you end up with:
    `external/pvrsdk-native/jni/arm64-v8a/libPvr_NativeSDK.so`
 
-If you forget this step, the build will yell at you with a message telling you
-exactly what to do.
+If you forget this step, the build will yell at you with a message telling you exactly what to do.
 
-### Building
+### Building macOS/Linux
 
 ```bash
 export ANDROID_HOME=/path/to/Android/sdk
@@ -56,27 +64,7 @@ export PATH="$JAVA_HOME/bin:$PATH"
 cd client/pico_native
 ./gradlew assembleDebug
 ```
-
-For a release build, just swap `assembleDebug` for `assembleRelease`.
-
 The APK ends up in `build/outputs/apk/debug/` (or `release/`).
-
-### Heads up about the first build
-
-The first build is slow — it downloads and compiles OpenSSL, Boost, spdlog,
-and the OpenXR loader from source. This takes a couple minutes. After that,
-the cache kicks in and rebuilds are quick.
-
-If you want to point the cache somewhere specific:
-
-```bash
-./gradlew assembleDebug -Pfetchcontent_base_dir=/path/to/shared-cache
-```
-
-### Building on Linux
-
-<!-- TODO: Write Linux build instructions -->
-
 
 ### Acknowledgments
 - [WiVRn](https://github.com/Vrixyz/WiVRn) - The main project that this is based on
