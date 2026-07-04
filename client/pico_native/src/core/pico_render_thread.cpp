@@ -632,32 +632,15 @@ void pico_render_thread::run()
 				frames[1] = client->latest_decoded_frames[1];
 			}
 
-			bool both_valid = frames[0] && frames[0]->valid && frames[0]->hardware_buffer
-			               && frames[1] && frames[1]->valid && frames[1]->hardware_buffer;
-			bool same_index = both_valid && frames[0]->frame_index == frames[1]->frame_index;
-
 			bool has_new_frame = false;
-			if (both_valid)
+			for (int e = 0; e < 2; e++)
 			{
-				if (same_index && frames[0]->frame_index != last_frame_idx[0])
+				if (frames[e] && frames[e]->valid && frames[e]->hardware_buffer
+				    && frames[e]->frame_index != last_frame_idx[e])
 					has_new_frame = true;
 			}
-			else
-			{
-				for (int e = 0; e < 2; e++)
-					if (frames[e] && frames[e]->valid && frames[e]->hardware_buffer
-					    && frames[e]->frame_index != last_frame_idx[e])
-						has_new_frame = true;
-			}
 
-			static int64_t stale_since = 0;
-			if (both_valid && !same_index && stale_since == 0)
-				stale_since = now_ns();
-			if (both_valid && same_index)
-				stale_since = 0;
-			bool stale_timeout = stale_since && (now_ns() - stale_since > 50000000LL);
-
-			if ((has_new_frame && (same_index || !both_valid || stale_timeout)) || !prev_swap_valid)
+			if (has_new_frame || !prev_swap_valid)
 			{
 				bool first_frame = !prev_swap_valid;
 				if (!first_frame)
