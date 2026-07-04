@@ -354,8 +354,9 @@ void pico_render_thread::blit_decoded_to_swap(std::shared_ptr<pico_decoded_frame
 		glClearColor(0, 0, 0, 1);
 		glClear(GL_COLOR_BUFFER_BIT);
 
-		if (client)
-			client->blit_pipeline.draw(eye, eye_textures[eye], {}, {}, {});
+		if (client && frames[eye])
+			client->blit_pipeline.draw(eye, eye_textures[eye],
+				frames[eye]->foveation[eye], frames[eye]->width, frames[eye]->height);
 	}
 
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);

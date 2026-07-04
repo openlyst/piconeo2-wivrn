@@ -26,6 +26,7 @@ struct pico_decoded_frame
 
 	XrPosef server_pose[2]{};
 	XrFovf server_fov[2]{};
+	std::array<wivrn::to_headset::foveation_parameter, 2> foveation;
 
 	~pico_decoded_frame()
 	{

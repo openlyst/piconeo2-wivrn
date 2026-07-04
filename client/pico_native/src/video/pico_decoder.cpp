@@ -494,6 +494,7 @@ void pico_video_decoder::on_image_available(AImageReader * reader)
 	{
 		frame->server_pose[i] = info.view_info.pose[i];
 		frame->server_fov[i] = info.view_info.fov[i];
+		frame->foveation[i] = info.view_info.foveation[i];
 	}
 
 	static int decoded_count = 0;
