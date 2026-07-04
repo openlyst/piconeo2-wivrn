@@ -18,6 +18,8 @@ No sorry, this is not a usable client for now please us this ALVR port instead: 
 - 6/3 DOF Tracking
 - Controller inputs
 - Native client and UI (pvr)
+- Vibrataion 
+- Audio
 
 ### Todo before a 1.0
 
@@ -36,8 +38,8 @@ No sorry, this is not a usable client for now please us this ALVR port instead: 
 
 #### Features
 - [ ] Create a Gitlab pipeline for building.
-- [ ] Implament Audio; Dekstop -> Client
-- [ ] Implament controller haptics
+- [X] Implament Audio; Dekstop -> Client
+- [X] Implament controller haptics
 - [ ] Add i18n for Chinese Simplfed and English so we aint hardcoding.
 
 ### Getting the Pico SDK
