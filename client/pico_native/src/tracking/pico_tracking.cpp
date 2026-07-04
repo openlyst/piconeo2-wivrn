@@ -200,6 +200,7 @@ void pico_native_tracker::update_controller_from_jni(int hand, int conn, const f
 		c.grip = keys[3] != 0;
 		c.thumbstick_click = keys[4] != 0;
 		c.menu = keys[5] != 0;
+		c.home = keys[11] != 0;
 	}
 }
 
@@ -344,6 +345,28 @@ void pico_native_tracker::run()
 			cs[1] = controllers[1];
 		}
 
+		static bool prev_home[2] = {false, false};
+		static uint64_t home_press_ts[2] = {0, 0};
+		for (int h = 0; h < 2; h++)
+		{
+			bool home_now = cs[h].connected && cs[h].home;
+			if (home_now && !prev_home[h])
+			{
+				home_press_ts[h] = ts;
+			}
+			else if (!home_now && prev_home[h])
+			{
+				if (home_press_ts[h] > 0 && ts - home_press_ts[h] > 800000000ULL)
+				{
+					spdlog::info("recenter triggered by controller {} home button long press", h);
+					Pvr_ResetSensor(PXR_RESET_ALL);
+					recenter_requested.store(true);
+				}
+				home_press_ts[h] = 0;
+			}
+			prev_home[h] = home_now;
+		}
+
 		for (int h = 0; h < 2; h++)
 		{
 			if (!cs[h].connected)
@@ -410,6 +433,8 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 	pkt.timestamp = to_xr_time(headset_ns + prediction_ns.load());
 	pkt.view_flags = XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_POSITION_VALID_BIT;
 	pkt.state_flags = 0;
+	if (recenter_requested.exchange(false))
+		pkt.state_flags = from_headset::tracking::recentered;
 
 	pkt.interaction_profiles[0] = interaction_profile::bytedance_pico_neo3_controller;
 	pkt.interaction_profiles[1] = interaction_profile::bytedance_pico_neo3_controller;

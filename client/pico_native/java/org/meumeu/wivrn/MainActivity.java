@@ -34,6 +34,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private WifiManager.MulticastLock multicastLock;
     private final float[] mRumble = new float[2];
     private final float[] mHeadData = new float[7];
+    private long mHomePressSinceMs = 0;
 
     private volatile boolean mCtrlRunning = false;
     private Thread mCtrlThread;
@@ -50,6 +51,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     private static final int EXT_JOY_X      = 0;
     private static final int EXT_JOY_Y      = 5;
+    private static final int EXT_HOME       = 10;
     private static final int EXT_MENU       = 15;
     private static final int EXT_TRIGGER    = 35;
     private static final int EXT_BATTERY    = 40;
@@ -227,7 +229,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                         try { legacy = ControllerClient.getControllerKeyEvent(h); } catch (Throwable t) {}
                         int gripAnalog = 0;
 
-                        int[] keys = new int[11];
+                        int[] keys = new int[12];
                         keys[0] = pick(ext, EXT_JOY_X);
                         keys[1] = pick(ext, EXT_JOY_Y);
                         keys[2] = pick(ext, EXT_TRIGGER);
@@ -239,6 +241,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                         keys[8] = pick(legacy, LEGACY_TRIG);
                         keys[9] = gripAnalog;
                         keys[10] = pick(ext, EXT_BATTERY);
+                        keys[11] = pick(ext, EXT_HOME);
 
                         int sendConn = mForeground ? conn : 0;
                         nativeControllerState(h, sendConn, sensor, angVel, keys);

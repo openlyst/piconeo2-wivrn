@@ -71,6 +71,7 @@ struct controller_sample
 	bool grip = false;
 	bool thumbstick_click = false;
 	bool menu = false;
+	bool home = false;
 };
 
 class pico_native_tracker
@@ -120,6 +121,7 @@ private:
 
 	// Prediction offset from server's tracking_control
 	std::atomic<int64_t> prediction_ns{0};
+	std::atomic<bool> recenter_requested{false};
 
 	float ctrl_lin_vel[2][3]{{0, 0, 0}, {0, 0, 0}};
 	float ctrl_prev_pos[2][3]{{0, 0, 0}, {0, 0, 0}};
