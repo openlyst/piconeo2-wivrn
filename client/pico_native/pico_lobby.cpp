@@ -233,16 +233,18 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 
 	glUseProgram(program);
 
-	// Per-eye projection
 	Mat4 proj = mat4_perspective(fov.angleLeft, fov.angleRight, fov.angleUp, fov.angleDown, 0.1f, 100.0f);
 
-	// Simple view: just translate to head position, no rotation
-	// Camera at head pos looking down -Z
-	Mat4 view = mat4_translate(-head_pos[0], -head_pos[1], -head_pos[2]);
+	// View = inverse(head rotation) * inverse(head translation + IPD offset)
+	neo2::quat hq = neo2::normalize_quat({head_orient[0], head_orient[1], head_orient[2], head_orient[3]});
 
-	// Apply IPD offset
 	float eye_offset = (eye == 0 ? -ipd * 0.5f : ipd * 0.5f);
-	view = mat4_mul(view, mat4_translate(-eye_offset, 0, 0));
+	float v[3] = {eye_offset, 0, 0};
+	float rotated[3];
+	neo2::rotate_vector(hq, v, rotated);
+
+	float eye_pos[3] = {head_pos[0] + rotated[0], head_pos[1] + rotated[1], head_pos[2] + rotated[2]};
+	Mat4 view = mat4_view(head_orient, eye_pos);
 
 	Mat4 vp = mat4_mul(proj, view);
 
@@ -256,6 +258,43 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	grid_vert_count /= (3 * sizeof(float));
 	glUniformMatrix4fv(mvp_uniform, 1, GL_FALSE, vp.m);
 	glDrawArrays(GL_LINES, 0, grid_vert_count);
+
+	// Draw controllers as small boxes
+	for (int h = 0; h < 2; h++)
+	{
+		if (!controllers[h].connected)
+			continue;
+
+		float pos_m[3] = {
+			controllers[h].position[0] * 0.001f,
+			controllers[h].position[1] * 0.001f,
+			controllers[h].position[2] * 0.001f,
+		};
+
+		Mat4 model = mat4_mul(mat4_translate(pos_m[0], pos_m[1], pos_m[2]), quat_to_mat4(controllers[h].orientation));
+		Mat4 mvp = mat4_mul(vp, model);
+
+		if (h == 0)
+			glUniform4f(color_uniform, 0.2f, 0.4f, 1.0f, 1.0f);
+		else
+			glUniform4f(color_uniform, 1.0f, 0.3f, 0.2f, 1.0f);
+
+		glBindBuffer(GL_ARRAY_BUFFER, controller_vbo);
+		glVertexAttribPointer(pos_attrib, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
+		glUniformMatrix4fv(mvp_uniform, 1, GL_FALSE, mvp.m);
+		glDrawArrays(GL_TRIANGLES, 0, 36);
+	}
+
+	// Head position marker (green)
+	{
+		Mat4 model = mat4_translate(head_pos[0], head_pos[1], head_pos[2]);
+		Mat4 mvp = mat4_mul(vp, model);
+		glUniform4f(color_uniform, 0.2f, 1.0f, 0.2f, 1.0f);
+		glBindBuffer(GL_ARRAY_BUFFER, controller_vbo);
+		glVertexAttribPointer(pos_attrib, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
+		glUniformMatrix4fv(mvp_uniform, 1, GL_FALSE, mvp.m);
+		glDrawArrays(GL_TRIANGLES, 0, 36);
+	}
 
 	glDisableVertexAttribArray(pos_attrib);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
