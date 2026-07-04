@@ -247,6 +247,12 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeNewIntent(JNIEnv
 				g_client->network_thread.join();
 		}
 
+		spdlog::info("Stopping connect thread for reconnection");
+		g_client->shutdown = true;
+		if (g_client->connect_thread.joinable())
+			g_client->connect_thread.join();
+		g_client->shutdown = false;
+
 		g_client->try_connect();
 	}
 }

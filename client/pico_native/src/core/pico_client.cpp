@@ -652,21 +652,33 @@ bool pico_client::connect_to_server()
 			}
 
 			spdlog::warn("Waiting for PIN from user dialog...");
-			auto status = future.wait_for(std::chrono::seconds(120));
-			if (status == std::future_status::timeout)
+			for (int i = 0; i < 1200; ++i)
 			{
-				spdlog::warn("PIN entry timed out, using 000000");
-				return "000000";
+				if (shutdown)
+				{
+					spdlog::warn("PIN entry interrupted by shutdown");
+					return "000000";
+				}
+				if (!pairing_pin.empty())
+				{
+					spdlog::warn("PIN set from URI while waiting: {}", pairing_pin);
+					return pairing_pin;
+				}
+				auto status = future.wait_for(std::chrono::milliseconds(100));
+				if (status == std::future_status::ready)
+				{
+					std::string pin = future.get();
+					if (pin.empty())
+					{
+						spdlog::warn("PIN entry cancelled, using 000000");
+						return "000000";
+					}
+					spdlog::warn("Using PIN from dialog: {}", pin);
+					return pin;
+				}
 			}
-
-			std::string pin = future.get();
-			if (pin.empty())
-			{
-				spdlog::warn("PIN entry cancelled, using 000000");
-				return "000000";
-			}
-			spdlog::warn("Using PIN from dialog: {}", pin);
-			return pin;
+			spdlog::warn("PIN entry timed out, using 000000");
+			return "000000";
 		};
 
 		spdlog::info("connect: resolving address");
@@ -839,7 +851,9 @@ void pico_client::try_connect()
 	{
 		if (session)
 			return;
+		shutdown = true;
 		connect_thread.join();
+		shutdown = false;
 	}
 
 	connect_thread = std::thread([this] {
