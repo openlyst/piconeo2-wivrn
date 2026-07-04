@@ -320,12 +320,7 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	glDepthFunc(GL_LEQUAL);
 	glDisable(GL_CULL_FACE);
 
-	bool any_grip = (controllers[0].connected && controllers[0].grip) ||
-	                (controllers[1].connected && controllers[1].grip);
-	if (any_grip)
-		glClearColor(0.0f, 0.8f, 0.0f, 1.0f);
-	else
-		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	if (eye == 0)
@@ -517,12 +512,12 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 	}
 
 	// Grip-to-follow: holding grip on a controller makes the panel follow it
+	// Like WiVRn: panel follows controller position and yaw only, stays upright
 	if (recentering_controller >= 0)
 	{
 		int h = recentering_controller;
 		if (controllers[h].connected && controllers[h].grip)
 		{
-			// Panel follows controller position and orientation
 			float cpos[3] = {
 				controllers[h].position[0] * 0.001f,
 				controllers[h].position[1] * 0.001f,
@@ -535,18 +530,23 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 				controllers[h].orientation[3],
 			});
 
-			// Apply the stored offset in controller's local frame
-			float rotated_offset[3];
-			neo2::rotate_vector(cq, recenter_offset_pos, rotated_offset);
-			panel_pos[0] = cpos[0] + rotated_offset[0];
-			panel_pos[1] = cpos[1] + rotated_offset[1];
-			panel_pos[2] = cpos[2] + rotated_offset[2];
-
-			// Controller forward direction in world
+			// Extract yaw only from controller orientation
 			float fwd[3] = {0, 0, -1};
 			float fwd_world[3];
 			neo2::rotate_vector(cq, fwd, fwd_world);
 			float controller_yaw = atan2f(fwd_world[0], fwd_world[2]);
+
+			// Build yaw-only quaternion
+			float half_yaw = controller_yaw * 0.5f;
+			neo2::quat yaw_only = {0, sinf(half_yaw), 0, cosf(half_yaw)};
+
+			// Apply offset using yaw-only rotation (panel stays upright)
+			float rotated_offset[3];
+			neo2::rotate_vector(yaw_only, recenter_offset_pos, rotated_offset);
+			panel_pos[0] = cpos[0] + rotated_offset[0];
+			panel_pos[1] = cpos[1] + rotated_offset[1];
+			panel_pos[2] = cpos[2] + rotated_offset[2];
+
 			panel_yaw = controller_yaw + recenter_offset_yaw;
 		}
 		else
@@ -556,7 +556,6 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 	}
 	else
 	{
-		// Check if either controller just started gripping
 		for (int h = 0; h < 2; h++)
 		{
 			if (controllers[h].connected && controllers[h].grip && !prev_grip[h])
@@ -573,21 +572,23 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 					controllers[h].orientation[3],
 				});
 
-				// Compute panel position relative to controller in controller's local frame
+				// Extract yaw only
+				float fwd[3] = {0, 0, -1};
+				float fwd_world[3];
+				neo2::rotate_vector(cq, fwd, fwd_world);
+				float controller_yaw = atan2f(fwd_world[0], fwd_world[2]);
+				float half_yaw = controller_yaw * 0.5f;
+				neo2::quat yaw_only = {0, sinf(half_yaw), 0, cosf(half_yaw)};
+
+				// Compute panel position relative to controller, rotated by yaw only
 				float delta[3] = {
 					panel_pos[0] - cpos[0],
 					panel_pos[1] - cpos[1],
 					panel_pos[2] - cpos[2],
 				};
-				// Inverse rotate delta by controller orientation
-				neo2::quat inv_cq = {cq.x, cq.y, cq.z, -cq.w};
-				neo2::rotate_vector(inv_cq, delta, recenter_offset_pos);
+				neo2::quat inv_yaw = {0, -sinf(half_yaw), 0, cosf(half_yaw)};
+				neo2::rotate_vector(inv_yaw, delta, recenter_offset_pos);
 
-				// Compute yaw offset
-				float fwd[3] = {0, 0, -1};
-				float fwd_world[3];
-				neo2::rotate_vector(cq, fwd, fwd_world);
-				float controller_yaw = atan2f(fwd_world[0], fwd_world[2]);
 				recenter_offset_yaw = panel_yaw - controller_yaw;
 
 				recentering_controller = h;
