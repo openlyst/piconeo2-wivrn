@@ -5,14 +5,14 @@
 # The PvrSDK is automatically downloaded from archive.org.
 #
 # Pipeline variables (optional, set via UI, API, or trigger):
-#   BUILD_STAGE       One of: alpha, debug  (default: alpha)
+#   BUILD_STAGE       One of: debug  (default: debug)
 #   PVR_SDK_URL       Override the PvrSDK download URL
 
 stages:
   - build
 
 variables:
-  BUILD_STAGE: "alpha"
+  BUILD_STAGE: "debug"
   ANDROID_SDK_ROOT: "${CI_PROJECT_DIR}/.android-sdk"
   GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.caching=true"
   GIT_STRATEGY: "fetch"
@@ -70,16 +70,6 @@ variables:
       fi
 
 # --- Build jobs ---
-
-build:alpha:
-  <<: *build_template
-  variables:
-    BUILD_STAGE: "alpha"
-  rules:
-    - if: $BUILD_STAGE == "alpha"
-      when: always
-    - when: manual
-      allow_failure: true
 
 build:debug:
   <<: *build_template
