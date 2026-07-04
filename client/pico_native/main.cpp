@@ -1202,7 +1202,27 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 	}
 	else
 	{
-		g_client->blit_pipeline.draw(eye, ext_tex);
+		float h_orient[4], h_pos[3];
+		g_client->tracker.get_head_pose(h_orient, h_pos);
+
+		XrPosef current_pose;
+		current_pose.orientation = {h_orient[0], h_orient[1], h_orient[2], h_orient[3]};
+		current_pose.position = {h_pos[0], h_pos[1], h_pos[2]};
+
+		const XrPosef & server_pose = decoded->server_pose[eye];
+		const XrFovf & server_fov = decoded->server_fov[eye];
+
+		static int warp_log_count = 0;
+		if (++warp_log_count % 300 == 0)
+		{
+			spdlog::info("WARP eye={}: server_q=({:.3f},{:.3f},{:.3f},{:.3f}) current_q=({:.3f},{:.3f},{:.3f},{:.3f}) fov=({:.3f},{:.3f},{:.3f},{:.3f})",
+				eye,
+				server_pose.orientation.x, server_pose.orientation.y, server_pose.orientation.z, server_pose.orientation.w,
+				current_pose.orientation.x, current_pose.orientation.y, current_pose.orientation.z, current_pose.orientation.w,
+				server_fov.angleLeft, server_fov.angleRight, server_fov.angleUp, server_fov.angleDown);
+		}
+
+		g_client->blit_pipeline.draw(eye, ext_tex, server_pose, current_pose, server_fov);
 	}
 
 	glFlush();

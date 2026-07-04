@@ -486,6 +486,12 @@ void pico_video_decoder::on_image_available(AImageReader * reader)
 	frame->frame_index = frame_index;
 	frame->valid = true;
 
+	for (int i = 0; i < 2; i++)
+	{
+		frame->server_pose[i] = info.view_info.pose[i];
+		frame->server_fov[i] = info.view_info.fov[i];
+	}
+
 	spdlog::warn("Decoded frame {} available ({}x{})", frame_index, desc.width, desc.height);
 
 	if (on_frame_decoded)

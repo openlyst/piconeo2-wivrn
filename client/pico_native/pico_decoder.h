@@ -25,6 +25,9 @@ struct pico_decoded_frame
 	uint64_t frame_index = 0;
 	bool valid = false;
 
+	XrPosef server_pose[2]{};
+	XrFovf server_fov[2]{};
+
 	~pico_decoded_frame()
 	{
 		if (hardware_buffer)
