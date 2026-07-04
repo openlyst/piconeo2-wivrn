@@ -1678,12 +1678,8 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnFrameEnd(JN
 	if (!g_client)
 		return;
 
-	static bool atw_enabled = false;
-	if (!atw_enabled)
-	{
-		Pvr_SetAsyncTimeWarp(1);
-		atw_enabled = true;
-	}
+	if (!g_client->streaming.load() || g_client->stream_ui_visible.load())
+		return;
 
 	for (int eye = 0; eye < 2; eye++)
 	{
@@ -1742,6 +1738,26 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInitGL(JNIE
 	g_client->blit_pipeline.init(w, h);
 	g_client->lobby.init(w, h);
 	load_egl_procs();
+
+	for (int e = 0; e < 2; e++)
+	{
+		for (int i = 0; i < g_client->kSwapLen; i++)
+		{
+			if (g_client->swap_tex[e][i] == 0)
+			{
+				glGenTextures(1, &g_client->swap_tex[e][i]);
+				glBindTexture(GL_TEXTURE_2D, g_client->swap_tex[e][i]);
+				glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+				glBindTexture(GL_TEXTURE_2D, 0);
+			}
+		}
+	}
+	if (g_client->stream_fbo == 0)
+		glGenFramebuffers(1, &g_client->stream_fbo);
 
 	g_client->gl_initialized = true;
 
