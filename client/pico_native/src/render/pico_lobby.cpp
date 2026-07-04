@@ -379,6 +379,15 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	Mat4 vp = mat4_mul(proj, view);
 
 	// Draw beam (pole underneath user fading into void)
+	// Alpha increases when user looks down so the beam becomes more solid
+	neo2::quat hq_draw = neo2::normalize_quat({head_orient[0], head_orient[1], head_orient[2], head_orient[3]});
+	float down_vec[3] = {0, -1, 0};
+	float down_world[3];
+	neo2::rotate_vector(hq_draw, down_vec, down_world);
+	float look_down = -down_world[1]; // 1.0 = looking straight down, -1.0 = up
+	if (look_down < 0) look_down = 0;
+	float look_down_factor = look_down * look_down; // quadratic so horizontal barely changes
+
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glDepthMask(GL_FALSE);
@@ -388,6 +397,9 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	{
 		float depth_frac = (float)i / (n_segs - 1);
 		float alpha = powf(1.0f - depth_frac, 1.5f);
+		// Boost alpha for deeper segments when looking down
+		alpha += look_down_factor * depth_frac * 0.7f;
+		if (alpha > 1.0f) alpha = 1.0f;
 		if (alpha < 0.02f)
 			alpha = 0.02f;
 
