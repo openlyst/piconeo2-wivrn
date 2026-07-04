@@ -25,11 +25,13 @@ No sorry, this is not a usable client for now please us this ALVR port instead: 
 
 #### Known bugs
 - [ ] Client will crash if you pair from the clint rather then server (tested on usb)
-- [ ] Reprojection is broken causing some people to get sick
-- [ ] UI gets super laggy whne active (32bit)
-- [ ] Stream will crash just when it wonts
+
 - [ ] Killing a applcation doesn't apply a visual indiactor.
 - [ ] Laucning a applcation doesnt apply a visual indiactor.
+- [ ] Right eye is slightly jittery compared to the left eye
+- [X] Reprojection is broken causing some people to get sick
+- [X] Stream will crash just when it wonts
+- [X] UI gets super laggy when active (32bit)
 
 #### Features
 - [ ] Create a Gitlab pipeline for building.
