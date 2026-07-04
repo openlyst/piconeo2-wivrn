@@ -1,10 +1,15 @@
 package org.meumeu.wivrn;
 
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.text.InputType;
 import android.util.Log;
 import android.view.Window;
 import android.view.WindowManager;
+import android.widget.EditText;
 
 import com.picovr.cvclient.CVController;
 import com.picovr.cvclient.CVControllerListener;
@@ -287,4 +292,33 @@ public class MainActivity extends VRActivity implements RenderInterface {
     public native void nativeWivrnRenderResume(long ptr);
     public native void nativeWivrnRendererShutdown(long ptr);
     public native void nativeWivrnRenderEvent(long ptr, int event);
+    public native void nativeWivrnSubmitPin(long ptr, String pin);
+
+    public void requestPinEntry() {
+        final Handler handler = new Handler(Looper.getMainLooper());
+        handler.post(() -> {
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle("Enter WiVRn PIN");
+            builder.setMessage("Enter the PIN displayed on the server dashboard");
+
+            final EditText input = new EditText(this);
+            input.setInputType(InputType.TYPE_CLASS_NUMBER);
+            input.setHint("6-digit PIN");
+            builder.setView(input);
+
+            builder.setPositiveButton("OK", (dialog, which) -> {
+                String pin = input.getText().toString().trim();
+                Log.d(TAG, "PIN entered: " + pin);
+                nativeWivrnSubmitPin(nativePtr, pin);
+            });
+
+            builder.setNegativeButton("Cancel", (dialog, which) -> {
+                Log.d(TAG, "PIN entry cancelled");
+                nativeWivrnSubmitPin(nativePtr, "");
+            });
+
+            builder.setCancelable(false);
+            builder.show();
+        });
+    }
 }

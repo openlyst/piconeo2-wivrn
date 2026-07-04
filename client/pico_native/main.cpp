@@ -56,6 +56,7 @@
 #include <thread>
 #include <cmath>
 #include <unistd.h>
+#include <future>
 #include <vector>
 
 using namespace std::chrono_literals;
@@ -206,6 +207,8 @@ struct pico_client
 	std::string pairing_pin;
 
 	crypto::key headset_keypair;
+
+	std::promise<std::string> pin_promise;
 
 	std::thread network_thread;
 	std::thread connect_thread;
@@ -584,11 +587,56 @@ bool pico_client::connect_to_server()
 		auto pin_enter = [this](int fd) -> std::string {
 			if (!pairing_pin.empty())
 			{
-				spdlog::warn("PIN entry requested - using {}", pairing_pin);
+				spdlog::warn("PIN entry requested - using PIN from URI: {}", pairing_pin);
 				return pairing_pin;
 			}
-			spdlog::warn("PIN entry requested - no PIN configured, using default 000000");
-			return "000000";
+
+			spdlog::warn("PIN entry requested - asking user via Java dialog");
+
+			pin_promise = std::promise<std::string>();
+			auto future = pin_promise.get_future();
+
+			if (vm && activity)
+			{
+				JNIEnv * env = nullptr;
+				bool attached = false;
+				if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
+				{
+					if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK)
+						attached = true;
+				}
+
+				if (env && activity)
+				{
+					jclass clazz = env->GetObjectClass(activity);
+					jmethodID method = env->GetMethodID(clazz, "requestPinEntry", "()V");
+					if (method)
+						env->CallVoidMethod(activity, method);
+					else
+						spdlog::error("Could not find requestPinEntry method");
+					env->DeleteLocalRef(clazz);
+				}
+
+				if (attached)
+					vm->DetachCurrentThread();
+			}
+
+			spdlog::warn("Waiting for PIN from user dialog...");
+			auto status = future.wait_for(std::chrono::seconds(120));
+			if (status == std::future_status::timeout)
+			{
+				spdlog::warn("PIN entry timed out, using 000000");
+				return "000000";
+			}
+
+			std::string pin = future.get();
+			if (pin.empty())
+			{
+				spdlog::warn("PIN entry cancelled, using 000000");
+				return "000000";
+			}
+			spdlog::warn("Using PIN from dialog: {}", pin);
+			return pin;
 		};
 
 		spdlog::info("connect: resolving address");
@@ -651,9 +699,13 @@ bool pico_client::connect_to_server()
 						session = std::make_unique<wivrn_session_pico>(
 							ip, server_port, tcp_only, headset_keypair, model_name, pin_enter);
 					}
+					catch (std::exception & e)
+					{
+						spdlog::warn("connect: IPv6 session creation failed: {}", e.what());
+					}
 					catch (...)
 					{
-						spdlog::warn("connect: IPv6 session creation failed");
+						spdlog::warn("connect: IPv6 session creation failed (unknown exception)");
 					}
 					if (session && session->is_handshake_ok())
 					{
@@ -808,7 +860,7 @@ void pico_client::try_connect()
 
 			if (!shutdown)
 			{
-				int delay_s = std::min(1 << std::min(attempt - 1, 4), 16);
+				int delay_s = std::min(1 << std::min(attempt - 1, 2), 4);
 				spdlog::info("Retrying in {} seconds...", delay_s);
 				for (int i = 0; i < delay_s * 10 && !shutdown; ++i)
 					std::this_thread::sleep_for(100ms);
@@ -1277,6 +1329,28 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRendererShu
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRenderEvent(JNIEnv * env, jobject thiz, jlong ptr, jint event)
 {
 	spdlog::info("nativeRenderEvent: {}", event);
+}
+
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnSubmitPin(JNIEnv * env, jobject thiz, jlong ptr, jstring pin)
+{
+	if (!g_client)
+		return;
+
+	const char * pin_str = env->GetStringUTFChars(pin, nullptr);
+	if (pin_str)
+	{
+		std::string pin_cpp(pin_str);
+		env->ReleaseStringUTFChars(pin, pin_str);
+		spdlog::warn("Received PIN from Java dialog: \"{}\"", pin_cpp);
+		try
+		{
+			g_client->pin_promise.set_value(pin_cpp);
+		}
+		catch (const std::future_error & e)
+		{
+			spdlog::error("Failed to set PIN promise: {}", e.what());
+		}
+	}
 }
 
 } // extern "C"

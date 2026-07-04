@@ -59,8 +59,6 @@ void wivrn_session_pico::handshake(T address, bool tcp_only, crypto::key & heads
                                    const std::string & model_name,
                                    std::function<std::string(int fd)> pin_enter)
 {
- try
- {
 	pollfd fds{};
 	fds.events = POLLIN;
 	fds.fd = control.get_fd();
@@ -145,16 +143,23 @@ void wivrn_session_pico::handshake(T address, bool tcp_only, crypto::key & heads
 			{
 				crypto::smp pin_check;
 
+				spdlog::warn("SMP: step1");
 				auto msg1 = pin_check.step1(pin);
 				send_control(from_headset::pin_check_1{msg1});
 
+				spdlog::warn("SMP: waiting for msg2");
 				auto msg2 = std::get<to_headset::pin_check_2>(receive(10s)).message;
 
+				spdlog::warn("SMP: step3");
 				auto msg3 = pin_check.step3(msg2);
 				send_control(from_headset::pin_check_3{msg3});
 
+				spdlog::warn("SMP: waiting for msg4");
 				auto msg4 = std::get<to_headset::pin_check_4>(receive(10s)).message;
+
+				spdlog::warn("SMP: step5");
 				bool pin_match = pin_check.step5(msg4);
+				spdlog::warn("SMP: pin_match={}", pin_match);
 
 				if (not pin_match)
 					throw std::runtime_error("Incorrect PIN");
@@ -169,9 +174,13 @@ void wivrn_session_pico::handshake(T address, bool tcp_only, crypto::key & heads
 		case to_headset::crypto_handshake::crypto_state::client_already_paired: {
 			spdlog::info("Using pin \"{}\"", pin);
 
+			spdlog::warn("handshake: deriving server key");
 			crypto::key server_key = crypto::key::from_public_key(crypto_handshake.public_key);
+			spdlog::warn("handshake: computing secrets");
 			secrets s{headset_keypair, server_key, pin};
+			spdlog::warn("handshake: setting AES keys");
 			control.set_aes_key_and_ivs(s.control_key, s.control_iv_to_headset, s.control_iv_from_headset);
+			spdlog::warn("handshake: AES keys set");
 
 			send_control(from_headset::crypto_handshake{});
 
@@ -188,11 +197,13 @@ void wivrn_session_pico::handshake(T address, bool tcp_only, crypto::key & heads
 		}
 
 		case to_headset::crypto_handshake::crypto_state::pairing_disabled:
-			spdlog::info("Pairing is disabled on server");
+			spdlog::warn("Pairing is disabled on server");
+			handshake_ok = false;
 			return;
 
 		case to_headset::crypto_handshake::crypto_state::incompatible_version:
 			spdlog::error("Incompatible protocol versions");
+			handshake_ok = false;
 			return;
 	}
 
@@ -210,18 +221,16 @@ void wivrn_session_pico::handshake(T address, bool tcp_only, crypto::key & heads
 		}
 
 		if (std::chrono::steady_clock::now() >= timeout)
+		{
+			spdlog::warn("handshake: timeout waiting for second handshake");
 			return;
+		}
 
 		if (stream)
 		{
 			stream.send(from_headset::handshake{});
 		}
 	}
- }
- catch (...)
- {
-	spdlog::warn("handshake: exception caught, handshake failed");
- }
 }
 
 wivrn_session_pico::wivrn_session_pico(in6_addr address, int port, bool tcp_only,
