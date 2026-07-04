@@ -79,9 +79,9 @@ android {
         if (project.hasProperty("signingKeyPassword")) {
             release {
                 storeFile file("ks.keystore")
-                keyAlias "default_key"
+                keyAlias project.hasProperty("keyAlias") ? keyAlias : "default_key"
                 storePassword signingKeyPassword
-                keyPassword signingKeyPassword
+                keyPassword project.hasProperty("keyPassword") ? keyPassword : signingKeyPassword
                 enableV2Signing = true
             }
         }
@@ -101,6 +101,9 @@ android {
         releaseDebuggable {
             initWith release
             debuggable true
+            if (!project.hasProperty("signingKeyPassword")) {
+                signingConfig = signingConfigs.debug
+            }
         }
 
         debug {

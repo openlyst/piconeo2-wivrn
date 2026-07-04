@@ -25,5 +25,6 @@ compile_commands.json
 !libopenxr_loader.so
 .alvr-ref/
 .wivrn-ref/
+.android-sdk/
 tools/keyframe_tool.html
 *.log
