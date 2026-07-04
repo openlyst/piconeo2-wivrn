@@ -900,10 +900,19 @@ public class WivrnLobbyView {
             + "See the GNU General Public License for more details.";
 
         textSmallPaint.setColor(Color.rgb(180, 190, 200));
-        for (String line : licenseText.split("\n")) {
-            canvas.drawText(line, x, y, textSmallPaint);
-            y += 28;
-        }
+        android.text.StaticLayout sl = new android.text.StaticLayout(
+            licenseText,
+            new android.text.TextPaint(textSmallPaint),
+            (int) w,
+            android.text.Layout.Alignment.ALIGN_NORMAL,
+            1.0f,
+            0.0f,
+            false
+        );
+        canvas.save();
+        canvas.translate(x, y);
+        sl.draw(canvas);
+        canvas.restore();
         textSmallPaint.setColor(Color.rgb(160, 170, 185));
     }
 
