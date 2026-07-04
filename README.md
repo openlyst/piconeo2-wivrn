@@ -23,24 +23,19 @@ No sorry, this is not a usable client for now please us this ALVR port instead: 
 
 ### Todo before a 1.0
 
-#### Tweaks
-- [ ] Killing a applcation doesn't apply a visual indiactor.
-- [ ] Laucning a applcation doesnt apply a visual indiactor.
-
 #### Known bugs
 - [ ] Client will crash if you pair from the clint rather then server (tested on usb)
 - [ ] Reprojection is broken causing some people to get sick
-
-#### Cleanup
-- [X] Remove the copyed ALVR grid for something custom. 
-- [ ] Clean up the code base 
-- [ ] Orginize the files
+- [ ] UI gets super laggy whne active (32bit)
+- [ ] Stream will crash just when it wonts
+- [ ] Killing a applcation doesn't apply a visual indiactor.
+- [ ] Laucning a applcation doesnt apply a visual indiactor.
 
 #### Features
 - [ ] Create a Gitlab pipeline for building.
+- [ ] Add i18n for Chinese Simplfed and English so we aint hardcoding.
 - [X] Implament Audio; Dekstop -> Client
 - [X] Implament controller haptics
-- [ ] Add i18n for Chinese Simplfed and English so we aint hardcoding.
 
 ### Getting the Pico SDK
 
