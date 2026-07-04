@@ -15,7 +15,6 @@
 #include <mutex>
 #include <span>
 #include <thread>
-#include <unordered_map>
 
 struct pico_decoded_frame
 {
@@ -27,6 +26,7 @@ struct pico_decoded_frame
 
 	XrPosef server_pose[2]{};
 	XrFovf server_fov[2]{};
+	std::array<wivrn::to_headset::foveation_parameter, 2> foveation;
 
 	~pico_decoded_frame()
 	{
@@ -69,18 +69,18 @@ private:
 	std::mutex frame_info_mutex;
 	std::vector<frame_info> pending_frame_infos;
 
-	std::mutex ts_mutex;
-	std::unordered_map<int64_t, uint64_t> ts_to_frame;
-
 	std::atomic<bool> exiting = false;
-	std::thread worker;
+	std::atomic<bool> flushing = false;
+	std::thread input_worker;
+	std::thread output_worker;
 
 	frame_callback on_frame_decoded;
 
 	void on_image_available(AImageReader * reader);
 	static void on_image_available_cb(void * ctx, AImageReader * reader);
 
-	void worker_loop();
+	void input_loop();
+	void output_loop();
 
 public:
 	pico_video_decoder(
@@ -91,6 +91,8 @@ public:
 	~pico_video_decoder();
 
 	void push_data(std::span<std::span<const uint8_t>> data, uint64_t frame_index, bool partial);
+
+	void flush();
 
 	void frame_completed(
 		const wivrn::from_headset::feedback & feedback,

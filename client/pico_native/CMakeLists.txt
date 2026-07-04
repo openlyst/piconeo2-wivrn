@@ -41,7 +41,7 @@ if(ANDROID)
     # Extract numeric API level from ANDROID_PLATFORM (e.g. android-26 -> 26)
     string(REGEX REPLACE "android-([0-9]+)" "\\1" ANDROID_API_LEVEL ${ANDROID_PLATFORM})
     set(NDK_TOOLCHAIN ${ANDROID_NDK}/toolchains/llvm/prebuilt/${ANDROID_HOST_TAG})
-    set(NDK_CC ${NDK_TOOLCHAIN}/bin/aarch64-linux-android${ANDROID_API_LEVEL}-clang)
+    set(NDK_CC ${NDK_TOOLCHAIN}/bin/armv7a-linux-androideabi${ANDROID_API_LEVEL}-clang)
     include(ExternalProject)
     ExternalProject_Add(openssl_ext
         URL https://github.com/openssl/openssl/releases/download/openssl-3.4.1/openssl-3.4.1.tar.gz
@@ -51,7 +51,7 @@ if(ANDROID)
             ANDROID_NDK_ROOT=${ANDROID_NDK}
             ANDROID_NDK_HOME=${ANDROID_NDK}
             PATH=${NDK_TOOLCHAIN}/bin:$ENV{PATH}
-            ./Configure android-arm64 no-shared no-tests no-asm
+            ./Configure android-arm no-shared no-tests no-asm
             --prefix=${OPENSSL_INSTALL_DIR}
             -D__ANDROID_API__=${ANDROID_API_LEVEL}
         BUILD_COMMAND make -j${CMAKE_BUILD_PARALLEL_LEVEL}
@@ -146,6 +146,7 @@ target_sources(wivrn-neo2 PRIVATE
     src/core/pico_client.cpp
     src/core/pico_jni.cpp
     src/core/pico_render.cpp
+    src/core/pico_render_thread.cpp
     src/net/wivrn_client_pico.cpp
     src/video/pico_decoder.cpp
     src/audio/pico_audio.cpp
@@ -178,7 +179,7 @@ find_library(ANDROID_LIBRARY NAMES android REQUIRED)
 find_library(MEDIA_LIBRARY NAMES mediandk REQUIRED)
 find_library(AAUDIO_LIBRARY NAMES aaudio REQUIRED)
 find_library(LOG_LIBRARY NAMES log REQUIRED)
-find_library(GLES_LIBRARY NAMES GLESv2 REQUIRED)
+find_library(GLES_LIBRARY NAMES GLESv3 REQUIRED)
 find_library(EGL_LIBRARY NAMES EGL REQUIRED)
 find_library(JNIGRAPHICS_LIBRARY NAMES jnigraphics REQUIRED)
 target_link_libraries(wivrn-neo2

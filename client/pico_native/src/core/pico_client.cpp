@@ -1,4 +1,6 @@
 #include "pico_client.h"
+#include "pico_stutter.h"
+#include "pico_sched.h"
 
 #include <spdlog/spdlog.h>
 
@@ -12,6 +14,8 @@
 
 using namespace std::chrono_literals;
 using namespace wivrn;
+
+stutter_detector g_stutter;
 
 pico_client::~pico_client()
 {
@@ -231,6 +235,7 @@ void pico_client::setup_decoders()
 		decoders[i] = std::make_unique<pico_video_decoder>(
 			*video_desc, i,
 			[this, i](std::shared_ptr<pico_decoded_frame> frame) {
+				g_stutter.on_frame_decoded(frame->frame_index, i);
 				std::lock_guard lock(decoded_frame_mutex);
 				latest_decoded_frames[i] = std::move(frame);
 				latest_decoded_frame_index.store(latest_decoded_frames[i]->frame_index);
@@ -256,7 +261,12 @@ void pico_client::setup_audio()
 
 void pico_client::handle_video_shard(to_headset::video_stream_data_shard && shard)
 {
-	streaming = true;
+	if (!streaming.load())
+	{
+		streaming = true;
+		stream_ui_visible = false;
+		spdlog::info("Streaming started, hiding lobby UI");
+	}
 	static int shard_count = 0;
 	++shard_count;
 
@@ -267,7 +277,7 @@ void pico_client::handle_video_shard(to_headset::video_stream_data_shard && shar
 	}
 
 	bool has_timing = shard.timing_info.has_value();
-	if (shard_count <= 20 || shard_count % 100 == 0)
+	if (shard_count <= 10 || shard_count % 1000 == 0)
 		spdlog::warn("Video shard #{}: stream={} frame={} shard_idx={} payload={} timing={}",
 			shard_count, (int)shard.stream_item_idx, shard.frame_idx,
 			shard.shard_idx, (int)shard.payload.size(), has_timing);
@@ -311,7 +321,10 @@ void pico_client::handle_video_shard(to_headset::video_stream_data_shard && shar
 		target->shards.resize(shard.shard_idx + 1);
 
 	bool is_last_shard = shard.timing_info.has_value();
+	bool is_first_shard = (shard.shard_idx == 0);
 	target->shards[shard.shard_idx] = std::move(shard);
+
+	g_stutter.on_shard_arrived(frame_idx, idx, is_first_shard, is_last_shard);
 
 	if (!is_last_shard)
 	{
@@ -343,7 +356,7 @@ void pico_client::handle_video_shard(to_headset::video_stream_data_shard && shar
 
 	static int recon_count = 0;
 	++recon_count;
-	if (recon_count <= 20 || recon_count % 100 == 0)
+	if (recon_count <= 10 || recon_count % 1000 == 0)
 	{
 		size_t total_size = 0;
 		for (auto & d : data) total_size += d.size();
@@ -361,6 +374,7 @@ void pico_client::handle_video_shard(to_headset::video_stream_data_shard && shar
 	feedback.sent_to_decoder = to_xr_time(now);
 
 	decoders[idx]->push_data(data, frame_idx, false);
+	g_stutter.on_pushed_to_decoder(frame_idx, idx);
 
 	feedback.received_from_decoder = to_xr_time(get_timestamp_ns());
 
@@ -516,6 +530,8 @@ void pico_client::handle_packet(to_headset::packets & packet)
 
 void pico_client::network_loop()
 {
+	pico_sched::pin_current_thread("video recv", 1, -4);
+
 	while (!shutdown && session)
 	{
 		try
@@ -636,21 +652,33 @@ bool pico_client::connect_to_server()
 			}
 
 			spdlog::warn("Waiting for PIN from user dialog...");
-			auto status = future.wait_for(std::chrono::seconds(120));
-			if (status == std::future_status::timeout)
+			for (int i = 0; i < 1200; ++i)
 			{
-				spdlog::warn("PIN entry timed out, using 000000");
-				return "000000";
+				if (shutdown)
+				{
+					spdlog::warn("PIN entry interrupted by shutdown");
+					return "000000";
+				}
+				if (!pairing_pin.empty())
+				{
+					spdlog::warn("PIN set from URI while waiting: {}", pairing_pin);
+					return pairing_pin;
+				}
+				auto status = future.wait_for(std::chrono::milliseconds(100));
+				if (status == std::future_status::ready)
+				{
+					std::string pin = future.get();
+					if (pin.empty())
+					{
+						spdlog::warn("PIN entry cancelled, using 000000");
+						return "000000";
+					}
+					spdlog::warn("Using PIN from dialog: {}", pin);
+					return pin;
+				}
 			}
-
-			std::string pin = future.get();
-			if (pin.empty())
-			{
-				spdlog::warn("PIN entry cancelled, using 000000");
-				return "000000";
-			}
-			spdlog::warn("Using PIN from dialog: {}", pin);
-			return pin;
+			spdlog::warn("PIN entry timed out, using 000000");
+			return "000000";
 		};
 
 		spdlog::info("connect: resolving address");
@@ -823,7 +851,9 @@ void pico_client::try_connect()
 	{
 		if (session)
 			return;
+		shutdown = true;
 		connect_thread.join();
+		shutdown = false;
 	}
 
 	connect_thread = std::thread([this] {

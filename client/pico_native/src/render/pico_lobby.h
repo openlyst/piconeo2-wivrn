@@ -2,6 +2,7 @@
 
 #include <GLES2/gl2.h>
 #include <vector>
+#include <mutex>
 #include "pico_tracking.h"
 
 class pico_lobby
@@ -27,6 +28,12 @@ class pico_lobby
 	int eye_width = 0;
 	int eye_height = 0;
 	bool initialized = false;
+
+	std::mutex tex_mutex;
+	std::vector<uint8_t> pending_tex_data;
+	int pending_tex_w = 0;
+	int pending_tex_h = 0;
+	bool tex_pending = false;
 
 	float panel_pos[3] = {0, 1.5f, -2.0f};
 	float panel_yaw = 0.0f;
@@ -70,4 +77,5 @@ public:
 	bool is_initialized() const { return initialized; }
 
 	void update_texture(int width, int height, const void * pixels);
+	void flush_pending_texture();
 };

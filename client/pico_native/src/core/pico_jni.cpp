@@ -1,12 +1,17 @@
 #include "pico_client.h"
+#include "pico_stutter.h"
+#include "pico_render_thread.h"
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/android_sink.h>
 
 #include <cstring>
 #include <cmath>
+#include <android/native_window_jni.h>
 
 using namespace wivrn;
+
+static pico_render_thread g_render_thread;
 
 std::optional<std::string> get_server_uri_from_intent(JNIEnv * env, jobject intent)
 {
@@ -112,13 +117,13 @@ std::optional<std::string> parse_pin_from_uri(const std::string & uri)
 
 extern "C" {
 
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInit(JNIEnv * env, jobject thiz, jlong ptr, jobject intent)
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeStart(JNIEnv * env, jobject thiz, jobject activity, jobject intent)
 {
 	static auto logger = spdlog::android_logger_mt("WiVRn-Pico", "WiVRn-Pico");
 	spdlog::set_default_logger(logger);
 	spdlog::set_level(spdlog::level::debug);
 
-	spdlog::info("WiVRn PvrSDK-Native client starting");
+	spdlog::info("WiVRn PvrSDK-Native client starting (ATW mode)");
 
 	auto * client = new pico_client();
 	g_client = client;
@@ -148,60 +153,70 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInit(JNIEnv
 		client->server_host = "";
 		client->server_port = 5353;
 	}
+
+	g_render_thread.start(client);
 }
 
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeGetHeadData(JNIEnv * env, jobject thiz, jlong ptr, jfloatArray out)
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeSurfaceChanged(JNIEnv * env, jobject thiz, jobject surface)
 {
-	if (!g_client || !out)
+	if (!surface)
+	{
+		g_render_thread.clear_surface();
 		return;
-	if (env->GetArrayLength(out) < 7)
-		return;
-	float buf[7];
-	g_client->tracker.get_head_pose(buf, buf + 4);
-	env->SetFloatArrayRegion(out, 0, 7, buf);
+	}
+
+	ANativeWindow * win = ANativeWindow_fromSurface(env, surface);
+	if (win)
+		g_render_thread.set_surface(win);
 }
 
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDestroy(JNIEnv * env, jobject thiz, jlong ptr)
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeSurfaceDestroyed(JNIEnv * env, jobject thiz)
 {
-	if (!g_client)
-		return;
-
-	g_client->shutdown = true;
-	g_client->running = false;
-
-	g_client->tracker.stop();
-
-	if (g_client->network_thread.joinable())
-		g_client->network_thread.join();
-
-	if (g_client->activity)
-		env->DeleteGlobalRef(g_client->activity);
-
-	delete g_client;
-	g_client = nullptr;
-
-	spdlog::info("WiVRn PvrSDK-Native client destroyed");
+	g_render_thread.clear_surface();
 }
 
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnPause(JNIEnv * env, jobject thiz, jlong ptr)
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeStop(JNIEnv * env, jobject thiz)
+{
+	g_render_thread.stop();
+
+	if (g_client)
+	{
+		g_client->shutdown = true;
+		g_client->running = false;
+
+		g_client->tracker.stop();
+
+		if (g_client->network_thread.joinable())
+			g_client->network_thread.join();
+
+		if (g_client->activity)
+			env->DeleteGlobalRef(g_client->activity);
+
+		delete g_client;
+		g_client = nullptr;
+
+		spdlog::info("WiVRn PvrSDK-Native client destroyed");
+	}
+}
+
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativePause(JNIEnv * env, jobject thiz)
 {
 	if (g_client)
 		g_client->running = false;
 	spdlog::info("nativePause");
 }
 
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnResume(JNIEnv * env, jobject thiz, jlong ptr)
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeResume(JNIEnv * env, jobject thiz)
 {
 	if (!g_client)
 		return;
 
 	g_client->try_connect();
-
 	g_client->running = true;
 	spdlog::info("nativeResume");
 }
 
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnNewIntent(JNIEnv * env, jobject thiz, jlong ptr, jobject intent)
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeNewIntent(JNIEnv * env, jobject thiz, jobject intent)
 {
 	if (!g_client)
 		return;
@@ -232,92 +247,82 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnNewIntent(J
 				g_client->network_thread.join();
 		}
 
+		spdlog::info("Stopping connect thread for reconnection");
+		g_client->shutdown = true;
+		if (g_client->connect_thread.joinable())
+			g_client->connect_thread.join();
+		g_client->shutdown = false;
+
 		g_client->try_connect();
 	}
 }
 
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnOnFrameBegin(
-	JNIEnv * env, jobject thiz, jlong ptr,
-	jfloatArray headOrient, jfloatArray headPos,
-	jfloatArray leftOrient, jfloatArray leftPos, jint leftTrigger, jintArray leftTouch, jint leftBattery,
-	jboolean leftA, jboolean leftB, jboolean leftGrip, jboolean leftClick, jboolean leftMenu,
-	jfloatArray rightOrient, jfloatArray rightPos, jint rightTrigger, jintArray rightTouch, jint rightBattery,
-	jboolean rightA, jboolean rightB, jboolean rightGrip, jboolean rightClick, jboolean rightMenu)
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeGetHeadData(
+	JNIEnv * env, jobject thiz, jfloatArray out)
+{
+	if (!g_client || !out)
+		return;
+	if (env->GetArrayLength(out) < 7)
+		return;
+
+	float orient[4] = {0, 0, 0, 1};
+	float pos[3] = {0, 0, 0};
+	g_client->tracker.get_head_pose(orient, pos);
+
+	float buf[7] = {
+		orient[0], orient[1], orient[2], orient[3],
+		pos[0], pos[1], pos[2]};
+	env->SetFloatArrayRegion(out, 0, 7, buf);
+}
+
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeControllerState(
+	JNIEnv * env, jobject thiz, jint hand, jint conn, jfloatArray sensor, jfloatArray angVel, jintArray keys)
 {
 	if (!g_client)
 		return;
 
-	float head_o[4], head_p[3];
-	env->GetFloatArrayRegion(headOrient, 0, 4, head_o);
-	env->GetFloatArrayRegion(headPos, 0, 3, head_p);
+	float sensor_buf[7] = {0};
+	if (sensor && env->GetArrayLength(sensor) >= 7)
+		env->GetFloatArrayRegion(sensor, 0, 7, sensor_buf);
 
-	static int frame_begin_count = 0;
-	bool log_this_frame = (++frame_begin_count % 60 == 1);
-	if (log_this_frame)
-		spdlog::warn("onFrameBegin #{}: pos=({:.3f},{:.3f},{:.3f})", frame_begin_count, head_p[0], head_p[1], head_p[2]);
+	int keys_buf[11] = {0};
+	if (keys && env->GetArrayLength(keys) >= 11)
+		env->GetIntArrayRegion(keys, 0, 11, keys_buf);
 
-	g_client->tracker.set_head_pose(head_o, head_p);
-
-	{
-		std::lock_guard lock(g_client->decoded_frame_mutex);
-		g_client->render_frames[0] = g_client->latest_decoded_frames[0];
-		g_client->render_frames[1] = g_client->latest_decoded_frames[1];
-	}
-
-	if (leftOrient && leftPos)
-	{
-		float o[4], p[3];
-		env->GetFloatArrayRegion(leftOrient, 0, 4, o);
-		env->GetFloatArrayRegion(leftPos, 0, 3, p);
-		int t[2] = {128, 128};
-		if (leftTouch)
-			env->GetIntArrayRegion(leftTouch, 0, 2, t);
-		g_client->tracker.update_controller(0, o, p, leftTrigger, t, leftBattery,
-			leftA, leftB, leftGrip, leftClick, leftMenu);
-	}
-	else
-	{
-		g_client->tracker.clear_controller(0);
-	}
-
-	if (rightOrient && rightPos)
-	{
-		float o[4], p[3];
-		env->GetFloatArrayRegion(rightOrient, 0, 4, o);
-		env->GetFloatArrayRegion(rightPos, 0, 3, p);
-		int t[2] = {128, 128};
-		if (rightTouch)
-			env->GetIntArrayRegion(rightTouch, 0, 2, t);
-		g_client->tracker.update_controller(1, o, p, rightTrigger, t, rightBattery,
-			rightA, rightB, rightGrip, rightClick, rightMenu);
-	}
-	else
-	{
-		g_client->tracker.clear_controller(1);
-	}
+	g_client->tracker.update_controller_from_jni(hand, conn,
+		sensor ? sensor_buf : nullptr,
+		nullptr,
+		keys ? keys_buf : nullptr);
 }
 
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRenderPause(JNIEnv * env, jobject thiz, jlong ptr)
+JNIEXPORT jboolean JNICALL Java_org_meumeu_wivrn_MainActivity_nativeDrainHaptic(
+	JNIEnv * env, jobject thiz, jint hand, jfloatArray out)
 {
-	spdlog::info("nativeRenderPause");
+	if (!g_client || hand < 0 || hand > 1 || !out)
+		return JNI_FALSE;
+	if (env->GetArrayLength(out) < 2)
+		return JNI_FALSE;
+
+	float amp;
+	int ms;
+	{
+		std::lock_guard lock(g_client->haptics_mutex);
+		auto & slot = g_client->rumble[hand];
+		if (!slot.active)
+			return JNI_FALSE;
+		amp = slot.amplitude;
+		ms = slot.duration_ms;
+		slot.active = false;
+		slot.amplitude = 0.f;
+		slot.duration_ms = 0;
+	}
+
+	float vals[2] = {amp, static_cast<float>(ms)};
+	env->SetFloatArrayRegion(out, 0, 2, vals);
+	return JNI_TRUE;
 }
 
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRenderResume(JNIEnv * env, jobject thiz, jlong ptr)
-{
-	spdlog::info("nativeRenderResume");
-}
-
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRendererShutdown(JNIEnv * env, jobject thiz, jlong ptr)
-{
-	spdlog::info("nativeRendererShutdown");
-}
-
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRenderEvent(JNIEnv * env, jobject thiz, jlong ptr, jint event)
-{
-	spdlog::info("nativeRenderEvent: {}", event);
-}
-
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnSubmitPin(JNIEnv * env, jobject thiz, jlong ptr, jstring pin)
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeSubmitPin(JNIEnv * env, jobject thiz, jstring pin)
 {
 	if (!g_client)
 		return;
@@ -339,7 +344,7 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnSubmitPin(J
 	}
 }
 
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnConnect(JNIEnv * env, jobject thiz, jlong ptr, jstring hostname, jint port, jboolean tcpOnly)
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeConnect(JNIEnv * env, jobject thiz, jstring hostname, jint port, jboolean tcpOnly)
 {
 	if (!g_client)
 		return;
@@ -366,7 +371,7 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnConnect(JNI
 	}
 }
 
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDisconnect(JNIEnv * env, jobject thiz, jlong ptr)
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeDisconnect(JNIEnv * env, jobject thiz)
 {
 	if (!g_client)
 		return;
@@ -376,7 +381,7 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDisconnect(
 	g_client->shutdown = true;
 }
 
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRequestAppList(JNIEnv * env, jobject thiz, jlong ptr)
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeRequestAppList(JNIEnv * env, jobject thiz)
 {
 	if (!g_client || !g_client->session)
 		return;
@@ -396,7 +401,7 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRequestAppL
 	}
 }
 
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnStartApp(JNIEnv * env, jobject thiz, jlong ptr, jstring appId)
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeStartApp(JNIEnv * env, jobject thiz, jstring appId)
 {
 	if (!g_client || !g_client->session)
 		return;
@@ -419,7 +424,7 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnStartApp(JN
 	}
 }
 
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRequestRunningApps(JNIEnv * env, jobject thiz, jlong ptr)
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeRequestRunningApps(JNIEnv * env, jobject thiz)
 {
 	if (!g_client || !g_client->session)
 		return;
@@ -434,7 +439,7 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRequestRunn
 	}
 }
 
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnSetActiveApp(JNIEnv * env, jobject thiz, jlong ptr, jint appId)
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeSetActiveApp(JNIEnv * env, jobject thiz, jint appId)
 {
 	if (!g_client || !g_client->session)
 		return;
@@ -452,7 +457,7 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnSetActiveAp
 	}
 }
 
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnStopApp(JNIEnv * env, jobject thiz, jlong ptr, jint appId)
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeStopApp(JNIEnv * env, jobject thiz, jint appId)
 {
 	if (!g_client || !g_client->session)
 		return;
@@ -468,33 +473,6 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnStopApp(JNI
 	{
 		spdlog::warn("Failed to stop application: {}", e.what());
 	}
-}
-
-JNIEXPORT jboolean JNICALL Java_org_meumeu_wivrn_MainActivity_nativeDrainRumble(
-	JNIEnv * env, jobject thiz, jlong ptr, jint hand, jfloatArray out)
-{
-	if (!g_client || hand < 0 || hand > 1 || !out)
-		return JNI_FALSE;
-	if (env->GetArrayLength(out) < 2)
-		return JNI_FALSE;
-
-	float amp;
-	int ms;
-	{
-		std::lock_guard lock(g_client->haptics_mutex);
-		auto & slot = g_client->rumble[hand];
-		if (!slot.active)
-			return JNI_FALSE;
-		amp = slot.amplitude;
-		ms = slot.duration_ms;
-		slot.active = false;
-		slot.amplitude = 0.f;
-		slot.duration_ms = 0;
-	}
-
-	float vals[2] = {amp, static_cast<float>(ms)};
-	env->SetFloatArrayRegion(out, 0, 2, vals);
-	return JNI_TRUE;
 }
 
 } // extern "C"
