@@ -523,8 +523,8 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 				controllers[h].position[2] * 0.001f,
 			};
 			neo2::quat cq = neo2::normalize_quat({
-				controllers[h].orientation[0],
-				controllers[h].orientation[1],
+				-controllers[h].orientation[0],
+				-controllers[h].orientation[1],
 				controllers[h].orientation[2],
 				controllers[h].orientation[3],
 			});
@@ -564,8 +564,8 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 					controllers[h].position[2] * 0.001f,
 				};
 				neo2::quat cq = neo2::normalize_quat({
-					controllers[h].orientation[0],
-					controllers[h].orientation[1],
+					-controllers[h].orientation[0],
+					-controllers[h].orientation[1],
 					controllers[h].orientation[2],
 					controllers[h].orientation[3],
 				});
@@ -674,9 +674,10 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 		};
 
 		// Controller forward direction (from orientation quaternion)
+		// Pico SDK uses a different coordinate convention; negate x and y (like ALVR)
 		neo2::quat cq = neo2::normalize_quat({
-			controllers[h].orientation[0],
-			controllers[h].orientation[1],
+			-controllers[h].orientation[0],
+			-controllers[h].orientation[1],
 			controllers[h].orientation[2],
 			controllers[h].orientation[3],
 		});
