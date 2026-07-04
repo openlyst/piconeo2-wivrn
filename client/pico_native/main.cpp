@@ -1303,7 +1303,10 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 		{
 			for (int h = 0; h < 2; h++)
 			{
-				if (g_client->lobby.lobby_touch_x[h] >= 0)
+				bool has_hit = g_client->lobby.lobby_touch_x[h] >= 0;
+				bool has_click = g_client->lobby.lobby_touch_down[h] || g_client->lobby.lobby_touch_pressed[h];
+
+				if (has_hit || has_click)
 				{
 					JNIEnv * env2 = nullptr;
 					bool attached = false;
@@ -1333,6 +1336,31 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 
 					break;
 				}
+			}
+			// If no controller is hitting the panel, send a hide event
+			if (g_client->lobby.lobby_touch_x[0] < 0 && g_client->lobby.lobby_touch_x[1] < 0)
+			{
+				JNIEnv * env2 = nullptr;
+				bool attached = false;
+				if (g_client->vm->GetEnv((void **)&env2, JNI_VERSION_1_6) != JNI_OK)
+				{
+					if (g_client->vm->AttachCurrentThread(&env2, nullptr) == JNI_OK)
+						attached = true;
+				}
+
+				if (env2 && g_client->activity)
+				{
+					jclass clazz = env2->GetObjectClass(g_client->activity);
+					jmethodID method = env2->GetMethodID(clazz, "onLobbyTouch", "(FFZZ)V");
+					if (method)
+					{
+						env2->CallVoidMethod(g_client->activity, method, -1.0f, -1.0f, false, false);
+					}
+					env2->DeleteLocalRef(clazz);
+				}
+
+				if (attached)
+					g_client->vm->DetachCurrentThread();
 			}
 		}
 	}

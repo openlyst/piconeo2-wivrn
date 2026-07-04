@@ -664,7 +664,12 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 		last_hit[h].valid = false;
 
 		if (!controllers[h].connected)
+		{
+			lobby_touch_x[h] = -1;
+			lobby_touch_down[h] = false;
+			lobby_touch_pressed[h] = false;
 			continue;
+		}
 
 		// Controller position in meters
 		float origin[3] = {

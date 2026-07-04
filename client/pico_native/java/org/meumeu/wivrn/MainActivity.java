@@ -178,6 +178,11 @@ public class MainActivity extends VRActivity implements RenderInterface {
                 if (sensor != null && sensor.length >= 7) {
                     leftOrient = new float[]{sensor[0], sensor[1], sensor[2], sensor[3]};
                     leftPose = new float[]{sensor[4], sensor[5], sensor[6]};
+                    // Filter out default/fake positions from Pico SDK
+                    if (Math.abs(leftPose[0] - 100.0f) < 1.0f && Math.abs(leftPose[2] + 300.0f) < 1.0f) {
+                        leftOrient = null;
+                        leftPose = null;
+                    }
                 }
             } catch (Throwable t) {}
         }
@@ -187,6 +192,11 @@ public class MainActivity extends VRActivity implements RenderInterface {
                 if (sensor != null && sensor.length >= 7) {
                     rightOrient = new float[]{sensor[0], sensor[1], sensor[2], sensor[3]};
                     rightPose = new float[]{sensor[4], sensor[5], sensor[6]};
+                    // Filter out default/fake positions from Pico SDK
+                    if (Math.abs(rightPose[0] - 100.0f) < 1.0f && Math.abs(rightPose[2] + 300.0f) < 1.0f) {
+                        rightOrient = null;
+                        rightPose = null;
+                    }
                 }
             } catch (Throwable t) {}
         }
