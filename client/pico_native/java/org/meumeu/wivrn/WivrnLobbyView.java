@@ -1,7 +1,10 @@
 package org.meumeu.wivrn;
 
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
+import android.net.Uri;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -958,16 +961,41 @@ public class WivrnLobbyView {
         return y + 50;
     }
 
+    private RectF gitlabBtnRect;
+
     private void renderAbout(float x, float w) {
-        float y = 50;
+        float y = 30;
         canvas.drawText("WiVRn", x, y + 30, textLargePaint);
         y += 70;
 
-        canvas.drawText("VR streaming client for Pico Neo2", x, y, textPaint);
+        canvas.drawText("Unofficial WiVRn Port", x, y, textPaint);
         y += 40;
+
+        canvas.drawText("VR streaming client for Pico Neo2", x, y, textSmallPaint);
+        y += 35;
         canvas.drawText("Based on WiVRn by Guillaume Meunier & Patrick Nicolas", x, y, textSmallPaint);
         y += 35;
+        canvas.drawText("Maintainer: HttpAnimations", x, y, textSmallPaint);
+        y += 35;
         canvas.drawText("Licensed under GPLv3", x, y, textSmallPaint);
+        y += 35;
+
+        String versionName = "";
+        int versionCode = 0;
+        try {
+            PackageInfo pi = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
+            versionName = pi.versionName;
+            versionCode = pi.versionCode;
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to get package info", e);
+        }
+        canvas.drawText("Version " + versionName + " (Build " + versionCode + ")", x, y, textSmallPaint);
+        y += 60;
+
+        gitlabBtnRect = new RectF(x, y, x + 280, y + BUTTON_HEIGHT);
+        boolean gitlabHover = touchDown && gitlabBtnRect.contains(touchX, touchY);
+        canvas.drawRoundRect(gitlabBtnRect, 10, 10, gitlabHover ? buttonHoverBgPaint : buttonBgPaint);
+        drawCenteredText("GitLab Repository", gitlabBtnRect, textPaint);
     }
 
     private void renderLicenses(float x, float w) {
@@ -1596,9 +1624,24 @@ public class WivrnLobbyView {
             case TAB_SETTINGS:
                 handleSettingsClick(x, adjustedY);
                 break;
+            case TAB_ABOUT:
+                handleAboutClick(x, adjustedY);
+                break;
             case TAB_EXIT:
                 handleExitClick(x, adjustedY);
                 break;
+        }
+    }
+
+    private void handleAboutClick(float x, float y) {
+        if (gitlabBtnRect != null && gitlabBtnRect.contains(x, y)) {
+            try {
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://gitlab.com/HttpAnimations/piconeo2-wivrn"));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(intent);
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to open GitLab URL", e);
+            }
         }
     }
 
