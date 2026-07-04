@@ -33,6 +33,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private WivrnLobbyView lobbyView;
     private WifiManager.MulticastLock multicastLock;
     private final float[] mRumble = new float[2];
+    private final float[] mHeadData = new float[7];
 
     private volatile boolean mCtrlRunning = false;
     private Thread mCtrlThread;
@@ -215,8 +216,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 for (int h = 0; h < 2; h++) {
                     try {
                         int conn = ControllerClient.getControllerConnectionState(h);
+                        nativeGetHeadData(mHeadData);
                         float[] sensor = null;
-                        try { sensor = ControllerClient.getControllerSensorState(h, new float[7]); } catch (Throwable t) {}
+                        try { sensor = ControllerClient.getControllerSensorState(h, mHeadData); } catch (Throwable t) {}
                         float[] angVel = null;
                         try { angVel = ControllerClient.getControllerAngularVelocity(h); } catch (Throwable t) {}
                         int[] ext = null;
@@ -382,6 +384,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     public native void nativePause();
     public native void nativeResume();
     public native void nativeNewIntent(Intent intent);
+    public native void nativeGetHeadData(float[] out);
     public native void nativeControllerState(int hand, int conn, float[] sensor, float[] angVel, int[] keys);
     public native boolean nativeDrainHaptic(int hand, float[] out);
     public native void nativeSubmitPin(String pin);

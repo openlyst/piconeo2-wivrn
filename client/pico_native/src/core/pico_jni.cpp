@@ -251,6 +251,24 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeNewIntent(JNIEnv
 	}
 }
 
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeGetHeadData(
+	JNIEnv * env, jobject thiz, jfloatArray out)
+{
+	if (!g_client || !out)
+		return;
+	if (env->GetArrayLength(out) < 7)
+		return;
+
+	float orient[4] = {0, 0, 0, 1};
+	float pos[3] = {0, 0, 0};
+	g_client->tracker.get_head_pose(orient, pos);
+
+	float buf[7] = {
+		orient[0], orient[1], orient[2], orient[3],
+		pos[0], pos[1], pos[2]};
+	env->SetFloatArrayRegion(out, 0, 7, buf);
+}
+
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeControllerState(
 	JNIEnv * env, jobject thiz, jint hand, jint conn, jfloatArray sensor, jfloatArray angVel, jintArray keys)
 {
