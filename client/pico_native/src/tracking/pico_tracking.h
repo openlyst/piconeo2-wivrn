@@ -94,6 +94,8 @@ public:
 	void update_controller(int hand, const float orient[4], const float pos[3],
 	                       int trigger, const int touch[2], int battery,
 	                       bool a, bool b, bool grip, bool click, bool menu);
+	void update_controller_from_jni(int hand, int conn, const float * sensor,
+	                                const float * ang_vel, const int * keys);
 	void clear_controller(int hand);
 
 private:

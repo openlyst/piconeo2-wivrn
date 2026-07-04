@@ -52,6 +52,10 @@ android {
         compileSdkVersion 34
         targetSdkVersion 32
 
+        ndk {
+            abiFilters 'armeabi-v7a'
+        }
+
         versionName = project.hasProperty('wivrn_version') ? wivrn_version : "1.0"
         versionCode = project.hasProperty('wivrn_versionCode') ? wivrn_versionCode.toInteger() : 1
         def fetchcontentBaseDir = project.hasProperty('fetchcontent_base_dir') ? ['-DFETCHCONTENT_BASE_DIR=' + fetchcontent_base_dir] : []
@@ -66,7 +70,7 @@ android {
                           '-DCMAKE_ANDROID_ASSETS_DIRECTORIES=' + layout.buildDirectory.dir("assets").get().asFile] +
                           fetchcontentBaseDir
                 resValue "string", "app_name", "WiVRn Neo2"
-                abiFilters 'arm64-v8a'
+                abiFilters 'armeabi-v7a'
             }
         }
     }
@@ -116,6 +120,11 @@ android {
                 arguments '-DANDROID_LIB_DIRECTORIES=' + layout.buildDirectory.dir("libs${variant.name.capitalize()}").get().asFile
             }
         }
+    }
+
+    packagingOptions {
+        exclude 'lib/arm64-v8a/**'
+        pickFirst 'lib/armeabi-v7a/libPvr_NativeSDK.so'
     }
 
     sourceSets {
