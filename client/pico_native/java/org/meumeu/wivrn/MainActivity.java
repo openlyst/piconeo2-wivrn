@@ -1,7 +1,9 @@
 package org.meumeu.wivrn;
 
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Window;
@@ -34,6 +36,7 @@ public class MainActivity extends VRActivity implements RenderInterface {
 
     private long nativePtr;
     private WivrnLobbyView lobbyView;
+    private WifiManager.MulticastLock multicastLock;
 
     private CVControllerListener cvListener = new CVControllerListener() {
         @Override
@@ -93,6 +96,15 @@ public class MainActivity extends VRActivity implements RenderInterface {
         cvManager.setListener(cvListener);
 
         lobbyView = new WivrnLobbyView(this);
+
+        try {
+            WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            multicastLock = wifi.createMulticastLock("wivrn-mdns");
+            multicastLock.setReferenceCounted(false);
+            multicastLock.acquire();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to acquire multicast lock", e);
+        }
 
         try {
             nativeWivrnInit(nativePtr, getIntent());

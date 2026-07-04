@@ -9,13 +9,18 @@ import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
+import android.net.nsd.NsdManager;
+import android.net.nsd.NsdServiceInfo;
 import android.util.Log;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.net.InetAddress;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class WivrnLobbyView {
     private static final String TAG = "WiVRn-Pico";
@@ -103,15 +108,25 @@ public class WivrnLobbyView {
         int port;
         boolean tcpOnly;
         boolean manual;
+        boolean discovered;
 
         ServerEntry(String name, String hostname, int port, boolean tcpOnly, boolean manual) {
+            this(name, hostname, port, tcpOnly, manual, false);
+        }
+
+        ServerEntry(String name, String hostname, int port, boolean tcpOnly, boolean manual, boolean discovered) {
             this.name = name;
             this.hostname = hostname;
             this.port = port;
             this.tcpOnly = tcpOnly;
             this.manual = manual;
+            this.discovered = discovered;
         }
     }
+
+    private NsdManager nsdManager;
+    private NsdManager.DiscoveryListener nsdListener;
+    private final Map<String, ServerEntry> discoveredServers = new HashMap<>();
 
     public WivrnLobbyView(Context context) {
         this.context = context;
@@ -122,6 +137,110 @@ public class WivrnLobbyView {
         initPaints();
         loadServers();
         loadSettings();
+        startDiscovery();
+    }
+
+    public void startDiscovery() {
+        try {
+            if (nsdManager == null) {
+                nsdManager = (NsdManager) context.getSystemService(Context.NSD_SERVICE);
+            }
+            if (nsdListener != null) {
+                nsdManager.stopServiceDiscovery(nsdListener);
+                nsdListener = null;
+            }
+            nsdListener = new NsdManager.DiscoveryListener() {
+                @Override
+                public void onStartDiscoveryFailed(String serviceType, int errorCode) {
+                    Log.e(TAG, "NSD discovery start failed: " + errorCode);
+                }
+
+                @Override
+                public void onStopDiscoveryFailed(String serviceType, int errorCode) {
+                    Log.e(TAG, "NSD discovery stop failed: " + errorCode);
+                }
+
+                @Override
+                public void onDiscoveryStarted(String serviceType) {
+                    Log.i(TAG, "NSD discovery started for " + serviceType);
+                }
+
+                @Override
+                public void onDiscoveryStopped(String serviceType) {
+                    Log.i(TAG, "NSD discovery stopped for " + serviceType);
+                }
+
+                @Override
+                public void onServiceFound(NsdServiceInfo serviceInfo) {
+                    Log.i(TAG, "NSD service found: " + serviceInfo.getServiceName());
+                    nsdManager.resolveService(serviceInfo, new NsdManager.ResolveListener() {
+                        @Override
+                        public void onResolveFailed(NsdServiceInfo serviceInfo, int errorCode) {
+                            Log.e(TAG, "NSD resolve failed: " + serviceInfo.getServiceName() + " err=" + errorCode);
+                        }
+
+                        @Override
+                        public void onServiceResolved(NsdServiceInfo serviceInfo) {
+                            String name = serviceInfo.getServiceName();
+                            InetAddress host = serviceInfo.getHost();
+                            int port = serviceInfo.getPort();
+                            String hostname = host != null ? host.getHostAddress() : serviceInfo.getServiceName();
+
+                            Map<String, byte[]> txt = serviceInfo.getAttributes();
+                            boolean tcpOnly = false;
+                            if (txt != null && txt.containsKey("tcp_only")) {
+                                byte[] val = txt.get("tcp_only");
+                                if (val != null && new String(val).equals("1"))
+                                    tcpOnly = true;
+                            }
+
+                            ServerEntry entry = new ServerEntry(name, hostname, port, tcpOnly, false, true);
+                            synchronized (discoveredServers) {
+                                discoveredServers.put(name, entry);
+                            }
+                            Log.i(TAG, "NSD resolved: " + name + " at " + hostname + ":" + port);
+                            markDirty();
+                        }
+                    });
+                }
+
+                @Override
+                public void onServiceLost(NsdServiceInfo serviceInfo) {
+                    Log.i(TAG, "NSD service lost: " + serviceInfo.getServiceName());
+                    synchronized (discoveredServers) {
+                        discoveredServers.remove(serviceInfo.getServiceName());
+                    }
+                    markDirty();
+                }
+            };
+            nsdManager.discoverServices("_wivrn._tcp", NsdManager.PROTOCOL_DNS_SD, nsdListener);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to start NSD discovery", e);
+        }
+    }
+
+    public void stopDiscovery() {
+        try {
+            if (nsdManager != null && nsdListener != null) {
+                nsdManager.stopServiceDiscovery(nsdListener);
+                nsdListener = null;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to stop NSD discovery", e);
+        }
+    }
+
+    private List<ServerEntry> getAllServers() {
+        List<ServerEntry> all = new ArrayList<>();
+        synchronized (discoveredServers) {
+            all.addAll(discoveredServers.values());
+        }
+        for (ServerEntry s : servers) {
+            if (!all.stream().anyMatch(d -> d.hostname.equals(s.hostname) && d.port == s.port)) {
+                all.add(s);
+            }
+        }
+        return all;
     }
 
     private void initPaints() {
@@ -351,8 +470,9 @@ public class WivrnLobbyView {
 
         y += 30;
 
-        for (int i = 0; i < servers.size(); i++) {
-            ServerEntry s = servers.get(i);
+        List<ServerEntry> allServers = getAllServers();
+        for (int i = 0; i < allServers.size(); i++) {
+            ServerEntry s = allServers.get(i);
             float cardY = y + i * (CARD_HEIGHT + 10);
             RectF card = new RectF(x, cardY, x + w, cardY + CARD_HEIGHT);
 
@@ -360,6 +480,12 @@ public class WivrnLobbyView {
 
             canvas.drawText(s.name, x + 20, cardY + 35, textPaint);
             canvas.drawText(s.hostname + ":" + s.port + (s.tcpOnly ? " (TCP)" : ""), x + 20, cardY + 65, textSmallPaint);
+
+            if (s.discovered) {
+                textSmallPaint.setColor(Color.rgb(80, 200, 120));
+                canvas.drawText("● discovered", x + 20, cardY + 88, textSmallPaint);
+                textSmallPaint.setColor(Color.rgb(160, 170, 185));
+            }
 
             RectF connectBtn = new RectF(x + w - BUTTON_WIDTH - 20, cardY + 20, x + w - 20, cardY + 20 + BUTTON_HEIGHT);
             boolean connectHover = touchDown && connectBtn.contains(touchX, touchY);
@@ -774,8 +900,9 @@ public class WivrnLobbyView {
             return;
         }
 
-        for (int i = 0; i < servers.size(); i++) {
-            ServerEntry s = servers.get(i);
+        List<ServerEntry> allServers = getAllServers();
+        for (int i = 0; i < allServers.size(); i++) {
+            ServerEntry s = allServers.get(i);
             float cardY = listY + 20 + i * (CARD_HEIGHT + 10);
             RectF connectBtn = new RectF(contentX + contentW - BUTTON_WIDTH - 20, cardY + 20, contentX + contentW - 20, cardY + 20 + BUTTON_HEIGHT);
             if (connectBtn.contains(x, y)) {
@@ -788,7 +915,7 @@ public class WivrnLobbyView {
             if (s.manual) {
                 RectF delBtn = new RectF(connectBtn.left - 60, cardY + 20, connectBtn.left - 10, cardY + 20 + BUTTON_HEIGHT);
                 if (delBtn.contains(x, y)) {
-                    servers.remove(i);
+                    servers.remove(s);
                     saveServers();
                     markDirty();
                     return;
