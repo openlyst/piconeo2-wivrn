@@ -39,6 +39,28 @@ public class WivrnLobbyView {
     public static final int STATE_DISCONNECTED = 3;
     public static final int STATE_CONNECTED = 4;
 
+    public static final int STREAM_TAB_APPLICATIONS = 0;
+    public static final int STREAM_TAB_STATS = 1;
+    public static final int STREAM_TAB_SETTINGS = 2;
+    public static final int STREAM_TAB_LAUNCH = 3;
+
+    private int streamTab = STREAM_TAB_APPLICATIONS;
+    private int streamFps = 0;
+    private int streamLatencyMs = 0;
+    private int streamBitrateMbps = 0;
+    private int streamCpuMs = 0;
+    private int streamGpuMs = 0;
+    private float streamBandwidthRx = 0;
+    private float streamBandwidthTx = 0;
+    private String[] runningApps = new String[0];
+    private String[] availableAppIds = new String[0];
+    private String[] availableAppNames = new String[0];
+    private boolean appListRequested = false;
+    private int streamBitrateSetting = 50;
+    private int streamResolutionScale = 100;
+    private boolean streamMicEnabled = false;
+    private boolean streamHighPower = false;
+
     private final Context context;
     private final Bitmap bitmap;
     private final Canvas canvas;
@@ -594,6 +616,37 @@ public class WivrnLobbyView {
             if (state == STATE_IDLE || state == STATE_CONNECTING) {
                 pinBuffer = "";
             }
+            if (state == STATE_CONNECTED) {
+                streamTab = STREAM_TAB_APPLICATIONS;
+            }
+            markDirty();
+        }
+    }
+
+    public void updateStreamStats(int fps, int latencyMs, float bandwidthRx, float bandwidthTx, int cpuMs, int gpuMs) {
+        this.streamFps = fps;
+        this.streamLatencyMs = latencyMs;
+        this.streamBandwidthRx = bandwidthRx;
+        this.streamBandwidthTx = bandwidthTx;
+        this.streamCpuMs = cpuMs;
+        this.streamGpuMs = gpuMs;
+        if (connectionState == STATE_CONNECTED) {
+            markDirty();
+        }
+    }
+
+    public void updateRunningApps(String[] apps) {
+        this.runningApps = apps != null ? apps : new String[0];
+        if (connectionState == STATE_CONNECTED) {
+            markDirty();
+        }
+    }
+
+    public void updateAvailableApps(String[] ids, String[] names) {
+        this.availableAppIds = ids != null ? ids : new String[0];
+        this.availableAppNames = names != null ? names : new String[0];
+        appListRequested = false;
+        if (connectionState == STATE_CONNECTED) {
             markDirty();
         }
     }
@@ -1029,8 +1082,252 @@ public class WivrnLobbyView {
 
     private void renderConnected() {
         canvas.drawRect(0, 0, width, height, bgPaint);
-        canvas.drawText("Connected", 50, 50, textLargePaint);
-        canvas.drawText("Streaming active", 50, 90, textPaint);
+
+        canvas.drawRect(0, 0, SIDEBAR_WIDTH, height, sidebarBgPaint);
+
+        String[] tabs = {"Applications", "Launch", "Stats", "Settings"};
+        int[] tabIds = {STREAM_TAB_APPLICATIONS, STREAM_TAB_LAUNCH, STREAM_TAB_STATS, STREAM_TAB_SETTINGS};
+
+        float ty = 30;
+        for (int i = 0; i < tabs.length; i++) {
+            RectF rect = new RectF(10, ty, SIDEBAR_WIDTH - 10, ty + TAB_HEIGHT);
+            boolean selected = streamTab == tabIds[i];
+            boolean hover = touchDown && rect.contains(touchX, touchY);
+
+            Paint tabPaint = new Paint();
+            tabPaint.setAntiAlias(true);
+            if (selected) {
+                tabPaint.setColor(accentPaint.getColor());
+                canvas.drawRoundRect(rect, 8, 8, tabPaint);
+                textPaint.setColor(Color.rgb(255, 255, 255));
+            } else if (hover) {
+                tabPaint.setColor(Color.rgb(30, 38, 50));
+                canvas.drawRoundRect(rect, 8, 8, tabPaint);
+                textPaint.setColor(Color.rgb(200, 210, 225));
+            } else {
+                textPaint.setColor(Color.rgb(160, 170, 185));
+            }
+
+            canvas.drawText(tabs[i], 25, ty + TAB_HEIGHT / 2f + 10, textPaint);
+            ty += TAB_HEIGHT + 5;
+        }
+
+        float disconnectY = height - TAB_HEIGHT - 30;
+        RectF disconnectBtn = new RectF(10, disconnectY, SIDEBAR_WIDTH - 10, disconnectY + TAB_HEIGHT);
+        boolean discHover = touchDown && disconnectBtn.contains(touchX, touchY);
+        Paint discPaint = new Paint();
+        discPaint.setAntiAlias(true);
+        discPaint.setColor(discHover ? Color.rgb(180, 40, 40) : buttonDangerBgPaint.getColor());
+        canvas.drawRoundRect(disconnectBtn, 8, 8, discPaint);
+        textPaint.setColor(Color.rgb(255, 255, 255));
+        canvas.drawText("Disconnect", 25, disconnectY + TAB_HEIGHT / 2f + 10, textPaint);
+
+        textPaint.setColor(Color.rgb(230, 235, 245));
+
+        float contentX = SIDEBAR_WIDTH + 30;
+        float contentW = width - contentX - 30;
+
+        switch (streamTab) {
+            case STREAM_TAB_APPLICATIONS:
+                renderStreamApplications(contentX, contentW);
+                break;
+            case STREAM_TAB_LAUNCH:
+                renderStreamLaunch(contentX, contentW);
+                break;
+            case STREAM_TAB_STATS:
+                renderStreamStats(contentX, contentW);
+                break;
+            case STREAM_TAB_SETTINGS:
+                renderStreamSettings(contentX, contentW);
+                break;
+        }
+    }
+
+    private void renderStreamApplications(float x, float w) {
+        float y = 40;
+        canvas.drawText("Running XR Applications", x, y + 30, textLargePaint);
+        y += 70;
+
+        if (runningApps == null || runningApps.length == 0) {
+            textDimPaint.setColor(Color.rgb(100, 110, 125));
+            canvas.drawText("No applications running", x, y + 20, textDimPaint);
+            textDimPaint.setColor(Color.rgb(100, 110, 125));
+            return;
+        }
+
+        for (int i = 0; i < runningApps.length; i++) {
+            RectF card = new RectF(x, y, x + w, y + 70);
+            Paint cardPaint = new Paint();
+            cardPaint.setAntiAlias(true);
+            cardPaint.setColor(cardBgPaint.getColor());
+            canvas.drawRoundRect(card, 10, 10, cardPaint);
+
+            canvas.drawText(runningApps[i], x + 20, y + 45, textPaint);
+
+            RectF closeBtn = new RectF(x + w - 60, y + 15, x + w - 15, y + 55);
+            boolean hover = touchDown && closeBtn.contains(touchX, touchY);
+            Paint closePaint = new Paint();
+            closePaint.setAntiAlias(true);
+            closePaint.setColor(hover ? Color.rgb(200, 50, 50) : Color.rgb(80, 30, 30));
+            canvas.drawRoundRect(closeBtn, 6, 6, closePaint);
+            textSmallPaint.setColor(Color.rgb(255, 255, 255));
+            canvas.drawText("X", closeBtn.centerX() - 5, closeBtn.centerY() + 8, textSmallPaint);
+            textSmallPaint.setColor(Color.rgb(160, 170, 185));
+
+            y += 85;
+        }
+    }
+
+    private void renderStreamLaunch(float x, float w) {
+        float y = 40;
+        canvas.drawText("Launch Application", x, y + 30, textLargePaint);
+        y += 70;
+
+        if (availableAppNames == null || availableAppNames.length == 0) {
+            textDimPaint.setColor(Color.rgb(100, 110, 125));
+            if (appListRequested) {
+                canvas.drawText("Loading applications...", x, y + 20, textDimPaint);
+            } else {
+                canvas.drawText("No applications available", x, y + 20, textDimPaint);
+                canvas.drawText("Press to refresh", x, y + 60, textDimPaint);
+                RectF refreshBtn = new RectF(x, y + 80, x + 200, y + 80 + BUTTON_HEIGHT);
+                boolean hover = touchDown && refreshBtn.contains(touchX, touchY);
+                canvas.drawRoundRect(refreshBtn, 10, 10, hover ? buttonHoverBgPaint : buttonBgPaint);
+                textPaint.setColor(Color.rgb(230, 235, 245));
+                canvas.drawText("Refresh", x + 50, y + 80 + BUTTON_HEIGHT / 2f + 8, textPaint);
+            }
+            textDimPaint.setColor(Color.rgb(100, 110, 125));
+            return;
+        }
+
+        float iconW = 300;
+        float iconH = 120;
+        float gap = 20;
+        int perRow = (int)((w + gap) / (iconW + gap));
+        if (perRow < 1) perRow = 1;
+
+        for (int i = 0; i < availableAppNames.length; i++) {
+            int col = i % perRow;
+            int row = i / perRow;
+            float cx = x + col * (iconW + gap);
+            float cy = y + row * (iconH + gap);
+
+            RectF card = new RectF(cx, cy, cx + iconW, cy + iconH);
+            boolean hover = touchDown && card.contains(touchX, touchY);
+
+            Paint cardPaint = new Paint();
+            cardPaint.setAntiAlias(true);
+            cardPaint.setColor(hover ? Color.rgb(45, 60, 85) : cardBgPaint.getColor());
+            canvas.drawRoundRect(card, 12, 12, cardPaint);
+
+            float iconBoxSize = 70;
+            RectF iconBox = new RectF(cx + 15, cy + (iconH - iconBoxSize) / 2, cx + 15 + iconBoxSize, cy + (iconH + iconBoxSize) / 2);
+            Paint iconBgPaint = new Paint();
+            iconBgPaint.setAntiAlias(true);
+            iconBgPaint.setColor(Color.rgb(50, 60, 75));
+            canvas.drawRoundRect(iconBox, 8, 8, iconBgPaint);
+
+            textPaint.setColor(Color.rgb(180, 200, 230));
+            textPaint.setTextSize(20);
+            canvas.drawText("App", iconBox.centerX() - 17, iconBox.centerY() + 7, textPaint);
+            textPaint.setTextSize(28);
+            textPaint.setColor(Color.rgb(230, 235, 245));
+
+            float textX = cx + 100;
+            float maxTextW = iconW - 110;
+            String displayName = availableAppNames[i];
+            if (textPaint.measureText(displayName) > maxTextW) {
+                while (textPaint.measureText(displayName + "...") > maxTextW && displayName.length() > 0)
+                    displayName = displayName.substring(0, displayName.length() - 1);
+                displayName += "...";
+            }
+            canvas.drawText(displayName, textX, cy + iconH / 2f + 10, textPaint);
+        }
+    }
+
+    private void renderStreamStats(float x, float w) {
+        float y = 40;
+        canvas.drawText("Performance Statistics", x, y + 30, textLargePaint);
+        y += 70;
+
+        String[][] stats = {
+            {"FPS", streamFps > 0 ? streamFps + " fps" : "--"},
+            {"Motion to Photon Latency", streamLatencyMs > 0 ? streamLatencyMs + " ms" : "--"},
+            {"Download", String.format("%.1f Mbit/s", streamBandwidthRx * 8e-6f)},
+            {"Upload", String.format("%.1f Mbit/s", streamBandwidthTx * 8e-6f)},
+            {"CPU Time", streamCpuMs > 0 ? streamCpuMs + " ms" : "--"},
+            {"GPU Time", streamGpuMs > 0 ? streamGpuMs + " ms" : "--"},
+            {"Bitrate", streamBitrateMbps + " Mbit/s"},
+        };
+
+        for (String[] stat : stats) {
+            canvas.drawText(stat[0], x, y, textSmallPaint);
+            canvas.drawText(stat[1], x + 350, y, textPaint);
+            y += 45;
+        }
+
+        y += 20;
+        textDimPaint.setColor(Color.rgb(100, 110, 125));
+        canvas.drawText("Press both thumbsticks to toggle this overlay", x, y, textDimPaint);
+        textDimPaint.setColor(Color.rgb(100, 110, 125));
+    }
+
+    private void renderStreamSettings(float x, float w) {
+        float y = 40;
+        canvas.drawText("Stream Settings", x, y + 30, textLargePaint);
+        y += 70;
+
+        canvas.drawText("Bitrate", x, y, textPaint);
+        canvas.drawText(streamBitrateSetting + " Mbit/s", x + w - 150, y, textPaint);
+        y += 35;
+
+        RectF track = new RectF(x, y, x + w - 150, y + 8);
+        canvas.drawRoundRect(track, 4, 4, sliderTrackPaint);
+        float fillW = (w - 150) * (streamBitrateSetting / 100f);
+        RectF fill = new RectF(x, y, x + fillW, y + 8);
+        canvas.drawRoundRect(fill, 4, 4, sliderFillPaint);
+        float handleX = x + fillW;
+        canvas.drawCircle(handleX, y + 4, 12, sliderHandlePaint);
+        y += 50;
+
+        canvas.drawText("Resolution Scale", x, y, textPaint);
+        canvas.drawText(streamResolutionScale + "%", x + w - 150, y, textPaint);
+        y += 35;
+
+        RectF track2 = new RectF(x, y, x + w - 150, y + 8);
+        canvas.drawRoundRect(track2, 4, 4, sliderTrackPaint);
+        float fillW2 = (w - 150) * (streamResolutionScale / 200f);
+        RectF fill2 = new RectF(x, y, x + fillW2, y + 8);
+        canvas.drawRoundRect(fill2, 4, 4, sliderFillPaint);
+        float handleX2 = x + fillW2;
+        canvas.drawCircle(handleX2, y + 4, 12, sliderHandlePaint);
+        y += 50;
+
+        canvas.drawText("Microphone", x, y + 10, textPaint);
+        RectF micToggle = new RectF(x + w - 80, y, x + w - 20, y + 40);
+        Paint togglePaint = new Paint();
+        togglePaint.setAntiAlias(true);
+        togglePaint.setColor(streamMicEnabled ? Color.rgb(30, 140, 60) : Color.rgb(50, 55, 65));
+        canvas.drawRoundRect(micToggle, 20, 20, togglePaint);
+        float knobX = streamMicEnabled ? micToggle.right - 20 : micToggle.left + 20;
+        canvas.drawCircle(knobX, micToggle.centerY(), 16, new Paint());
+        Paint knobPaint = new Paint();
+        knobPaint.setAntiAlias(true);
+        knobPaint.setColor(Color.WHITE);
+        canvas.drawCircle(knobX, micToggle.centerY(), 16, knobPaint);
+        y += 60;
+
+        canvas.drawText("High Power Mode", x, y + 10, textPaint);
+        RectF powerToggle = new RectF(x + w - 80, y, x + w - 20, y + 40);
+        Paint powerPaint = new Paint();
+        powerPaint.setAntiAlias(true);
+        powerPaint.setColor(streamHighPower ? Color.rgb(30, 140, 60) : Color.rgb(50, 55, 65));
+        canvas.drawRoundRect(powerToggle, 20, 20, powerPaint);
+        float knobX2 = streamHighPower ? powerToggle.right - 20 : powerToggle.left + 20;
+        Paint knobPaint2 = new Paint();
+        knobPaint2.setAntiAlias(true);
+        knobPaint2.setColor(Color.WHITE);
+        canvas.drawCircle(knobX2, powerToggle.centerY(), 16, knobPaint2);
     }
 
     private void renderTouchCursor() {
@@ -1076,6 +1373,7 @@ public class WivrnLobbyView {
             return;
         }
         if (connectionState == STATE_CONNECTED) {
+            handleStreamClick(x, y);
             return;
         }
 
@@ -1101,6 +1399,110 @@ public class WivrnLobbyView {
             case TAB_EXIT:
                 handleExitClick(x, adjustedY);
                 break;
+        }
+    }
+
+    private void handleStreamClick(float x, float y) {
+        if (x < SIDEBAR_WIDTH) {
+            String[] tabs = {"Applications", "Launch", "Stats", "Settings"};
+            int[] tabIds = {STREAM_TAB_APPLICATIONS, STREAM_TAB_LAUNCH, STREAM_TAB_STATS, STREAM_TAB_SETTINGS};
+            float ty = 30;
+            for (int i = 0; i < tabs.length; i++) {
+                RectF rect = new RectF(10, ty, SIDEBAR_WIDTH - 10, ty + TAB_HEIGHT);
+                if (rect.contains(x, y)) {
+                    streamTab = tabIds[i];
+                    if (streamTab == STREAM_TAB_LAUNCH && !appListRequested && availableAppNames.length == 0) {
+                        ((MainActivity) context).onRequestAppList();
+                        appListRequested = true;
+                    }
+                    markDirty();
+                    return;
+                }
+                ty += TAB_HEIGHT + 5;
+            }
+
+            float disconnectY = height - TAB_HEIGHT - 30;
+            RectF disconnectBtn = new RectF(10, disconnectY, SIDEBAR_WIDTH - 10, disconnectY + TAB_HEIGHT);
+            if (disconnectBtn.contains(x, y)) {
+                ((MainActivity) context).onDisconnectRequested();
+                connectionState = STATE_IDLE;
+                markDirty();
+                return;
+            }
+            return;
+        }
+
+        float contentX = SIDEBAR_WIDTH + 30;
+        float contentW = width - contentX - 30;
+
+        if (streamTab == STREAM_TAB_LAUNCH) {
+            if (availableAppNames == null || availableAppNames.length == 0) {
+                float refreshY = 40 + 70 + 80;
+                RectF refreshBtn = new RectF(contentX, refreshY, contentX + 200, refreshY + BUTTON_HEIGHT);
+                if (refreshBtn.contains(x, y)) {
+                    ((MainActivity) context).onRequestAppList();
+                    appListRequested = true;
+                    markDirty();
+                    return;
+                }
+            } else {
+                float iconW = 300;
+                float iconH = 120;
+                float gap = 20;
+                int perRow = (int)((contentW + gap) / (iconW + gap));
+                if (perRow < 1) perRow = 1;
+                float startY = 40 + 70;
+
+                for (int i = 0; i < availableAppNames.length; i++) {
+                    int col = i % perRow;
+                    int row = i / perRow;
+                    float cx = contentX + col * (iconW + gap);
+                    float cy = startY + row * (iconH + gap);
+                    RectF card = new RectF(cx, cy, cx + iconW, cy + iconH);
+                    if (card.contains(x, y) && i < availableAppIds.length) {
+                        ((MainActivity) context).onStartApp(availableAppIds[i]);
+                        markDirty();
+                        return;
+                    }
+                }
+            }
+        }
+
+        if (streamTab == STREAM_TAB_SETTINGS) {
+            float sy = 40 + 70;
+            float sliderY = sy + 35;
+            RectF bitrateTrack = new RectF(contentX, sliderY, contentX + contentW - 150, sliderY + 20);
+            if (bitrateTrack.contains(x, y)) {
+                float pct = (x - contentX) / (contentW - 150);
+                streamBitrateSetting = (int)Math.max(1, Math.min(100, pct * 100));
+                markDirty();
+                return;
+            }
+
+            sliderY += 85;
+            RectF resTrack = new RectF(contentX, sliderY, contentX + contentW - 150, sliderY + 20);
+            if (resTrack.contains(x, y)) {
+                float pct = (x - contentX) / (contentW - 150);
+                streamResolutionScale = (int)Math.max(10, Math.min(200, pct * 200));
+                markDirty();
+                return;
+            }
+
+            sliderY += 50;
+            RectF micToggle = new RectF(contentX + contentW - 80, sliderY, contentX + contentW - 20, sliderY + 40);
+            if (micToggle.contains(x, y)) {
+                streamMicEnabled = !streamMicEnabled;
+                markDirty();
+                return;
+            }
+
+            sliderY += 60;
+            RectF powerToggle = new RectF(contentX + contentW - 80, sliderY, contentX + contentW - 20, sliderY + 40);
+            if (powerToggle.contains(x, y)) {
+                streamHighPower = !streamHighPower;
+                markDirty();
+                return;
+            }
         }
     }
 

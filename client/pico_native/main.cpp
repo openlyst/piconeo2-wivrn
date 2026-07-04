@@ -267,6 +267,89 @@ struct pico_client
 			vm->DetachCurrentThread();
 	}
 
+	void notify_application_list(const std::vector<std::pair<std::string, std::string>> & apps)
+	{
+		if (!vm || !activity)
+			return;
+
+		JNIEnv * env = nullptr;
+		bool attached = false;
+		if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
+		{
+			if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK)
+				attached = true;
+		}
+
+		if (env && activity)
+		{
+			jclass clazz = env->GetObjectClass(activity);
+			jclass string_class = env->FindClass("java/lang/String");
+			jmethodID method = env->GetMethodID(clazz, "onApplicationList", "([Ljava/lang/String;[Ljava/lang/String;)V");
+			if (method && string_class)
+			{
+				jobjectArray ids = env->NewObjectArray(apps.size(), string_class, nullptr);
+				jobjectArray names = env->NewObjectArray(apps.size(), string_class, nullptr);
+				for (size_t i = 0; i < apps.size(); i++)
+				{
+					jstring jid = env->NewStringUTF(apps[i].first.c_str());
+					jstring jname = env->NewStringUTF(apps[i].second.c_str());
+					env->SetObjectArrayElement(ids, i, jid);
+					env->SetObjectArrayElement(names, i, jname);
+					env->DeleteLocalRef(jid);
+					env->DeleteLocalRef(jname);
+				}
+				env->CallVoidMethod(activity, method, ids, names);
+				env->DeleteLocalRef(ids);
+				env->DeleteLocalRef(names);
+			}
+			env->DeleteLocalRef(clazz);
+			if (string_class)
+				env->DeleteLocalRef(string_class);
+		}
+
+		if (attached)
+			vm->DetachCurrentThread();
+	}
+
+	void notify_running_applications(const std::vector<std::string> & names)
+	{
+		if (!vm || !activity)
+			return;
+
+		JNIEnv * env = nullptr;
+		bool attached = false;
+		if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
+		{
+			if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK)
+				attached = true;
+		}
+
+		if (env && activity)
+		{
+			jclass clazz = env->GetObjectClass(activity);
+			jclass string_class = env->FindClass("java/lang/String");
+			jmethodID method = env->GetMethodID(clazz, "onRunningApplications", "([Ljava/lang/String;)V");
+			if (method && string_class)
+			{
+				jobjectArray jnames = env->NewObjectArray(names.size(), string_class, nullptr);
+				for (size_t i = 0; i < names.size(); i++)
+				{
+					jstring jname = env->NewStringUTF(names[i].c_str());
+					env->SetObjectArrayElement(jnames, i, jname);
+					env->DeleteLocalRef(jname);
+				}
+				env->CallVoidMethod(activity, method, jnames);
+				env->DeleteLocalRef(jnames);
+			}
+			env->DeleteLocalRef(clazz);
+			if (string_class)
+				env->DeleteLocalRef(string_class);
+		}
+
+		if (attached)
+			vm->DetachCurrentThread();
+	}
+
 	void handle_packet(to_headset::packets & packet);
 	void handle_video_shard(to_headset::video_stream_data_shard && shard);
 	void send_feedback(uint64_t frame_index);
@@ -523,6 +606,28 @@ void pico_client::handle_packet(to_headset::packets & packet)
 			std::is_same_v<T, to_headset::handshake>)
 		{
 			// Handled during handshake, ignore here
+		}
+		else if constexpr (std::is_same_v<T, to_headset::application_list>)
+		{
+			spdlog::info("Received application list: {} apps", p.applications.size());
+			std::vector<std::pair<std::string, std::string>> apps;
+			apps.reserve(p.applications.size());
+			for (auto & app : p.applications)
+				apps.emplace_back(app.id, app.name);
+			notify_application_list(apps);
+		}
+		else if constexpr (std::is_same_v<T, to_headset::application_icon>)
+		{
+			spdlog::info("Received application icon for id={} ({} bytes)", p.id, p.image.size());
+		}
+		else if constexpr (std::is_same_v<T, to_headset::running_applications>)
+		{
+			spdlog::info("Received running applications: {} apps", p.applications.size());
+			std::vector<std::string> names;
+			names.reserve(p.applications.size());
+			for (auto & app : p.applications)
+				names.push_back(app.name);
+			notify_running_applications(names);
 		}
 		else
 		{
@@ -1524,6 +1629,49 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDisconnect(
 	spdlog::info("Disconnect requested");
 	g_client->running = false;
 	g_client->shutdown = true;
+}
+
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRequestAppList(JNIEnv * env, jobject thiz, jlong ptr)
+{
+	if (!g_client || !g_client->session)
+		return;
+
+	spdlog::info("Requesting application list from server");
+	try
+	{
+		g_client->session->send_control(from_headset::get_application_list{
+			.language = "en",
+			.country = "US",
+			.variant = "",
+		});
+	}
+	catch (std::exception & e)
+	{
+		spdlog::warn("Failed to request application list: {}", e.what());
+	}
+}
+
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnStartApp(JNIEnv * env, jobject thiz, jlong ptr, jstring appId)
+{
+	if (!g_client || !g_client->session)
+		return;
+
+	const char * app_id_str = env->GetStringUTFChars(appId, nullptr);
+	if (app_id_str)
+	{
+		spdlog::info("Starting application: {}", app_id_str);
+		try
+		{
+			g_client->session->send_control(from_headset::start_app{
+				.app_id = app_id_str,
+			});
+		}
+		catch (std::exception & e)
+		{
+			spdlog::warn("Failed to start application: {}", e.what());
+		}
+		env->ReleaseStringUTFChars(appId, app_id_str);
+	}
 }
 
 } // extern "C"

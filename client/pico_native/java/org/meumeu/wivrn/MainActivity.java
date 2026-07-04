@@ -389,6 +389,8 @@ public class MainActivity extends VRActivity implements RenderInterface {
     public native void nativeUpdateLobbyTexture(long ptr, Bitmap bitmap);
     public native void nativeWivrnConnect(long ptr, String hostname, int port, boolean tcpOnly);
     public native void nativeWivrnDisconnect(long ptr);
+    public native void nativeWivrnRequestAppList(long ptr);
+    public native void nativeWivrnStartApp(long ptr, String appId);
 
     public void onLobbyTouch(float x, float y, boolean down, boolean pressed) {
         if (lobbyView != null) {
@@ -399,6 +401,18 @@ public class MainActivity extends VRActivity implements RenderInterface {
     public void onConnectionStateChanged(int state, String message) {
         if (lobbyView != null) {
             lobbyView.setConnectionState(state, message);
+        }
+    }
+
+    public void onApplicationList(String[] ids, String[] names) {
+        if (lobbyView != null) {
+            lobbyView.updateAvailableApps(ids, names);
+        }
+    }
+
+    public void onRunningApplications(String[] names) {
+        if (lobbyView != null) {
+            lobbyView.updateRunningApps(names);
         }
     }
 
@@ -426,5 +440,15 @@ public class MainActivity extends VRActivity implements RenderInterface {
     public void onDisconnectRequested() {
         Log.d(TAG, "Disconnect requested");
         nativeWivrnDisconnect(nativePtr);
+    }
+
+    public void onRequestAppList() {
+        Log.d(TAG, "Requesting app list");
+        nativeWivrnRequestAppList(nativePtr);
+    }
+
+    public void onStartApp(String appId) {
+        Log.d(TAG, "Starting app: " + appId);
+        nativeWivrnStartApp(nativePtr, appId);
     }
 }
