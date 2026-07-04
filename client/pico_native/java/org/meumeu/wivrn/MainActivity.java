@@ -197,7 +197,6 @@ public class MainActivity extends VRActivity implements RenderInterface {
             leftBattery = leftController.getBatteryLevel();
             leftA = leftController.getButtonState(ButtonNum.buttonAX);
             leftB = leftController.getButtonState(ButtonNum.buttonBY);
-            leftGrip = leftController.getButtonState(ButtonNum.buttonLG);
             leftClick = leftController.getButtonState(ButtonNum.click);
             leftMenu = leftController.getButtonState(ButtonNum.app);
         }
@@ -208,9 +207,41 @@ public class MainActivity extends VRActivity implements RenderInterface {
             rightBattery = rightController.getBatteryLevel();
             rightA = rightController.getButtonState(ButtonNum.buttonAX);
             rightB = rightController.getButtonState(ButtonNum.buttonBY);
-            rightGrip = rightController.getButtonState(ButtonNum.buttonRG);
             rightClick = rightController.getButtonState(ButtonNum.click);
             rightMenu = rightController.getButtonState(ButtonNum.app);
+        }
+
+        // Grip via ControllerClient.getControllerKeyEventUnityExt (like ALVR)
+        // Index 55 = right grip, 60 = left grip
+        try {
+            int[] leftExt = ControllerClient.getControllerKeyEventUnityExt(0);
+            if (leftExt != null && leftExt.length > 60) {
+                leftGrip = leftExt[60] != 0;
+            }
+            if (leftExt != null) {
+                StringBuilder sb = new StringBuilder("LEFT ext[" + leftExt.length + "]:");
+                for (int i = 0; i < leftExt.length; i++) {
+                    if (leftExt[i] != 0) sb.append(" [" + i + "]=" + leftExt[i]);
+                }
+                Log.d(TAG, sb.toString());
+            }
+        } catch (Throwable t) {
+            Log.e(TAG, "LEFT getControllerKeyEventUnityExt failed", t);
+        }
+        try {
+            int[] rightExt = ControllerClient.getControllerKeyEventUnityExt(1);
+            if (rightExt != null && rightExt.length > 55) {
+                rightGrip = rightExt[55] != 0;
+            }
+            if (rightExt != null) {
+                StringBuilder sb = new StringBuilder("RIGHT ext[" + rightExt.length + "]:");
+                for (int i = 0; i < rightExt.length; i++) {
+                    if (rightExt[i] != 0) sb.append(" [" + i + "]=" + rightExt[i]);
+                }
+                Log.d(TAG, sb.toString());
+            }
+        } catch (Throwable t) {
+            Log.e(TAG, "RIGHT getControllerKeyEventUnityExt failed", t);
         }
 
         nativeWivrnOnFrameBegin(nativePtr, orientation, position,

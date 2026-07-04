@@ -1185,13 +1185,15 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnOnFrameBegi
 			leftA, leftB, leftGrip, leftClick, leftMenu);
 		if (log_this_frame)
 		{
-			spdlog::warn("TRACKING RAW LEFT: orient=({:.4f},{:.4f},{:.4f},{:.4f}) pos=({:.4f},{:.4f},{:.4f}) trigger={} batt={}",
+			spdlog::warn("TRACKING RAW LEFT: orient=({:.4f},{:.4f},{:.4f},{:.4f}) pos=({:.4f},{:.4f},{:.4f}) trigger={} batt={} grip={}",
 				o[0], o[1], o[2], o[3],
-				p[0], p[1], p[2], leftTrigger, leftBattery);
+				p[0], p[1], p[2], leftTrigger, leftBattery, leftGrip);
 		}
 	}
 	else
 	{
+		if (log_this_frame)
+			spdlog::warn("LEFT controller: no orientation/position data, clearing");
 		g_client->tracker.clear_controller(0);
 	}
 
@@ -1207,13 +1209,15 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnOnFrameBegi
 			rightA, rightB, rightGrip, rightClick, rightMenu);
 		if (log_this_frame)
 		{
-			spdlog::warn("TRACKING RAW RIGHT: orient=({:.4f},{:.4f},{:.4f},{:.4f}) pos=({:.4f},{:.4f},{:.4f}) trigger={} batt={}",
+			spdlog::warn("TRACKING RAW RIGHT: orient=({:.4f},{:.4f},{:.4f},{:.4f}) pos=({:.4f},{:.4f},{:.4f}) trigger={} batt={} grip={}",
 				o[0], o[1], o[2], o[3],
-				p[0], p[1], p[2], rightTrigger, rightBattery);
+				p[0], p[1], p[2], rightTrigger, rightBattery, rightGrip);
 		}
 	}
 	else
 	{
+		if (log_this_frame)
+			spdlog::warn("RIGHT controller: no orientation/position data, clearing");
 		g_client->tracker.clear_controller(1);
 	}
 }

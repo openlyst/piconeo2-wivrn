@@ -30,6 +30,10 @@ class pico_lobby
 	bool prev_trigger[2] = {false, false};
 	bool prev_grip[2] = {false, false};
 
+	int recentering_controller = -1;
+	float recenter_offset_pos[3] = {0, 0, 0};
+	float recenter_offset_yaw = 0.0f;
+
 	struct ray_hit
 	{
 		bool valid = false;
