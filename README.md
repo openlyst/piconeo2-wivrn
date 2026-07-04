@@ -15,9 +15,9 @@ No sorry, this is not a usable client for now please us this ALVR port instead: 
 - Pico Neo 2 Eye* (not tested no eye tracking)
 
 ## Features
-- [ ] 6/3 DOF Tracking
-- [ ] Controller inputs
-- [ ] Native client and UI (pvr)
+- 6/3 DOF Tracking
+- Controller inputs
+- Native client and UI (pvr)
 
 ### Todo before a 1.0
 
