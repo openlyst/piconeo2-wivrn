@@ -40,6 +40,7 @@ public class MainActivity extends VRActivity implements RenderInterface {
     private WivrnLobbyView lobbyView;
     private WifiManager.MulticastLock multicastLock;
     private int frameCount = 0;
+    private final float[] mRumble = new float[2];
 
     private CVControllerListener cvListener = new CVControllerListener() {
         @Override
@@ -275,6 +276,22 @@ public class MainActivity extends VRActivity implements RenderInterface {
                 rightOrient, rightPose, rightTrigger, rightTouch, rightBattery,
                 rightA, rightB, rightGrip, rightClick, rightMenu);
 
+        for (int h = 0; h < 2; h++) {
+            int conn = (h == 0) ? leftConn : rightConn;
+            if (conn != 1) {
+                nativeDrainRumble(nativePtr, h, mRumble);
+                continue;
+            }
+            if (nativeDrainRumble(nativePtr, h, mRumble)) {
+                try {
+                    ControllerClient.vibrateCV2ControllerStrength(
+                            mRumble[0], (int) mRumble[1], h);
+                } catch (Throwable t) {
+                    Log.e(TAG, "vibrate failed for hand " + h, t);
+                }
+            }
+        }
+
         if (frameCount % 60 == 0 && lobbyView != null) {
             lobbyView.updateWifiStatus();
 
@@ -394,6 +411,7 @@ public class MainActivity extends VRActivity implements RenderInterface {
     public native void nativeWivrnRequestRunningApps(long ptr);
     public native void nativeWivrnSetActiveApp(long ptr, int appId);
     public native void nativeWivrnStopApp(long ptr, int appId);
+    public native boolean nativeDrainRumble(long ptr, int hand, float[] out);
 
     public void onLobbyTouch(float x, float y, boolean down, boolean pressed, float thumbstickY) {
         if (lobbyView != null) {
