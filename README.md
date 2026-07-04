@@ -8,7 +8,7 @@ Got questions or want to contribute? Join the Discord for dev discussion and hel
 This project is really early and still has issues with the code. The project does work but wouldn't say playable. 
 
 ### Can I still play?
-No sorry, this is not a usable client for now please us this ALVR port instead: [https://github.com/Juspertinry/alvr-pico-legacy](https://github.com/Juspertinry/alvr-pico-legacy-2)
+No sorry, this is not a usable client for now please us this ALVR port instead: [hthttps://github.com/Juspertinry/alvr-pico-legacy](https://github.com/Juspertinry/alvr-pico-legacy)
 
 ## Supported headsets
 - Pico Neo 2
