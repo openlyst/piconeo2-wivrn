@@ -316,11 +316,12 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	}
 
 	glViewport(0, 0, eye_width, eye_height);
-	glDisable(GL_DEPTH_TEST);
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LEQUAL);
 	glDisable(GL_CULL_FACE);
 
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	if (eye == 0)
 		update_interaction(head_orient, head_pos, controllers);
@@ -342,7 +343,8 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 
 	Mat4 vp = mat4_mul(proj, view);
 
-	// Draw floor grid
+	// Draw floor grid (no depth write so it doesn't occlude anything)
+	glDepthMask(GL_FALSE);
 	glUniform4f(color_uniform, 0.5f, 0.5f, 0.8f, 1.0f);
 	glBindBuffer(GL_ARRAY_BUFFER, grid_vbo);
 	glEnableVertexAttribArray(pos_attrib);
@@ -353,7 +355,8 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	glUniformMatrix4fv(mvp_uniform, 1, GL_FALSE, vp.m);
 	glDrawArrays(GL_LINES, 0, grid_vert_count);
 
-	// Draw controllers as small boxes
+	// Draw controllers as small boxes (with depth write so they occlude the panel)
+	glDepthMask(GL_TRUE);
 	for (int h = 0; h < 2; h++)
 	{
 		if (!controllers[h].connected)
