@@ -63,6 +63,13 @@ public class WivrnLobbyView {
     private boolean streamMicEnabled = false;
     private boolean streamHighPower = false;
 
+    private float launchScrollY = 0;
+    private float launchMaxScroll = 0;
+    private float dragStartY = -1;
+    private float dragStartScroll = 0;
+    private float prevTouchY = -1;
+    private float thumbstickAccum = 0;
+
     private final Context context;
     private final Bitmap bitmap;
     private final Canvas canvas;
@@ -1226,11 +1233,20 @@ public class WivrnLobbyView {
         int perRow = (int)((w + gap) / (iconW + gap));
         if (perRow < 1) perRow = 1;
 
+        int totalRows = (availableAppNames.length + perRow - 1) / perRow;
+        float contentHeight = totalRows * (iconH + gap) - gap;
+        float visibleHeight = height - y - 20;
+        launchMaxScroll = Math.max(0, contentHeight - visibleHeight);
+        launchScrollY = Math.max(0, Math.min(launchMaxScroll, launchScrollY));
+
+        int clipSave = canvas.save();
+        canvas.clipRect(x - 5, y - 5, x + w + 5, height);
+
         for (int i = 0; i < availableAppNames.length; i++) {
             int col = i % perRow;
             int row = i / perRow;
             float cx = x + col * (iconW + gap);
-            float cy = y + row * (iconH + gap);
+            float cy = y + row * (iconH + gap) - launchScrollY;
 
             RectF card = new RectF(cx, cy, cx + iconW, cy + iconH);
             boolean hover = touchDown && card.contains(touchX, touchY);
@@ -1274,6 +1290,18 @@ public class WivrnLobbyView {
                 displayName += "...";
             }
             canvas.drawText(displayName, textX, cy + iconH / 2f + 10, textPaint);
+        }
+
+        canvas.restoreToCount(clipSave);
+
+        if (launchMaxScroll > 0) {
+            float barH = Math.max(30, visibleHeight * visibleHeight / contentHeight);
+            float barY = y + (visibleHeight - barH) * (launchScrollY / launchMaxScroll);
+            float barX = x + w - 6;
+            Paint barPaint = new Paint();
+            barPaint.setAntiAlias(true);
+            barPaint.setColor(Color.rgb(60, 70, 85));
+            canvas.drawRoundRect(new RectF(barX, barY, barX + 4, barY + barH), 2, 2, barPaint);
         }
     }
 
@@ -1377,13 +1405,40 @@ public class WivrnLobbyView {
         canvas.drawText(text, textX, textY, paint);
     }
 
-    public void handleTouch(float x, float y, boolean down, boolean pressed) {
+    public void handleTouch(float x, float y, boolean down, boolean pressed, float thumbstickY) {
         float prevX = touchX, prevY = touchY;
         boolean prevDown = touchDown;
         touchX = x;
         touchY = y;
         touchDown = down;
         touchPressed = pressed;
+
+        if (connectionState == STATE_CONNECTED && streamTab == STREAM_TAB_LAUNCH) {
+            if (down && prevDown && y != prevY) {
+                if (dragStartY < 0) {
+                    dragStartY = prevY;
+                    dragStartScroll = launchScrollY;
+                }
+                launchScrollY = dragStartScroll + (dragStartY - y);
+                launchScrollY = Math.max(0, Math.min(launchMaxScroll, launchScrollY));
+            }
+            if (!down) {
+                dragStartY = -1;
+            }
+
+            float stickMag = Math.abs(thumbstickY);
+            if (stickMag > 0.3f) {
+                thumbstickAccum += thumbstickY * 15f;
+                if (Math.abs(thumbstickAccum) >= 1f) {
+                    launchScrollY = Math.max(0, Math.min(launchMaxScroll, launchScrollY + thumbstickAccum));
+                    thumbstickAccum = 0;
+                }
+            } else {
+                thumbstickAccum = 0;
+            }
+        }
+
+        prevTouchY = touchY;
 
         if (pressed) {
             handleClick(x, y);
@@ -1489,7 +1544,7 @@ public class WivrnLobbyView {
                     int col = i % perRow;
                     int row = i / perRow;
                     float cx = contentX + col * (iconW + gap);
-                    float cy = startY + row * (iconH + gap);
+                    float cy = startY + row * (iconH + gap) - launchScrollY;
                     RectF card = new RectF(cx, cy, cx + iconW, cy + iconH);
                     if (card.contains(x, y) && i < availableAppIds.length) {
                         ((MainActivity) context).onStartApp(availableAppIds[i]);

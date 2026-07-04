@@ -55,6 +55,7 @@ public:
 	float lobby_touch_y[2] = {-1, -1};
 	bool lobby_touch_down[2] = {false, false};
 	bool lobby_touch_pressed[2] = {false, false};
+	float lobby_thumbstick_y[2] = {0, 0};
 	pico_lobby() = default;
 	~pico_lobby();
 

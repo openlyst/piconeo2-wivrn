@@ -691,6 +691,8 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 		bool trigger_pressed = controllers[h].trigger > 128;
 		bool trigger_down = trigger_pressed && !prev_trigger[h];
 
+		lobby_thumbstick_y[h] = (controllers[h].touch[1] - 128) / 128.0f;
+
 		if (last_hit[h].valid)
 		{
 			float px = (u + 1.0f) * 0.5f * 1400.0f;

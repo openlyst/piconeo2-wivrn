@@ -1458,14 +1458,15 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 					if (env2 && g_client->activity)
 					{
 						jclass clazz = env2->GetObjectClass(g_client->activity);
-						jmethodID method = env2->GetMethodID(clazz, "onLobbyTouch", "(FFZZ)V");
+						jmethodID method = env2->GetMethodID(clazz, "onLobbyTouch", "(FFZZF)V");
 						if (method)
 						{
 							env2->CallVoidMethod(g_client->activity, method,
 								g_client->lobby.lobby_touch_x[h],
 								g_client->lobby.lobby_touch_y[h],
 								g_client->lobby.lobby_touch_down[h],
-								g_client->lobby.lobby_touch_pressed[h]);
+								g_client->lobby.lobby_touch_pressed[h],
+								g_client->lobby.lobby_thumbstick_y[h]);
 						}
 						env2->DeleteLocalRef(clazz);
 					}
@@ -1490,10 +1491,10 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 				if (env2 && g_client->activity)
 				{
 					jclass clazz = env2->GetObjectClass(g_client->activity);
-					jmethodID method = env2->GetMethodID(clazz, "onLobbyTouch", "(FFZZ)V");
+					jmethodID method = env2->GetMethodID(clazz, "onLobbyTouch", "(FFZZF)V");
 					if (method)
 					{
-						env2->CallVoidMethod(g_client->activity, method, -1.0f, -1.0f, false, false);
+						env2->CallVoidMethod(g_client->activity, method, -1.0f, -1.0f, false, false, 0.0f);
 					}
 					env2->DeleteLocalRef(clazz);
 				}

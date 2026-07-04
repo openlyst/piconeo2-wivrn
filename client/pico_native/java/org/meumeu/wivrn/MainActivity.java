@@ -392,9 +392,9 @@ public class MainActivity extends VRActivity implements RenderInterface {
     public native void nativeWivrnRequestAppList(long ptr);
     public native void nativeWivrnStartApp(long ptr, String appId);
 
-    public void onLobbyTouch(float x, float y, boolean down, boolean pressed) {
+    public void onLobbyTouch(float x, float y, boolean down, boolean pressed, float thumbstickY) {
         if (lobbyView != null) {
-            lobbyView.handleTouch(x, y, down, pressed);
+            lobbyView.handleTouch(x, y, down, pressed, thumbstickY);
         }
     }
 
