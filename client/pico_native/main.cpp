@@ -505,7 +505,7 @@ void pico_client::handle_video_shard(to_headset::video_stream_data_shard && shar
 	static int shard_count = 0;
 	++shard_count;
 
-	if (shard.timing_info)
+	if (shard.timing_info && shard.stream_item_idx == 0)
 	{
 		stats_frame_count++;
 		stats_last_encode_begin = shard.timing_info->encode_begin;
@@ -987,7 +987,7 @@ void pico_client::send_headset_info()
 	info.settings.preferred_refresh_rate = 72.0f;
 	info.settings.minimum_refresh_rate = 72.0f;
 	info.settings.fps_divider = 1;
-	info.settings.bitrate_bps = 20000000;
+	info.settings.bitrate_bps = 50000000;
 
 	pico_audio::get_audio_description(info);
 
@@ -1571,7 +1571,7 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 					latency_ms = (int)(latency / 1000000LL);
 			}
 
-			int bitrate_mbps = 20;
+			int bitrate_mbps = 50;
 			{
 				std::lock_guard lock(g_client->tracking_mutex);
 				if (g_client->tracking_control_received)
