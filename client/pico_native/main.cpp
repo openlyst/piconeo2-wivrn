@@ -169,6 +169,9 @@ struct pico_client
 	std::shared_ptr<pico_decoded_frame> latest_decoded_frames[3];
 	std::atomic<uint64_t> latest_decoded_frame_index{0};
 
+	// Snapshot of decoded frames for the current render frame (both eyes must use same server frame)
+	std::shared_ptr<pico_decoded_frame> render_frames[2];
+
 	// Per-stream GL textures (managed on render thread)
 	GLuint eye_textures[3]{0, 0, 0};
 	EGLImageKHR eye_egl_images[3]{EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR};
@@ -1068,6 +1071,12 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnOnFrameBegi
 
 	g_client->tracker.set_head_pose(head_o, head_p);
 
+	{
+		std::lock_guard lock(g_client->decoded_frame_mutex);
+		g_client->render_frames[0] = g_client->latest_decoded_frames[0];
+		g_client->render_frames[1] = g_client->latest_decoded_frames[1];
+	}
+
 	if (log_this_frame)
 	{
 		spdlog::warn("TRACKING RAW HMD: orient=({:.4f},{:.4f},{:.4f},{:.4f}) pos=({:.4f},{:.4f},{:.4f})",
@@ -1137,10 +1146,7 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 	}
 
 	std::shared_ptr<pico_decoded_frame> decoded;
-	{
-		std::lock_guard lock(g_client->decoded_frame_mutex);
-		decoded = g_client->latest_decoded_frames[eye];
-	}
+	decoded = g_client->render_frames[eye];
 
 	GLuint ext_tex = 0;
 	if (decoded && decoded->valid && decoded->hardware_buffer)
