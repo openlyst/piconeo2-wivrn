@@ -44,6 +44,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private volatile boolean mForeground = false;
     private volatile long mSettleMs = CTRL_SETTLE_MS;
 
+    private volatile boolean mUiRenderRunning = false;
+    private Thread mUiRenderThread;
+
     private static final int EXT_JOY_X      = 0;
     private static final int EXT_JOY_Y      = 5;
     private static final int EXT_MENU       = 15;
@@ -100,6 +103,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         mForeground = false;
         nativePause();
         stopControllerPoll();
+        stopUiRenderThread();
         try { ControllerClient.unbindControllerService(this); } catch (Throwable t) {}
         super.onPause();
     }
@@ -144,10 +148,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                     }
                     Log.i(TAG, "controller service bound; deferring 6DoF start");
                     startControllerPoll();
+                    startUiRenderThread();
                 }
                 @Override public void unbindSuccess() {
                     Log.i(TAG, "controller service unbound");
                     stopControllerPoll();
+                    stopUiRenderThread();
                 }
                 @Override public void controllerConnectStateChanged(int hand, int state) {
                     Log.i(TAG, "controller " + hand + " connect state -> " + state);
@@ -198,7 +204,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (mCtrlRunning) return;
         mCtrlRunning = true;
         mCtrlThread = new Thread(() -> {
-            int lobbyTick = 0;
             while (mCtrlRunning) {
                 if (!mCtrlThreadStarted) {
                     try {
@@ -246,17 +251,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                     } catch (Throwable t) {}
                 }
 
-                lobbyTick++;
-                if (lobbyView != null && (lobbyTick % 6 == 0)) {
-                    try {
-                        if (lobbyView.isDirty()) {
-                            lobbyView.render();
-                            nativeUpdateLobbyTexture(lobbyView.getBitmap());
-                            lobbyView.markClean();
-                        }
-                    } catch (Throwable t) {}
-                }
-
                 try { Thread.sleep(11); } catch (InterruptedException e) { break; }
             }
         }, "ctrl-poll");
@@ -264,9 +258,35 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         Log.i(TAG, "controller poll thread started");
     }
 
+    private void startUiRenderThread() {
+        if (mUiRenderRunning) return;
+        mUiRenderRunning = true;
+        mUiRenderThread = new Thread(() -> {
+            while (mUiRenderRunning) {
+                try {
+                    if (lobbyView != null && lobbyView.isDirty()) {
+                        lobbyView.render();
+                        nativeUpdateLobbyTexture(lobbyView.getBitmap());
+                        lobbyView.markClean();
+                    }
+                } catch (Throwable t) {
+                    Log.e(TAG, "ui render thread error", t);
+                }
+                try { Thread.sleep(33); } catch (InterruptedException e) { break; }
+            }
+        }, "ui-render");
+        mUiRenderThread.start();
+        Log.i(TAG, "ui render thread started");
+    }
+
     private void stopControllerPoll() {
         mCtrlRunning = false;
         if (mCtrlThread != null) { mCtrlThread.interrupt(); mCtrlThread = null; }
+    }
+
+    private void stopUiRenderThread() {
+        mUiRenderRunning = false;
+        if (mUiRenderThread != null) { mUiRenderThread.interrupt(); mUiRenderThread = null; }
     }
 
     public void onLobbyTouch(float x, float y, boolean down, boolean pressed, float thumbstickY) {
