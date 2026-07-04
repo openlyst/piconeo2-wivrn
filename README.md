@@ -4,11 +4,8 @@ Native WiVRn client for the Pico Neo 2 and Pico Neo 2 Eye.
 Got questions or want to contribute? Join the Discord for dev discussion and help: [https://discord.gg/RQ9nSpmtfU](https://discord.gg/RQ9nSpmtfU).
 
 ## Status
-### Experimental
-This project is really early and still has issues with the code. The project does work but wouldn't say playable. 
-
-### Can I still play?
-No sorry, this is not a usable client for now please us this ALVR port instead: [hthttps://github.com/Juspertinry/alvr-pico-legacy](https://github.com/Juspertinry/alvr-pico-legacy)
+### Alpha
+This project is really early and still has issues with the code. But it should stil work.
 
 ## Supported headsets
 - Pico Neo 2
@@ -30,7 +27,7 @@ No sorry, this is not a usable client for now please us this ALVR port instead: 
 - [ ] Laucning a applcation doesnt apply a visual indiactor.
 - [ ] Right eye is slightly jittery compared to the left eye
 - [ ] Cursor on the UI doesn't work
-- [ ] Stream will crash while streaming and andriod will say the app is not responing even when it is witch breaks controller input and sends the user to a 2d view
+- [X] Stream will crash while streaming and andriod will say the app is not responing even when it is witch breaks controller input and sends the user to a 2d view
 - [X] Reprojection is broken causing some people to get sick 
 - [X] UI gets super laggy when active (32bit)
 
