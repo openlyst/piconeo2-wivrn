@@ -10,12 +10,12 @@
 
 #include <atomic>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <span>
 #include <thread>
-#include <unordered_map>
 
 struct pico_decoded_frame
 {
@@ -69,18 +69,20 @@ private:
 	std::mutex frame_info_mutex;
 	std::vector<frame_info> pending_frame_infos;
 
-	std::mutex ts_mutex;
-	std::unordered_map<int64_t, uint64_t> ts_to_frame;
+	std::mutex fifo_mutex;
+	std::deque<uint64_t> frame_index_fifo;
 
 	std::atomic<bool> exiting = false;
-	std::thread worker;
+	std::thread input_worker;
+	std::thread output_worker;
 
 	frame_callback on_frame_decoded;
 
 	void on_image_available(AImageReader * reader);
 	static void on_image_available_cb(void * ctx, AImageReader * reader);
 
-	void worker_loop();
+	void input_loop();
+	void output_loop();
 
 public:
 	pico_video_decoder(
