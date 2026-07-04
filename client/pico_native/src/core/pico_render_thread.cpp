@@ -651,7 +651,10 @@ void pico_render_thread::run()
 				for (int e = 0; e < 2; e++)
 				{
 					if (frames[e] && frames[e]->valid)
+					{
 						slots[swap_idx].pose[e] = frames[e]->server_pose[e];
+						g_stutter.on_pose_update(e, frames[e]->frame_index, frames[e]->server_pose[e]);
+					}
 					else
 						slots[swap_idx].pose[e] = {};
 				}
