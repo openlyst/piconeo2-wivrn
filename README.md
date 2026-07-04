@@ -32,7 +32,7 @@ No sorry, this is not a usable client for now please us this ALVR port instead: 
 - [ ] Reprojection is broken causing some people to get sick
 
 #### Cleanup
-- [ ] Remove the copyed ALVR grid for something custom. 
+- [X] Remove the copyed ALVR grid for something custom. 
 - [ ] Clean up the code base 
 - [ ] Orginize the files
 
@@ -70,5 +70,5 @@ The APK ends up in `build/outputs/apk/debug/` (or `release/`).
 
 ### Acknowledgments
 - [WiVRn](https://github.com/Vrixyz/WiVRn) - The main project that this is based on
-- [Juspertinry - ALVR](https://github.com/Juspertinry/alvr-pico-legacy) - stolen grid and rendering a 3d object.
+- [Juspertinry - ALVR](https://github.com/Juspertinry/alvr-pico-legacy) - rendering a 3d object.
 - [Pico SDK](https://developer.picoxr.com/) - The Pico SDK for the Pico Neo 2*

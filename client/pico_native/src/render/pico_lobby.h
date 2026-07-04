@@ -1,13 +1,17 @@
 #pragma once
 
 #include <GLES2/gl2.h>
+#include <vector>
 #include "pico_tracking.h"
 
 class pico_lobby
 {
 	GLuint program = 0;
-	GLuint grid_vbo = 0;
+	GLuint beam_vbo = 0;
 	GLuint controller_vbo = 0;
+
+	struct beam_seg { int offset; int count; };
+	std::vector<beam_seg> beam_segments;
 	GLint pos_attrib = -1;
 	GLint mvp_uniform = -1;
 	GLint color_uniform = -1;
