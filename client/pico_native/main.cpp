@@ -22,6 +22,7 @@
 #include "pico_audio.h"
 #include "pico_blit.h"
 #include "pico_tracking.h"
+#include "pico_lobby.h"
 #include "crypto.h"
 #include "protocol_version.h"
 #include "wivrn_packets.h"
@@ -117,9 +118,11 @@ struct pico_client
 
 	// GLES
 	pico_blit_pipeline blit_pipeline;
+	pico_lobby lobby;
 	int eye_width = 1664;
 	int eye_height = 1664;
 	bool gl_initialized = false;
+	std::atomic<bool> streaming{false};
 
 	// Pico Neo 2: 101 deg FOV, 50.50 deg per side (https://vr-compare.com/headset/piconeo2)
 	XrFovf eye_fov[2]{
@@ -287,6 +290,7 @@ void pico_client::setup_audio()
 
 void pico_client::handle_video_shard(to_headset::video_stream_data_shard && shard)
 {
+	streaming = true;
 	static int shard_count = 0;
 	++shard_count;
 	bool has_timing = shard.timing_info.has_value();
@@ -1177,7 +1181,18 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 		ext_tex = g_client->eye_textures[eye];
 	}
 
-	g_client->blit_pipeline.draw(eye, ext_tex);
+	if (ext_tex == 0 || !g_client->streaming.load())
+	{
+		float h_orient[4], h_pos[3];
+		g_client->tracker.get_head_pose(h_orient, h_pos);
+		controller_sample cs[2];
+		g_client->tracker.get_controllers(cs);
+		g_client->lobby.draw(eye, h_orient, h_pos, cs, g_client->eye_fov[eye], 0.064f);
+	}
+	else
+	{
+		g_client->blit_pipeline.draw(eye, ext_tex);
+	}
 
 	glFlush();
 
@@ -1205,6 +1220,7 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInitGL(JNIE
 		g_client->eye_fov[0].angleUp, g_client->eye_fov[0].angleDown);
 
 	g_client->blit_pipeline.init(w, h);
+	g_client->lobby.init(w, h);
 	load_egl_procs();
 
 	Pvr_SetProjectionFov(101.0f, 101.0f);

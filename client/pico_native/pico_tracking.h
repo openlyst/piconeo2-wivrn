@@ -89,6 +89,7 @@ public:
 
 	void set_head_pose(const float orient[4], const float pos[3]);
 	void get_head_pose(float out_orient[4], float out_pos[3]);
+	void get_controllers(controller_sample out[2]);
 	void update_controller(int hand, const float orient[4], const float pos[3],
 	                       int trigger, const int touch[2], int battery,
 	                       bool a, bool b, bool grip, bool click, bool menu);

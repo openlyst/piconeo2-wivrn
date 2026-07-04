@@ -111,6 +111,13 @@ void pico_native_tracker::get_head_pose(float out_orient[4], float out_pos[3])
 	std::memcpy(out_pos, head_pos, sizeof(head_pos));
 }
 
+void pico_native_tracker::get_controllers(controller_sample out[2])
+{
+	std::lock_guard lock(state_mutex);
+	out[0] = controllers[0];
+	out[1] = controllers[1];
+}
+
 void pico_native_tracker::update_controller(int hand, const float orient[4], const float pos[3],
                                             int trigger, const int touch[2], int battery,
                                             bool a, bool b, bool grip, bool click, bool menu)
