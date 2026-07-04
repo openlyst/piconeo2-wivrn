@@ -89,6 +89,7 @@ public class WivrnLobbyView {
     private boolean addServerTcpOnly = false;
     private boolean showAddServer = false;
     private int addServerFieldFocus = 0;
+    private boolean showResetConfirm = false;
 
     private static final int SIDEBAR_WIDTH = 280;
     private static final int TAB_HEIGHT = 70;
@@ -438,6 +439,38 @@ public class WivrnLobbyView {
         y = drawCheckbox(x, y, w, "TCP only", tcpOnly);
         y = drawCheckbox(x, y, w, "Enable microphone", microphoneEnabled);
         y = drawCheckbox(x, y, w, "High power mode", highPowerMode);
+
+        y += 20;
+        RectF resetBtn = new RectF(x, y, x + 200, y + BUTTON_HEIGHT);
+        boolean resetHover = touchDown && resetBtn.contains(touchX, touchY);
+        canvas.drawRoundRect(resetBtn, 10, 10, resetHover ? buttonDangerBgPaint : buttonDangerBgPaint);
+        drawCenteredText("Restore Defaults", resetBtn, textPaint);
+
+        if (showResetConfirm) {
+            renderResetConfirmDialog();
+        }
+    }
+
+    private void renderResetConfirmDialog() {
+        float panelW = 500;
+        float panelH = 200;
+        float px = (width - panelW) / 2;
+        float py = (height - panelH) / 2;
+
+        canvas.drawRect(0, 0, width, height, new Paint() {{ setColor(Color.argb(160, 0, 0, 0)); }});
+        canvas.drawRoundRect(px, py, px + panelW, py + panelH, 12, 12, cardBgPaint);
+
+        canvas.drawText("Restore all settings to defaults?", px + 30, py + 50, textPaint);
+
+        RectF yesBtn = new RectF(px + 30, py + panelH - 70, px + 30 + 180, py + panelH - 20);
+        boolean yesHover = touchDown && yesBtn.contains(touchX, touchY);
+        canvas.drawRoundRect(yesBtn, 10, 10, yesHover ? buttonDangerBgPaint : buttonDangerBgPaint);
+        drawCenteredText("Reset", yesBtn, textPaint);
+
+        RectF noBtn = new RectF(px + panelW - 210, py + panelH - 70, px + panelW - 30, py + panelH - 20);
+        boolean noHover = touchDown && noBtn.contains(touchX, touchY);
+        canvas.drawRoundRect(noBtn, 10, 10, noHover ? buttonHoverBgPaint : buttonBgPaint);
+        drawCenteredText("Cancel", noBtn, textPaint);
     }
 
     private float drawSlider(float x, float y, float w, String label, int value, int min, int max, String unit) {
@@ -886,6 +919,49 @@ public class WivrnLobbyView {
         if (hpBox.contains(x, y) || (x > contentX && x < contentX + 250 && y > sy && y < sy + 30)) {
             highPowerMode = !highPowerMode;
             saveSettings();
+            markDirty();
+            return;
+        }
+
+        // Restore Defaults button
+        sy += 40;
+        RectF resetBtn = new RectF(contentX, sy, contentX + 200, sy + BUTTON_HEIGHT);
+        if (resetBtn.contains(x, y)) {
+            showResetConfirm = true;
+            markDirty();
+            return;
+        }
+
+        // Reset confirm dialog
+        if (showResetConfirm) {
+            handleResetConfirmClick(x, y);
+        }
+    }
+
+    private void handleResetConfirmClick(float x, float y) {
+        float panelW = 500;
+        float panelH = 200;
+        float px = (width - panelW) / 2;
+        float py = (height - panelH) / 2;
+
+        RectF yesBtn = new RectF(px + 30, py + panelH - 70, px + 30 + 180, py + panelH - 20);
+        if (yesBtn.contains(x, y)) {
+            resolutionScale = 100;
+            foveationScale = 30;
+            codec = "auto";
+            bitrate = 50;
+            tcpOnly = false;
+            microphoneEnabled = false;
+            highPowerMode = false;
+            saveSettings();
+            showResetConfirm = false;
+            markDirty();
+            return;
+        }
+
+        RectF noBtn = new RectF(px + panelW - 210, py + panelH - 70, px + panelW - 30, py + panelH - 20);
+        if (noBtn.contains(x, y)) {
+            showResetConfirm = false;
             markDirty();
             return;
         }
