@@ -25,6 +25,13 @@ class pico_lobby
 	static constexpr int ui_w = 1024;
 	static constexpr int ui_h = 1024;
 
+	// TV panel state (world-locked)
+	float tv_pos[3] = {0, 1.5f, -2.0f};
+	float tv_yaw = 0.0f;
+	bool tv_placed = false;
+	bool prev_grip[2] = {false, false};
+	bool prev_stick_click[2] = {false, false};
+
 	int eye_width = 0;
 	int eye_height = 0;
 	bool initialized = false;
@@ -32,6 +39,8 @@ class pico_lobby
 	void render_ui();
 	void draw_quad(const float head_orient[4], const float head_pos[3],
 	               const XrFovf & fov, float ipd, int eye);
+	void update_interaction(const float head_orient[4], const float head_pos[3],
+	                        const controller_sample controllers[2]);
 
 public:
 	pico_lobby() = default;

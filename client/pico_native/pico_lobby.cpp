@@ -340,6 +340,9 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
 
+	if (eye == 0)
+		update_interaction(head_orient, head_pos, controllers);
+
 	glUseProgram(program);
 
 	Mat4 proj = mat4_perspective(fov.angleLeft, fov.angleRight, fov.angleUp, fov.angleDown, 0.1f, 100.0f);
@@ -547,26 +550,14 @@ void pico_lobby::draw_quad(const float head_orient[4], const float head_pos[3],
 	Mat4 view = mat4_view(head_orient, eye_pos);
 	Mat4 vp = mat4_mul(proj, view);
 
-	// Place the TV screen 2m in front of the user, at eye height, 1.5m wide
+	// World-locked TV panel: use stored position and yaw
 	float tv_w = 1.5f;
 	float tv_h = 1.5f;
-	float tv_dist = 2.0f;
 
-	// Position: in front of head (along -Z in head space, but we need world space)
-	// Forward direction = head orientation * (0, 0, -1)
-	float fwd[3] = {0, 0, -1};
-	float fwd_world[3];
-	neo2::rotate_vector(hq, fwd, fwd_world);
+	// Model: translate to TV position, rotate by yaw around Y, then rotate 180 to face -Z
+	Mat4 model = mat4_mul(mat4_translate(tv_pos[0], tv_pos[1], tv_pos[2]),
+	                      mat4_mul(mat4_rotate_y(tv_yaw), mat4_rotate_y(M_PI)));
 
-	float tv_cx = head_pos[0] + fwd_world[0] * tv_dist;
-	float tv_cy = head_pos[1] + fwd_world[1] * tv_dist;
-	float tv_cz = head_pos[2] + fwd_world[2] * tv_dist;
-
-	// Build model matrix: translate to TV center, rotate to face the user
-	// The quad faces +Z by default, so rotate 180 around Y to face -Z (toward user)
-	Mat4 model = mat4_mul(mat4_translate(tv_cx, tv_cy, tv_cz), mat4_mul(quat_to_mat4(head_orient), mat4_rotate_y(M_PI)));
-
-	// Scale the quad
 	Mat4 scale = mat4_scale(tv_w * 0.5f, tv_h * 0.5f, 1.0f);
 	model = mat4_mul(model, scale);
 
@@ -592,4 +583,68 @@ void pico_lobby::draw_quad(const float head_orient[4], const float head_pos[3],
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glUseProgram(0);
+}
+
+void pico_lobby::update_interaction(const float head_orient[4], const float head_pos[3],
+                                    const controller_sample controllers[2])
+{
+	// On first placement, position TV in front of user
+	if (!tv_placed)
+	{
+		neo2::quat hq = neo2::normalize_quat({head_orient[0], head_orient[1], head_orient[2], head_orient[3]});
+		float fwd[3] = {0, 0, -1};
+		float fwd_world[3];
+		neo2::rotate_vector(hq, fwd, fwd_world);
+		tv_pos[0] = head_pos[0] + fwd_world[0] * 2.0f;
+		tv_pos[1] = head_pos[1];
+		tv_pos[2] = head_pos[2] + fwd_world[2] * 2.0f;
+
+		// Compute yaw from head forward direction
+		tv_yaw = atan2f(fwd_world[0], fwd_world[2]);
+		tv_placed = true;
+	}
+
+	// Both thumbstick clicks: recenter TV in front of user
+	bool both_click = controllers[0].thumbstick_click && controllers[1].thumbstick_click;
+	bool prev_both = prev_stick_click[0] && prev_stick_click[1];
+	if (both_click && !prev_both)
+	{
+		neo2::quat hq = neo2::normalize_quat({head_orient[0], head_orient[1], head_orient[2], head_orient[3]});
+		float fwd[3] = {0, 0, -1};
+		float fwd_world[3];
+		neo2::rotate_vector(hq, fwd, fwd_world);
+		tv_pos[0] = head_pos[0] + fwd_world[0] * 2.0f;
+		tv_pos[1] = head_pos[1];
+		tv_pos[2] = head_pos[2] + fwd_world[2] * 2.0f;
+		tv_yaw = atan2f(fwd_world[0], fwd_world[2]);
+	}
+
+	// Grip to drag: when either controller grip is held, move TV to follow that controller
+	for (int h = 0; h < 2; h++)
+	{
+		if (controllers[h].connected && controllers[h].grip)
+		{
+			// Controller position in meters
+			float cx = controllers[h].position[0] * 0.001f;
+			float cy = controllers[h].position[1] * 0.001f;
+			float cz = controllers[h].position[2] * 0.001f;
+
+			// Move TV to controller position (offset slightly up so it feels natural)
+			tv_pos[0] = cx;
+			tv_pos[1] = cy;
+			tv_pos[2] = cz;
+
+			// Face the TV toward the head
+			float dx = head_pos[0] - cx;
+			float dz = head_pos[2] - cz;
+			tv_yaw = atan2f(dx, dz);
+		}
+	}
+
+	// Update previous states
+	for (int h = 0; h < 2; h++)
+	{
+		prev_grip[h] = controllers[h].grip;
+		prev_stick_click[h] = controllers[h].thumbstick_click;
+	}
 }
