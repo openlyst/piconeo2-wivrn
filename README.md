@@ -11,31 +11,20 @@ This project has most everything created however with same issues.
 - Pico Neo 2
 - Pico Neo 2 Eye* (not tested no eye tracking)
 
-## Plan
-Our plan for the client is to add openXR and use that for tracking and input but not for rendering.
+### Todo before a 1.0
 
-## Build
+#### Tweaks
+- [ ] Killing a applcation doesn't apply a visual indiactor.
+- [ ] Laucning a applcation doesnt apply a visual indiactor.
+- [ ] Remove the copyed ALVR grid for something custom. 
 
-### What you need
+#### Known bugs
+- [ ] Client will crash if you pair from the clint rather then server (tested on usb)
+- [ ] Reprojection is broken causing some people to get sick
 
-- Android SDK (API 34 for compile, 26 minimum)
-- Android NDK 28.2.13676358 (or whatever compatible version you have)
-- CMake 3.31.5
-- JDK 17 — Gradle 8 won't work with newer JDKs, so stick with 17
-- Perl (OpenSSL's Configure script needs it)
-
-On macOS, the easy way to get set up:
-
-```bash
-brew install openjdk@17 cmake pkg-config perl
-sudo ln -sfn /opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk /Library/Java/JavaVirtualMachines/openjdk-17.jdk
-```
-
-Grab the NDK and CMake through Android Studio or sdkmanager:
-
-```bash
-sdkmanager "ndk;28.2.13676358" "cmake;3.31.5"
-```
+#### Features
+- [ ] Create a gitlab builder
+- [ ] Implament audio
 
 ### Getting the Pico SDK
 
@@ -82,30 +71,3 @@ If you want to point the cache somewhere specific:
 ### Building on Linux
 
 <!-- TODO: Write Linux build instructions -->
-
-### Project layout
-
-- `client/pico_native/main.cpp` — PvrSDK init, GLES setup, render loop, tracking, controllers
-- `client/pico_native/wivrn_client_pico.h/cpp` — Networking (talks to the WiVRn server directly)
-- `client/pico_native/pico_decoder.cpp` — Decodes incoming video frames
-- `client/pico_native/pico_audio.cpp` — Audio playback
-- `client/pico_native/pico_blit.cpp` — GLES blitting for rendering
-- `client/pico_native/common/` — Vendored bits from the WiVRn common library (sockets, crypto, packets)
-- `client/pico_native/CMakeLists.txt` — Self-contained build, doesn't touch the WiVRn root
-- `client/pico_native/build.gradle` — Gradle config for the APK
-
-## Todo
-- [ ] Add support eye tracking
-- [ ] Make the client work with out any tweaks to the server
-- [ ] Eye tracking is not working
-
-### XR
-- [ ] Create a native XR client
-- [ ] Discard the old WiVRn client.
-- [ ] Track with XR
-
-## Bugs
-- [ ] USB pairing is often unstable
-- [ ] HMD height is too high
-- [ ] Controller tracking is barley working
-- [ ] Rolling head will make the camera freak out.
