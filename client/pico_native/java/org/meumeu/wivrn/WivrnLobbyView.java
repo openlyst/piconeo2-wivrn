@@ -54,6 +54,10 @@ public class WivrnLobbyView {
     private float streamBandwidthRx = 0;
     private float streamBandwidthTx = 0;
     private String[] runningApps = new String[0];
+    private int[] runningAppIds = new int[0];
+    private boolean[] runningAppOverlays = new boolean[0];
+    private boolean[] runningAppActives = new boolean[0];
+    private long lastRunningAppsPoll = 0;
     private String[] availableAppIds = new String[0];
     private String[] availableAppNames = new String[0];
     private Map<String, Bitmap> appIcons = new HashMap<>();
@@ -644,8 +648,11 @@ public class WivrnLobbyView {
         }
     }
 
-    public void updateRunningApps(String[] apps) {
-        this.runningApps = apps != null ? apps : new String[0];
+    public void updateRunningApps(String[] names, int[] ids, boolean[] overlays, boolean[] actives) {
+        this.runningApps = names != null ? names : new String[0];
+        this.runningAppIds = ids != null ? ids : new int[0];
+        this.runningAppOverlays = overlays != null ? overlays : new boolean[0];
+        this.runningAppActives = actives != null ? actives : new boolean[0];
         if (connectionState == STATE_CONNECTED) {
             markDirty();
         }
@@ -1171,6 +1178,12 @@ public class WivrnLobbyView {
     }
 
     private void renderStreamApplications(float x, float w) {
+        long now = System.currentTimeMillis();
+        if (now - lastRunningAppsPoll > 1000) {
+            lastRunningAppsPoll = now;
+            ((MainActivity) context).onRequestRunningApps();
+        }
+
         float y = 40;
         canvas.drawText("Running XR Applications", x, y + 30, textLargePaint);
         y += 70;
@@ -1182,23 +1195,60 @@ public class WivrnLobbyView {
             return;
         }
 
+        boolean inOverlaySection = false;
         for (int i = 0; i < runningApps.length; i++) {
+            boolean isOverlay = i < runningAppOverlays.length && runningAppOverlays[i];
+
+            if (isOverlay && !inOverlaySection) {
+                inOverlaySection = true;
+                Paint sepPaint = new Paint();
+                sepPaint.setColor(Color.rgb(60, 70, 85));
+                canvas.drawRect(x, y, x + w, y + 1, sepPaint);
+                y += 15;
+                textDimPaint.setColor(Color.rgb(120, 130, 145));
+                canvas.drawText("Overlays", x, y + 20, textDimPaint);
+                textDimPaint.setColor(Color.rgb(100, 110, 125));
+                y += 35;
+            }
+
+            boolean isActive = !isOverlay && i < runningAppActives.length && runningAppActives[i];
+
             RectF card = new RectF(x, y, x + w, y + 70);
+            boolean hover = touchDown && card.contains(touchX, touchY);
+
             Paint cardPaint = new Paint();
             cardPaint.setAntiAlias(true);
-            cardPaint.setColor(cardBgPaint.getColor());
+            if (hover && !isActive && !isOverlay) {
+                cardPaint.setColor(Color.rgb(45, 55, 75));
+            } else {
+                cardPaint.setColor(cardBgPaint.getColor());
+            }
             canvas.drawRoundRect(card, 10, 10, cardPaint);
 
-            canvas.drawText(runningApps[i], x + 20, y + 45, textPaint);
+            float textX = x + 20;
+            if (isActive) {
+                textPaint.setColor(Color.rgb(120, 200, 120));
+                canvas.drawText("> ", textX, y + 45, textPaint);
+                textX += 30;
+            }
+            textPaint.setColor(Color.rgb(230, 235, 245));
+            String displayName = runningApps[i];
+            float maxTextW = w - 100;
+            if (textPaint.measureText(displayName) > maxTextW) {
+                while (textPaint.measureText(displayName + "...") > maxTextW && displayName.length() > 0)
+                    displayName = displayName.substring(0, displayName.length() - 1);
+                displayName += "...";
+            }
+            canvas.drawText(displayName, textX, y + 45, textPaint);
 
-            RectF closeBtn = new RectF(x + w - 60, y + 15, x + w - 15, y + 55);
-            boolean hover = touchDown && closeBtn.contains(touchX, touchY);
-            Paint closePaint = new Paint();
-            closePaint.setAntiAlias(true);
-            closePaint.setColor(hover ? Color.rgb(200, 50, 50) : Color.rgb(80, 30, 30));
-            canvas.drawRoundRect(closeBtn, 6, 6, closePaint);
+            RectF stopBtn = new RectF(x + w - 60, y + 15, x + w - 15, y + 55);
+            boolean stopHover = touchDown && stopBtn.contains(touchX, touchY);
+            Paint stopPaint = new Paint();
+            stopPaint.setAntiAlias(true);
+            stopPaint.setColor(stopHover ? Color.rgb(200, 50, 50) : Color.rgb(80, 30, 30));
+            canvas.drawRoundRect(stopBtn, 6, 6, stopPaint);
             textSmallPaint.setColor(Color.rgb(255, 255, 255));
-            canvas.drawText("X", closeBtn.centerX() - 5, closeBtn.centerY() + 8, textSmallPaint);
+            canvas.drawText("X", stopBtn.centerX() - 5, stopBtn.centerY() + 8, textSmallPaint);
             textSmallPaint.setColor(Color.rgb(160, 170, 185));
 
             y += 85;
@@ -1521,6 +1571,39 @@ public class WivrnLobbyView {
 
         float contentX = SIDEBAR_WIDTH + 30;
         float contentW = width - contentX - 30;
+
+        if (streamTab == STREAM_TAB_APPLICATIONS) {
+            if (runningApps == null || runningApps.length == 0)
+                return;
+
+            float cardY = 40 + 70;
+            for (int i = 0; i < runningApps.length; i++) {
+                boolean isOverlay = i < runningAppOverlays.length && runningAppOverlays[i];
+                if (isOverlay && (i == 0 || !(i - 1 < runningAppOverlays.length && runningAppOverlays[i - 1]))) {
+                    cardY += 15 + 35;
+                }
+
+                RectF stopBtn = new RectF(contentX + contentW - 60, cardY + 15, contentX + contentW - 15, cardY + 55);
+                if (stopBtn.contains(x, y) && i < runningAppIds.length) {
+                    ((MainActivity) context).onStopApp(runningAppIds[i]);
+                    markDirty();
+                    return;
+                }
+
+                RectF card = new RectF(contentX, cardY, contentX + contentW, cardY + 70);
+                if (card.contains(x, y) && !isOverlay && i < runningAppIds.length) {
+                    boolean isActive = i < runningAppActives.length && runningAppActives[i];
+                    if (!isActive) {
+                        ((MainActivity) context).onSetActiveApp(runningAppIds[i]);
+                    }
+                    markDirty();
+                    return;
+                }
+
+                cardY += 85;
+            }
+            return;
+        }
 
         if (streamTab == STREAM_TAB_LAUNCH) {
             if (availableAppNames == null || availableAppNames.length == 0) {

@@ -346,7 +346,7 @@ struct pico_client
 			vm->DetachCurrentThread();
 	}
 
-	void notify_running_applications(const std::vector<std::string> & names)
+	void notify_running_applications(const std::vector<to_headset::running_applications::application> & apps)
 	{
 		if (!vm || !activity)
 			return;
@@ -363,18 +363,33 @@ struct pico_client
 		{
 			jclass clazz = env->GetObjectClass(activity);
 			jclass string_class = env->FindClass("java/lang/String");
-			jmethodID method = env->GetMethodID(clazz, "onRunningApplications", "([Ljava/lang/String;)V");
+			jmethodID method = env->GetMethodID(clazz, "onRunningApplications", "([Ljava/lang/String;[I[Z[Z)V");
 			if (method && string_class)
 			{
-				jobjectArray jnames = env->NewObjectArray(names.size(), string_class, nullptr);
-				for (size_t i = 0; i < names.size(); i++)
+				jobjectArray jnames = env->NewObjectArray(apps.size(), string_class, nullptr);
+				jintArray jids = env->NewIntArray(apps.size());
+				jbooleanArray joverlays = env->NewBooleanArray(apps.size());
+				jbooleanArray jactives = env->NewBooleanArray(apps.size());
+				jint ids[apps.size()];
+				jboolean overlays[apps.size()];
+				jboolean actives[apps.size()];
+				for (size_t i = 0; i < apps.size(); i++)
 				{
-					jstring jname = env->NewStringUTF(names[i].c_str());
+					jstring jname = env->NewStringUTF(apps[i].name.c_str());
 					env->SetObjectArrayElement(jnames, i, jname);
 					env->DeleteLocalRef(jname);
+					ids[i] = apps[i].id;
+					overlays[i] = apps[i].overlay;
+					actives[i] = apps[i].active;
 				}
-				env->CallVoidMethod(activity, method, jnames);
+				env->SetIntArrayRegion(jids, 0, apps.size(), ids);
+				env->SetBooleanArrayRegion(joverlays, 0, apps.size(), overlays);
+				env->SetBooleanArrayRegion(jactives, 0, apps.size(), actives);
+				env->CallVoidMethod(activity, method, jnames, jids, joverlays, jactives);
 				env->DeleteLocalRef(jnames);
+				env->DeleteLocalRef(jids);
+				env->DeleteLocalRef(joverlays);
+				env->DeleteLocalRef(jactives);
 			}
 			env->DeleteLocalRef(clazz);
 			if (string_class)
@@ -659,11 +674,7 @@ void pico_client::handle_packet(to_headset::packets & packet)
 		else if constexpr (std::is_same_v<T, to_headset::running_applications>)
 		{
 			spdlog::info("Received running applications: {} apps", p.applications.size());
-			std::vector<std::string> names;
-			names.reserve(p.applications.size());
-			for (auto & app : p.applications)
-				names.push_back(app.name);
-			notify_running_applications(names);
+			notify_running_applications(p.applications);
 		}
 		else
 		{
@@ -1759,6 +1770,57 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnStartApp(JN
 			spdlog::warn("Failed to start application: {}", e.what());
 		}
 		env->ReleaseStringUTFChars(appId, app_id_str);
+	}
+}
+
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnRequestRunningApps(JNIEnv * env, jobject thiz, jlong ptr)
+{
+	if (!g_client || !g_client->session)
+		return;
+
+	try
+	{
+		g_client->session->send_control(from_headset::get_running_applications{});
+	}
+	catch (std::exception & e)
+	{
+		spdlog::warn("Failed to request running applications: {}", e.what());
+	}
+}
+
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnSetActiveApp(JNIEnv * env, jobject thiz, jlong ptr, jint appId)
+{
+	if (!g_client || !g_client->session)
+		return;
+
+	spdlog::info("Setting active application: {}", appId);
+	try
+	{
+		g_client->session->send_control(from_headset::set_active_application{
+			.id = (uint32_t)appId,
+		});
+	}
+	catch (std::exception & e)
+	{
+		spdlog::warn("Failed to set active application: {}", e.what());
+	}
+}
+
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnStopApp(JNIEnv * env, jobject thiz, jlong ptr, jint appId)
+{
+	if (!g_client || !g_client->session)
+		return;
+
+	spdlog::info("Stopping application: {}", appId);
+	try
+	{
+		g_client->session->send_control(from_headset::stop_application{
+			.id = (uint32_t)appId,
+		});
+	}
+	catch (std::exception & e)
+	{
+		spdlog::warn("Failed to stop application: {}", e.what());
 	}
 }
 

@@ -391,6 +391,9 @@ public class MainActivity extends VRActivity implements RenderInterface {
     public native void nativeWivrnDisconnect(long ptr);
     public native void nativeWivrnRequestAppList(long ptr);
     public native void nativeWivrnStartApp(long ptr, String appId);
+    public native void nativeWivrnRequestRunningApps(long ptr);
+    public native void nativeWivrnSetActiveApp(long ptr, int appId);
+    public native void nativeWivrnStopApp(long ptr, int appId);
 
     public void onLobbyTouch(float x, float y, boolean down, boolean pressed, float thumbstickY) {
         if (lobbyView != null) {
@@ -416,9 +419,9 @@ public class MainActivity extends VRActivity implements RenderInterface {
         }
     }
 
-    public void onRunningApplications(String[] names) {
+    public void onRunningApplications(String[] names, int[] ids, boolean[] overlays, boolean[] actives) {
         if (lobbyView != null) {
-            lobbyView.updateRunningApps(names);
+            lobbyView.updateRunningApps(names, ids, overlays, actives);
         }
     }
 
@@ -456,5 +459,19 @@ public class MainActivity extends VRActivity implements RenderInterface {
     public void onStartApp(String appId) {
         Log.d(TAG, "Starting app: " + appId);
         nativeWivrnStartApp(nativePtr, appId);
+    }
+
+    public void onRequestRunningApps() {
+        nativeWivrnRequestRunningApps(nativePtr);
+    }
+
+    public void onSetActiveApp(int appId) {
+        Log.d(TAG, "Setting active app: " + appId);
+        nativeWivrnSetActiveApp(nativePtr, appId);
+    }
+
+    public void onStopApp(int appId) {
+        Log.d(TAG, "Stopping app: " + appId);
+        nativeWivrnStopApp(nativePtr, appId);
     }
 }
