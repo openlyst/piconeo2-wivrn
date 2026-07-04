@@ -11,6 +11,8 @@ import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.net.nsd.NsdManager;
 import android.net.nsd.NsdServiceInfo;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -101,6 +103,9 @@ public class WivrnLobbyView {
     private static final int CARD_HEIGHT = 100;
     private static final int BUTTON_WIDTH = 200;
     private static final int BUTTON_HEIGHT = 60;
+    private static final int TOPBAR_HEIGHT = 50;
+    private static final Paint topbarBgPaint = new Paint();
+    private static final Paint topbarBorderPaint = new Paint();
 
     public static class ServerEntry {
         String name;
@@ -127,6 +132,8 @@ public class WivrnLobbyView {
     private NsdManager nsdManager;
     private NsdManager.DiscoveryListener nsdListener;
     private final Map<String, ServerEntry> discoveredServers = new HashMap<>();
+    private int wifiLevel = -1; // -1 = no wifi, 0-3 = signal bars
+    private String wifiSsid = "";
 
     public WivrnLobbyView(Context context) {
         this.context = context;
@@ -138,6 +145,87 @@ public class WivrnLobbyView {
         loadServers();
         loadSettings();
         startDiscovery();
+        updateWifiStatus();
+    }
+
+    public void updateWifiStatus() {
+        try {
+            WifiManager wifi = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wifi == null || !wifi.isWifiEnabled()) {
+                wifiLevel = -1;
+                wifiSsid = "";
+                return;
+            }
+            WifiInfo info = wifi.getConnectionInfo();
+            if (info == null || info.getSupplicantState() != android.net.wifi.SupplicantState.COMPLETED) {
+                wifiLevel = -1;
+                wifiSsid = "";
+                return;
+            }
+            int rssi = info.getRssi();
+            int level = WifiManager.calculateSignalLevel(rssi, 4);
+            wifiLevel = level;
+            String ssid = info.getSSID();
+            if (ssid != null && !ssid.contains("unknown") && !ssid.startsWith("<")) {
+                wifiSsid = ssid.replace("\"", "");
+            } else {
+                wifiSsid = "";
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to get wifi status", e);
+            wifiLevel = -1;
+            wifiSsid = "";
+        }
+    }
+
+    private void renderWifiIcon(float rightX, float centerY) {
+        float iconSize = 22;
+        float cx = rightX - iconSize;
+        float cy = centerY;
+
+        Paint wifiPaint = new Paint();
+        wifiPaint.setAntiAlias(true);
+        wifiPaint.setStyle(Paint.Style.STROKE);
+        wifiPaint.setStrokeCap(Paint.Cap.ROUND);
+
+        if (wifiLevel < 0) {
+            wifiPaint.setColor(Color.rgb(180, 60, 60));
+            wifiPaint.setStrokeWidth(3);
+            canvas.drawCircle(cx, cy, iconSize * 0.4f, wifiPaint);
+            wifiPaint.setStrokeWidth(4);
+            canvas.drawLine(cx - iconSize * 0.28f, cy + iconSize * 0.28f, cx + iconSize * 0.28f, cy - iconSize * 0.28f, wifiPaint);
+        } else {
+            int color = wifiLevel >= 2 ? Color.rgb(80, 200, 120) : Color.rgb(220, 180, 60);
+            wifiPaint.setColor(color);
+            wifiPaint.setStrokeWidth(3);
+
+            float r = iconSize * 0.15f;
+            canvas.drawPoint(cx, cy + r * 2.5f, wifiPaint);
+
+            for (int i = 0; i < 3; i++) {
+                float arcR = iconSize * 0.15f * (i + 1) * 1.3f;
+                RectF arcRect = new RectF(cx - arcR, cy + r * 2.5f - arcR, cx + arcR, cy + r * 2.5f + arcR);
+                float startAngle = 225;
+                float sweepAngle = 90;
+                if (i <= wifiLevel) {
+                    canvas.drawArc(arcRect, startAngle, sweepAngle, false, wifiPaint);
+                } else {
+                    wifiPaint.setColor(Color.rgb(80, 85, 95));
+                    canvas.drawArc(arcRect, startAngle, sweepAngle, false, wifiPaint);
+                    wifiPaint.setColor(color);
+                }
+            }
+        }
+    }
+
+    private void renderTopBar() {
+        float contentX = SIDEBAR_WIDTH;
+        float contentW = width - contentX;
+
+        canvas.drawRect(contentX, 0, width, TOPBAR_HEIGHT, topbarBgPaint);
+        canvas.drawRect(contentX, TOPBAR_HEIGHT, width, TOPBAR_HEIGHT + 1, topbarBorderPaint);
+
+        renderWifiIcon(width - 25, TOPBAR_HEIGHT / 2f);
     }
 
     public void startDiscovery() {
@@ -281,6 +369,9 @@ public class WivrnLobbyView {
         sliderTrackPaint.setColor(Color.rgb(50, 55, 65));
         sliderFillPaint.setColor(Color.rgb(40, 140, 220));
         sliderHandlePaint.setColor(Color.rgb(80, 160, 240));
+
+        topbarBgPaint.setColor(Color.rgb(14, 16, 22));
+        topbarBorderPaint.setColor(Color.rgb(40, 45, 55));
     }
 
     private void loadServers() {
@@ -396,6 +487,7 @@ public class WivrnLobbyView {
             renderConnected();
         } else {
             renderSidebar();
+            renderTopBar();
             renderContent();
         }
 
@@ -437,6 +529,9 @@ public class WivrnLobbyView {
         float contentX = SIDEBAR_WIDTH + 20;
         float contentW = width - contentX - 20;
 
+        canvas.save();
+        canvas.translate(0, TOPBAR_HEIGHT + 10);
+
         switch (currentTab) {
             case TAB_SERVER_LIST:
                 renderServerList(contentX, contentW);
@@ -454,6 +549,8 @@ public class WivrnLobbyView {
                 renderExit(contentX, contentW);
                 break;
         }
+
+        canvas.restore();
     }
 
     private void renderServerList(float x, float w) {
@@ -851,15 +948,17 @@ public class WivrnLobbyView {
             return;
         }
 
+        float adjustedY = y - (TOPBAR_HEIGHT + 10);
+
         switch (currentTab) {
             case TAB_SERVER_LIST:
-                handleServerListClick(x, y);
+                handleServerListClick(x, adjustedY);
                 break;
             case TAB_SETTINGS:
-                handleSettingsClick(x, y);
+                handleSettingsClick(x, adjustedY);
                 break;
             case TAB_EXIT:
-                handleExitClick(x, y);
+                handleExitClick(x, adjustedY);
                 break;
         }
     }

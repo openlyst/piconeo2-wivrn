@@ -37,6 +37,7 @@ public class MainActivity extends VRActivity implements RenderInterface {
     private long nativePtr;
     private WivrnLobbyView lobbyView;
     private WifiManager.MulticastLock multicastLock;
+    private int frameCount = 0;
 
     private CVControllerListener cvListener = new CVControllerListener() {
         @Override
@@ -271,6 +272,11 @@ public class MainActivity extends VRActivity implements RenderInterface {
                 leftA, leftB, leftGrip, leftClick, leftMenu,
                 rightOrient, rightPose, rightTrigger, rightTouch, rightBattery,
                 rightA, rightB, rightGrip, rightClick, rightMenu);
+
+        if (frameCount % 60 == 0 && lobbyView != null) {
+            lobbyView.updateWifiStatus();
+        }
+        frameCount++;
     }
 
     @Override
