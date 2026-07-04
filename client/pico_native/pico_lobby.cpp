@@ -529,23 +529,19 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 				controllers[h].orientation[3],
 			});
 
-			// panel_pos = controller_pos + controller_orient * offset_pos
+			// Position offset uses full controller orientation
 			float rotated_offset[3];
 			neo2::rotate_vector(cq, recenter_offset_pos, rotated_offset);
 			panel_pos[0] = cpos[0] + rotated_offset[0];
 			panel_pos[1] = cpos[1] + rotated_offset[1];
 			panel_pos[2] = cpos[2] + rotated_offset[2];
 
-			// panel_orient = controller_orient * offset_orient
-			neo2::quat offset_q = {recenter_offset_orient[0], recenter_offset_orient[1],
-			                       recenter_offset_orient[2], recenter_offset_orient[3]};
-			neo2::quat panel_orient = neo2::multiply_quat(cq, offset_q);
-
-			// Extract yaw from panel orientation for our yaw-only rendering
+			// Yaw: extract controller yaw and apply stored yaw offset
 			float fwd[3] = {0, 0, -1};
 			float fwd_world[3];
-			neo2::rotate_vector(panel_orient, fwd, fwd_world);
-			panel_yaw = atan2f(fwd_world[0], fwd_world[2]);
+			neo2::rotate_vector(cq, fwd, fwd_world);
+			float controller_yaw = atan2f(fwd_world[0], fwd_world[2]);
+			panel_yaw = controller_yaw + recenter_offset_yaw;
 		}
 		else
 		{
@@ -621,15 +617,12 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 					neo2::quat inv_cq = {cq.x, cq.y, cq.z, -cq.w};
 					neo2::rotate_vector(inv_cq, delta, recenter_offset_pos);
 
-					// Store panel orientation relative to controller
-					// panel_yaw corresponds to a yaw quaternion; offset = inv(controller) * panel_yaw_q
-					float panel_half_yaw = panel_yaw * 0.5f;
-					neo2::quat panel_q = {0, sinf(panel_half_yaw), 0, cosf(panel_half_yaw)};
-					neo2::quat offset_q = neo2::multiply_quat(inv_cq, panel_q);
-					recenter_offset_orient[0] = offset_q.x;
-					recenter_offset_orient[1] = offset_q.y;
-					recenter_offset_orient[2] = offset_q.z;
-					recenter_offset_orient[3] = offset_q.w;
+					// Store yaw offset only (panel stays upright)
+					float fwd2[3] = {0, 0, -1};
+					float fwd_world2[3];
+					neo2::rotate_vector(cq, fwd2, fwd_world2);
+					float controller_yaw = atan2f(fwd_world2[0], fwd_world2[2]);
+					recenter_offset_yaw = panel_yaw - controller_yaw;
 				}
 				else
 				{
@@ -637,10 +630,7 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 					recenter_offset_pos[0] = 0;
 					recenter_offset_pos[1] = 0;
 					recenter_offset_pos[2] = -1;
-					recenter_offset_orient[0] = 0;
-					recenter_offset_orient[1] = 0;
-					recenter_offset_orient[2] = 0;
-					recenter_offset_orient[3] = 1;
+					recenter_offset_yaw = 0;
 				}
 
 				recentering_controller = h;
