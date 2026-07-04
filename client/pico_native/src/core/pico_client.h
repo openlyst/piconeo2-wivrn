@@ -101,6 +101,7 @@ struct pico_client
 
 	GLuint eye_textures[3]{0, 0, 0};
 	EGLImageKHR eye_egl_images[3]{EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR};
+	EGLImageKHR eye_prev_egl_images[3]{EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR};
 	AHardwareBuffer * last_hb[3]{nullptr, nullptr, nullptr};
 	std::shared_ptr<pico_decoded_frame> eye_current_frames[3];
 

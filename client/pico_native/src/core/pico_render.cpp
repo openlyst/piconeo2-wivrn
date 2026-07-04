@@ -48,14 +48,13 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 
 		if (g_client->last_hb[eye] != hb)
 		{
-			if (g_client->eye_egl_images[eye] != EGL_NO_IMAGE_KHR)
+			if (g_client->eye_prev_egl_images[eye] != EGL_NO_IMAGE_KHR)
 			{
-				g_eglDestroyImageKHR(eglGetDisplay(EGL_DEFAULT_DISPLAY), g_client->eye_egl_images[eye]);
-				g_client->eye_egl_images[eye] = EGL_NO_IMAGE_KHR;
+				g_eglDestroyImageKHR(eglGetDisplay(EGL_DEFAULT_DISPLAY), g_client->eye_prev_egl_images[eye]);
+				g_client->eye_prev_egl_images[eye] = EGL_NO_IMAGE_KHR;
 			}
-
-			g_client->eye_current_frames[eye].reset();
-			g_client->last_hb[eye] = nullptr;
+			g_client->eye_prev_egl_images[eye] = g_client->eye_egl_images[eye];
+			g_client->eye_egl_images[eye] = EGL_NO_IMAGE_KHR;
 
 			g_client->eye_current_frames[eye] = decoded;
 			g_client->last_hb[eye] = hb;
@@ -236,8 +235,6 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 	{
 		g_client->blit_pipeline.draw(eye, ext_tex, {}, {}, {});
 	}
-
-	glFlush();
 }
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnFrameEnd(JNIEnv * env, jobject thiz, jlong ptr)

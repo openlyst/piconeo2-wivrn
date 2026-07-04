@@ -45,9 +45,7 @@ private:
 	std::mutex frame_begin_mutex;
 	int64_t last_frame_begin_ns = 0;
 	uint64_t last_rendered_frame_index[2] = {0, 0};
-	int64_t last_frame_begin_intervals[HISTORY_SIZE]{};
-	size_t interval_idx = 0;
-	size_t interval_count = 0;
+	int64_t running_avg = 0;
 
 	std::atomic<int> stutter_count{0};
 	std::atomic<int> total_frames{0};
@@ -65,18 +63,6 @@ private:
 		spdlog::warn("[STUTTER] stage={} reason={} value={:.1f}ms frame={}",
 			stage, reason, value_ns / 1'000'000.0f, frame_index);
 	}
-
-	int64_t median_interval()
-	{
-		if (interval_count == 0)
-			return TARGET_FRAME_NS;
-		std::lock_guard lock(frame_begin_mutex);
-		std::vector<int64_t> sorted(intervals, intervals + interval_count);
-		std::sort(sorted.begin(), sorted.end());
-		return sorted[sorted.size() / 2];
-	}
-
-	int64_t intervals[HISTORY_SIZE]{};
 
 public:
 	void on_shard_arrived(uint64_t frame_index, int stream, bool is_first, bool is_last)
@@ -162,38 +148,29 @@ public:
 		total_frames.fetch_add(1, std::memory_order_relaxed);
 
 		int64_t interval = 0;
-		int64_t median = TARGET_FRAME_NS;
+		int64_t avg = TARGET_FRAME_NS;
 		{
 			std::lock_guard lock(frame_begin_mutex);
 			if (last_frame_begin_ns > 0)
 			{
 				interval = t - last_frame_begin_ns;
-				intervals[interval_idx % HISTORY_SIZE] = interval;
-				interval_idx++;
-				if (interval_count < HISTORY_SIZE)
-					interval_count++;
+				running_avg = running_avg == 0 ? interval : (running_avg * 7 + interval) / 8;
+				avg = running_avg;
 			}
 			last_frame_begin_ns = t;
-
-			if (interval_count >= 10)
-			{
-				std::vector<int64_t> sorted(intervals, intervals + interval_count);
-				std::sort(sorted.begin(), sorted.end());
-				median = sorted[sorted.size() / 2];
-			}
 		}
 
-		if (interval > STUTTER_THRESHOLD_NS && median > 0 && median < STUTTER_THRESHOLD_NS)
+		if (interval > STUTTER_THRESHOLD_NS && avg > 0 && avg < STUTTER_THRESHOLD_NS)
 		{
 			log_stutter("render", "frame begin interval exceeded threshold", interval, left_frame_index);
 		}
 
-		if (interval > 0 && median > 0)
+		if (interval > 0 && avg > 0)
 		{
-			int64_t jitter = interval - median;
-			if (std::abs(jitter) > 6'000'000 && interval > median)
+			int64_t jitter = interval - avg;
+			if (jitter > 6'000'000)
 			{
-				log_stutter("render", "frame interval jitter (vs median)", jitter, left_frame_index);
+				log_stutter("render", "frame interval jitter (vs avg)", jitter, left_frame_index);
 			}
 		}
 
