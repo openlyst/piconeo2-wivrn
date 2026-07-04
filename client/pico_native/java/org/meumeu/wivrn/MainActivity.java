@@ -2,8 +2,10 @@ package org.meumeu.wivrn;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.net.wifi.WifiManager;
+import android.os.BatteryManager;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Window;
@@ -275,6 +277,34 @@ public class MainActivity extends VRActivity implements RenderInterface {
 
         if (frameCount % 60 == 0 && lobbyView != null) {
             lobbyView.updateWifiStatus();
+
+            int leftBatt = -1, rightBatt = -1;
+            boolean leftBattConn = false, rightBattConn = false;
+            if (leftController != null) {
+                leftBattConn = leftController.getConnectState() == CVController.CONNECT;
+                leftBatt = leftController.getBatteryLevel();
+            }
+            if (rightController != null) {
+                rightBattConn = rightController.getConnectState() == CVController.CONNECT;
+                rightBatt = rightController.getBatteryLevel();
+            }
+
+            int hmdBatt = -1;
+            try {
+                IntentFilter ifilter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
+                Intent batteryStatus = getApplicationContext().registerReceiver(null, ifilter);
+                if (batteryStatus != null) {
+                    int level = batteryStatus.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                    int scale = batteryStatus.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+                    if (level >= 0 && scale > 0) {
+                        hmdBatt = (int)(level * 100.0 / scale);
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to get HMD battery", e);
+            }
+
+            lobbyView.updateBatteryStatus(hmdBatt, leftBatt, leftBattConn, rightBatt, rightBattConn);
         }
         frameCount++;
     }

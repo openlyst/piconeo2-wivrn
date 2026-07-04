@@ -134,6 +134,11 @@ public class WivrnLobbyView {
     private final Map<String, ServerEntry> discoveredServers = new HashMap<>();
     private int wifiLevel = -1; // -1 = no wifi, 0-3 = signal bars
     private String wifiSsid = "";
+    private int hmdBattery = -1; // -1 = unknown
+    private int leftBattery = -1;
+    private boolean leftConnected = false;
+    private int rightBattery = -1;
+    private boolean rightConnected = false;
 
     public WivrnLobbyView(Context context) {
         this.context = context;
@@ -218,6 +223,78 @@ public class WivrnLobbyView {
         }
     }
 
+    public void updateBatteryStatus(int hmdBatt, int leftBatt, boolean leftConn, int rightBatt, boolean rightConn) {
+        hmdBattery = hmdBatt;
+        leftBattery = leftBatt;
+        leftConnected = leftConn;
+        rightBattery = rightBatt;
+        rightConnected = rightConn;
+        markDirty();
+    }
+
+    private int batteryColor(int pct) {
+        if (pct < 0) return Color.rgb(100, 110, 125);
+        if (pct < 20) return Color.rgb(220, 60, 60);
+        if (pct < 40) return Color.rgb(220, 180, 60);
+        return Color.rgb(80, 200, 120);
+    }
+
+    private void renderBatteryIcon(float rightX, float centerY, int pct, boolean connected, String label) {
+        float iconW = 36;
+        float iconH = 18;
+        float pad = 8;
+        float bx = rightX - iconW;
+        float by = centerY - iconH / 2f;
+
+        Paint battPaint = new Paint();
+        battPaint.setAntiAlias(true);
+        battPaint.setStyle(Paint.Style.STROKE);
+        battPaint.setStrokeWidth(2);
+
+        Paint fillPaint = new Paint();
+        fillPaint.setAntiAlias(true);
+        fillPaint.setStyle(Paint.Style.FILL);
+
+        int color = batteryColor(pct);
+
+        if (!connected) {
+            battPaint.setColor(Color.rgb(100, 110, 125));
+            fillPaint.setColor(Color.rgb(100, 110, 125));
+
+            RectF body = new RectF(bx, by, bx + iconW - 4, by + iconH);
+            canvas.drawRoundRect(body, 2, 2, battPaint);
+            RectF cap = new RectF(bx + iconW - 4, by + 4, bx + iconW, by + iconH - 4);
+            canvas.drawRect(cap, fillPaint);
+
+            battPaint.setStrokeWidth(3);
+            canvas.drawLine(bx + 2, by + 2, bx + iconW - 6, by + iconH - 2, battPaint);
+
+            textSmallPaint.setColor(Color.rgb(100, 110, 125));
+            float textW = textSmallPaint.measureText(label);
+            canvas.drawText(label, bx - pad - textW, centerY + 7, textSmallPaint);
+            textSmallPaint.setColor(Color.rgb(160, 170, 185));
+            return;
+        }
+
+        battPaint.setColor(color);
+        fillPaint.setColor(color);
+
+        RectF body = new RectF(bx, by, bx + iconW - 4, by + iconH);
+        canvas.drawRoundRect(body, 2, 2, battPaint);
+        RectF cap = new RectF(bx + iconW - 4, by + 4, bx + iconW, by + iconH - 4);
+        canvas.drawRect(cap, fillPaint);
+
+        float fillW = (iconW - 8) * (pct / 100f);
+        RectF fill = new RectF(bx + 2, by + 2, bx + 2 + fillW, by + iconH - 2);
+        canvas.drawRect(fill, fillPaint);
+
+        String pctText = pct + "%";
+        textSmallPaint.setColor(color);
+        float textW = textSmallPaint.measureText(pctText);
+        canvas.drawText(pctText, bx - pad - textW, centerY + 7, textSmallPaint);
+        textSmallPaint.setColor(Color.rgb(160, 170, 185));
+    }
+
     private void renderTopBar() {
         float contentX = SIDEBAR_WIDTH;
         float contentW = width - contentX;
@@ -225,7 +302,14 @@ public class WivrnLobbyView {
         canvas.drawRect(contentX, 0, width, TOPBAR_HEIGHT, topbarBgPaint);
         canvas.drawRect(contentX, TOPBAR_HEIGHT, width, TOPBAR_HEIGHT + 1, topbarBorderPaint);
 
-        renderWifiIcon(width - 25, TOPBAR_HEIGHT / 2f);
+        float rightX = width - 25;
+        renderWifiIcon(rightX, TOPBAR_HEIGHT / 2f);
+        rightX -= 60;
+        renderBatteryIcon(rightX, TOPBAR_HEIGHT / 2f, rightBattery, rightConnected, "R");
+        rightX -= 110;
+        renderBatteryIcon(rightX, TOPBAR_HEIGHT / 2f, leftBattery, leftConnected, "L");
+        rightX -= 110;
+        renderBatteryIcon(rightX, TOPBAR_HEIGHT / 2f, hmdBattery, true, "HMD");
     }
 
     public void startDiscovery() {
