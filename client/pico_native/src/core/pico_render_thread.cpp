@@ -361,7 +361,11 @@ void pico_render_thread::submit_to_warp(int slot_idx, uint64_t fence_wait_ns)
 	{
 		GLenum w = glClientWaitSync(slots[slot_idx].fence, GL_SYNC_FLUSH_COMMANDS_BIT, fence_wait_ns);
 		if (w == GL_TIMEOUT_EXPIRED)
-			spdlog::warn("fence timeout on slot {}", slot_idx);
+		{
+			static std::atomic<int> fence_timeout_count{0};
+			if (fence_timeout_count.fetch_add(1) % 300 == 0)
+				spdlog::warn("fence timeout on slot {} (count={})", slot_idx, fence_timeout_count.load());
+		}
 	}
 
 	PVR_CameraEndFrame(0, swap_tex[0][slot_idx]);
@@ -709,7 +713,7 @@ void pico_render_thread::run()
 
 		frame++;
 
-		if ((frame % 300) == 0)
+		if ((frame % 3600) == 0)
 		{
 			int64_t elapsed = now_ns() - t_start;
 			spdlog::info("frame {} elapsed={:.1f}ms", frame, elapsed / 1e6f);

@@ -363,6 +363,11 @@ void pico_video_decoder::push_data(std::span<std::span<const uint8_t>> data, uin
 	}
 	else
 	{
+		while (pending_frames.size() >= 5)
+		{
+			spdlog::warn("Decoder stream {} dropping frame {} (queue full)", stream_index, pending_frames.front().frame_index);
+			pending_frames.erase(pending_frames.begin());
+		}
 		pending_frames.push_back({.frame_index = frame_index});
 		pf = &pending_frames.back();
 	}

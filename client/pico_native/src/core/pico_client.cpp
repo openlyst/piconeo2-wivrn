@@ -272,7 +272,7 @@ void pico_client::handle_video_shard(to_headset::video_stream_data_shard && shar
 	}
 
 	bool has_timing = shard.timing_info.has_value();
-	if (shard_count <= 20 || shard_count % 100 == 0)
+	if (shard_count <= 10 || shard_count % 1000 == 0)
 		spdlog::warn("Video shard #{}: stream={} frame={} shard_idx={} payload={} timing={}",
 			shard_count, (int)shard.stream_item_idx, shard.frame_idx,
 			shard.shard_idx, (int)shard.payload.size(), has_timing);
@@ -351,7 +351,7 @@ void pico_client::handle_video_shard(to_headset::video_stream_data_shard && shar
 
 	static int recon_count = 0;
 	++recon_count;
-	if (recon_count <= 20 || recon_count % 100 == 0)
+	if (recon_count <= 10 || recon_count % 1000 == 0)
 	{
 		size_t total_size = 0;
 		for (auto & d : data) total_size += d.size();

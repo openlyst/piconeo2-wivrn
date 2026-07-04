@@ -49,6 +49,7 @@ private:
 
 	std::atomic<int> stutter_count{0};
 	std::atomic<int> total_frames{0};
+	std::atomic<int> log_suppress_count{0};
 
 	int64_t now_ns()
 	{
@@ -60,6 +61,8 @@ private:
 	void log_stutter(const char * stage, const char * reason, int64_t value_ns, uint64_t frame_index)
 	{
 		stutter_count.fetch_add(1, std::memory_order_relaxed);
+		if (log_suppress_count.fetch_add(1, std::memory_order_relaxed) % 300 != 0)
+			return;
 		spdlog::warn("[STUTTER] stage={} reason={} value={:.1f}ms frame={}",
 			stage, reason, value_ns / 1'000'000.0f, frame_index);
 	}
@@ -182,25 +185,6 @@ public:
 				log_stutter("display", "same decoded frame repeated (no new frame arrived)", interval, fi);
 			}
 			last_rendered_frame_index[eye] = fi;
-
-			int64_t frame_age = 0;
-			{
-				std::lock_guard lock(records_mutex);
-				for (auto & r : records)
-				{
-					if (r.frame_index == fi && r.decoded_ns > 0)
-					{
-						frame_age = t - r.decoded_ns;
-						r.picked_for_render_ns = t;
-						break;
-					}
-				}
-			}
-
-			if (frame_age > STALE_FRAME_THRESHOLD_NS)
-			{
-				log_stutter("display", "displayed frame is stale", frame_age, fi);
-			}
 		}
 	}
 
