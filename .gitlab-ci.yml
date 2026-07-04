@@ -5,15 +5,14 @@
 # The PvrSDK is automatically downloaded from archive.org.
 #
 # Pipeline variables (optional, set via UI, API, or trigger):
-#   BUILD_STAGE       One of: debug  (default: debug)
 #   PVR_SDK_URL       Override the PvrSDK download URL
+#   CREATE_RELEASE    Set to "true" to also create a GitLab Release (default: not set)
 
 stages:
   - build
   - release
 
 variables:
-  BUILD_STAGE: "debug"
   ANDROID_SDK_ROOT: "${CI_PROJECT_DIR}/.android-sdk"
   GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.caching=true"
   GIT_STRATEGY: "fetch"
@@ -80,10 +79,8 @@ build:debug:
   variables:
     BUILD_STAGE: "debug"
   rules:
-    - if: $BUILD_STAGE == "debug"
-      when: always
     - when: manual
-      allow_failure: true
+      allow_failure: false
 
 # --- Release job ---
 
@@ -95,7 +92,7 @@ create:release:
     - job: build:debug
       artifacts: true
   rules:
-    - if: $BUILD_STAGE == "debug"
+    - if: $CREATE_RELEASE == "true"
       when: on_success
     - when: manual
       allow_failure: true
