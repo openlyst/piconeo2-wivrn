@@ -10,6 +10,7 @@
 
 stages:
   - build
+  - release
 
 variables:
   BUILD_STAGE: "debug"
@@ -39,7 +40,7 @@ variables:
     name: "wivrn-neo2-${BUILD_STAGE}-${CI_PIPELINE_ID}"
     paths:
       - build-output/*.apk
-    expire_in: 30 days
+    expire_in: never
     reports:
       dotenv: build-output/build-info.env
   before_script:
@@ -65,8 +66,11 @@ variables:
       APK_FILE=$(ls build-output/*.apk 2>/dev/null | head -1)
       if [ -n "$APK_FILE" ]; then
         APK_NAME=$(basename "$APK_FILE")
+        VERSION_NAME=$(echo "$APK_NAME" | sed -E 's/wivrn-neo2-(.+)-debug\.apk/\1/')
         echo "APK_FILE=${APK_NAME}" > build-output/build-info.env
         echo "BUILD_STAGE=${BUILD_STAGE}" >> build-output/build-info.env
+        echo "VERSION_NAME=${VERSION_NAME}" >> build-output/build-info.env
+        echo "APK_NAME=${APK_NAME}" >> build-output/build-info.env
       fi
 
 # --- Build jobs ---
@@ -80,3 +84,30 @@ build:debug:
       when: always
     - when: manual
       allow_failure: true
+
+# --- Release job ---
+
+create:release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  tags: []
+  needs:
+    - job: build:debug
+      artifacts: true
+  rules:
+    - if: $BUILD_STAGE == "debug"
+      when: on_success
+    - when: manual
+      allow_failure: true
+  script:
+    - echo "Creating release v${VERSION_NAME} from commit ${CI_COMMIT_SHA}"
+  release:
+    name: "WiVRn Neo2 ${VERSION_NAME}"
+    description: "Debug build from commit ${CI_COMMIT_SHA} on branch ${CI_COMMIT_REF_NAME}.\n\nPipeline: ${CI_PIPELINE_URL}"
+    tag_name: "v${VERSION_NAME}"
+    ref: "${CI_COMMIT_SHA}"
+    assets:
+      links:
+        - name: "${APK_NAME}"
+          url: "${CI_PROJECT_URL}/-/jobs/${CI_JOB_ID}/artifacts/file/build-output/${APK_NAME}"
+          link_type: package
