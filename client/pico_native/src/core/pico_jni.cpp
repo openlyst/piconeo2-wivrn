@@ -276,8 +276,49 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnOnFrameBegi
 
 	{
 		std::lock_guard lock(g_client->decoded_frame_mutex);
-		g_client->render_frames[0] = g_client->latest_decoded_frames[0];
-		g_client->render_frames[1] = g_client->latest_decoded_frames[1];
+		auto & lf = g_client->latest_decoded_frames[0];
+		auto & rf = g_client->latest_decoded_frames[1];
+
+		bool left_valid = lf && lf->valid;
+		bool right_valid = rf && rf->valid;
+
+		if (left_valid && right_valid && lf->frame_index == rf->frame_index)
+		{
+			g_client->render_frames[0] = lf;
+			g_client->render_frames[1] = rf;
+			g_client->matched_frame_index = lf->frame_index;
+		}
+		else if (left_valid && right_valid)
+		{
+			uint64_t min_fi = std::min(lf->frame_index, rf->frame_index);
+			uint64_t max_fi = std::max(lf->frame_index, rf->frame_index);
+			if (min_fi > g_client->matched_frame_index && (max_fi - min_fi) <= 3)
+			{
+				// Keep previous pair — eyes are close but not synced.
+				// They'll likely sync next frame.
+			}
+			else if (min_fi > g_client->matched_frame_index && (max_fi - min_fi) > 3)
+			{
+				// Too far apart — one stream is lagging badly.
+				// Update with whatever we have to avoid freezing.
+				g_client->render_frames[0] = lf;
+				g_client->render_frames[1] = rf;
+				g_client->matched_frame_index = min_fi;
+				spdlog::warn("[EYE SYNC] streams drifted L={} R={}, forcing update", lf->frame_index, rf->frame_index);
+			}
+		}
+		else if (left_valid && !g_client->render_frames[0])
+		{
+			g_client->render_frames[0] = lf;
+			g_client->render_frames[1] = lf;
+			g_client->matched_frame_index = lf->frame_index;
+		}
+		else if (right_valid && !g_client->render_frames[1])
+		{
+			g_client->render_frames[0] = rf;
+			g_client->render_frames[1] = rf;
+			g_client->matched_frame_index = rf->frame_index;
+		}
 	}
 
 	uint64_t left_fi = g_client->render_frames[0] ? g_client->render_frames[0]->frame_index : 0;

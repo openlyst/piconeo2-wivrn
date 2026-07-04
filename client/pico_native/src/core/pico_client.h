@@ -98,6 +98,7 @@ struct pico_client
 	std::atomic<uint64_t> latest_decoded_frame_index{0};
 
 	std::shared_ptr<pico_decoded_frame> render_frames[2];
+	uint64_t matched_frame_index = 0;
 
 	GLuint eye_textures[3]{0, 0, 0};
 	EGLImageKHR eye_egl_images[3]{EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR};
