@@ -26,6 +26,7 @@
 #include "crypto.h"
 #include "protocol_version.h"
 #include "wivrn_packets.h"
+#include <android/bitmap.h>
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/android_sink.h>
@@ -235,6 +236,36 @@ struct pico_client
 	void try_connect();
 	void send_headset_info();
 	void network_loop();
+
+	void notify_connection_state(int state, const std::string & msg)
+	{
+		if (!vm || !activity)
+			return;
+
+		JNIEnv * env = nullptr;
+		bool attached = false;
+		if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
+		{
+			if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK)
+				attached = true;
+		}
+
+		if (env && activity)
+		{
+			jclass clazz = env->GetObjectClass(activity);
+			jmethodID method = env->GetMethodID(clazz, "onConnectionStateChanged", "(ILjava/lang/String;)V");
+			if (method)
+			{
+				jstring jmsg = env->NewStringUTF(msg.c_str());
+				env->CallVoidMethod(activity, method, state, jmsg);
+				env->DeleteLocalRef(jmsg);
+			}
+			env->DeleteLocalRef(clazz);
+		}
+
+		if (attached)
+			vm->DetachCurrentThread();
+	}
 
 	void handle_packet(to_headset::packets & packet);
 	void handle_video_shard(to_headset::video_stream_data_shard && shard);
@@ -819,9 +850,11 @@ void pico_client::try_connect()
 		{
 			++attempt;
 			spdlog::info("Connection attempt {}", attempt);
+			notify_connection_state(1, "Connecting (attempt " + std::to_string(attempt) + ")");
 
 			if (connect_to_server())
 			{
+				notify_connection_state(1, "Connected, starting stream...");
 				try
 				{
 					int fd = session->get_control_fd();
@@ -839,16 +872,19 @@ void pico_client::try_connect()
 					tracker.session = session.get();
 					tracker.start();
 
+					notify_connection_state(4, "Streaming");
 					network_thread.join();
 				}
 				catch (std::exception & e)
 				{
 					spdlog::error("Failed to start client: {}", e.what());
+					notify_connection_state(3, e.what());
 					session.reset();
 				}
 				catch (...)
 				{
 					spdlog::error("Failed to start client: unknown exception");
+					notify_connection_state(3, "Unknown error");
 					session.reset();
 				}
 				attempt = 0;
@@ -867,6 +903,7 @@ void pico_client::try_connect()
 			}
 		}
 
+		notify_connection_state(0, "");
 		spdlog::info("Connection thread exiting");
 	});
 }
@@ -1257,6 +1294,43 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 		controller_sample cs[2];
 		g_client->tracker.get_controllers(cs);
 		g_client->lobby.draw(eye, h_orient, h_pos, cs, g_client->eye_fov[eye], 0.064f);
+
+		if (eye == 0 && g_client->vm && g_client->activity)
+		{
+			for (int h = 0; h < 2; h++)
+			{
+				if (g_client->lobby.lobby_touch_down[h] || g_client->lobby.lobby_touch_pressed[h])
+				{
+					JNIEnv * env2 = nullptr;
+					bool attached = false;
+					if (g_client->vm->GetEnv((void **)&env2, JNI_VERSION_1_6) != JNI_OK)
+					{
+						if (g_client->vm->AttachCurrentThread(&env2, nullptr) == JNI_OK)
+							attached = true;
+					}
+
+					if (env2 && g_client->activity)
+					{
+						jclass clazz = env2->GetObjectClass(g_client->activity);
+						jmethodID method = env2->GetMethodID(clazz, "onLobbyTouch", "(FFZZ)V");
+						if (method)
+						{
+							env2->CallVoidMethod(g_client->activity, method,
+								g_client->lobby.lobby_touch_x[h],
+								g_client->lobby.lobby_touch_y[h],
+								g_client->lobby.lobby_touch_down[h],
+								g_client->lobby.lobby_touch_pressed[h]);
+						}
+						env2->DeleteLocalRef(clazz);
+					}
+
+					if (attached)
+						g_client->vm->DetachCurrentThread();
+
+					break;
+				}
+			}
+		}
 	}
 	else
 	{
@@ -1351,6 +1425,73 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnSubmitPin(J
 			spdlog::error("Failed to set PIN promise: {}", e.what());
 		}
 	}
+}
+
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeUpdateLobbyTexture(JNIEnv * env, jobject thiz, jlong ptr, jobject bitmap)
+{
+	if (!g_client || !g_client->gl_initialized || !bitmap)
+		return;
+
+	AndroidBitmapInfo info;
+	if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS)
+	{
+		spdlog::error("AndroidBitmap_getInfo failed");
+		return;
+	}
+
+	if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888)
+	{
+		spdlog::error("Lobby bitmap format is not RGBA_8888 (got {})", info.format);
+		return;
+	}
+
+	void * pixels = nullptr;
+	if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS)
+	{
+		spdlog::error("AndroidBitmap_lockPixels failed");
+		return;
+	}
+
+	g_client->lobby.update_texture(info.width, info.height, pixels);
+
+	AndroidBitmap_unlockPixels(env, bitmap);
+}
+
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnConnect(JNIEnv * env, jobject thiz, jlong ptr, jstring hostname, jint port, jboolean tcpOnly)
+{
+	if (!g_client)
+		return;
+
+	const char * host_str = env->GetStringUTFChars(hostname, nullptr);
+	if (host_str)
+	{
+		g_client->server_host = host_str;
+		g_client->server_port = port;
+		g_client->tcp_only = tcpOnly;
+		g_client->pairing_pin.clear();
+		env->ReleaseStringUTFChars(hostname, host_str);
+
+		spdlog::info("Connect requested: {}:{} tcp={}", g_client->server_host, g_client->server_port, g_client->tcp_only);
+
+		if (g_client->connect_thread.joinable())
+			g_client->connect_thread.join();
+
+		g_client->running = true;
+		g_client->shutdown = false;
+		g_client->connect_thread = std::thread([&]() {
+			g_client->try_connect();
+		});
+	}
+}
+
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDisconnect(JNIEnv * env, jobject thiz, jlong ptr)
+{
+	if (!g_client)
+		return;
+
+	spdlog::info("Disconnect requested");
+	g_client->running = false;
+	g_client->shutdown = true;
 }
 
 } // extern "C"

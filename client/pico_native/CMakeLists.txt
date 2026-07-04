@@ -171,6 +171,7 @@ find_library(AAUDIO_LIBRARY NAMES aaudio REQUIRED)
 find_library(LOG_LIBRARY NAMES log REQUIRED)
 find_library(GLES_LIBRARY NAMES GLESv2 REQUIRED)
 find_library(EGL_LIBRARY NAMES EGL REQUIRED)
+find_library(JNIGRAPHICS_LIBRARY NAMES jnigraphics REQUIRED)
 target_link_libraries(wivrn-neo2
     ${ANDROID_LIBRARY}
     ${MEDIA_LIBRARY}
@@ -178,6 +179,7 @@ target_link_libraries(wivrn-neo2
     ${LOG_LIBRARY}
     ${GLES_LIBRARY}
     ${EGL_LIBRARY}
+    ${JNIGRAPHICS_LIBRARY}
 )
 
 # Copy Pvr_NativeSDK.so to output

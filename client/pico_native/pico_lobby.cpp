@@ -22,6 +22,28 @@ void main()
 }
 )";
 
+static const char * tex_vert_src = R"(
+attribute vec3 a_pos;
+attribute vec2 a_uv;
+uniform mat4 u_mvp;
+varying vec2 v_uv;
+void main()
+{
+    gl_Position = u_mvp * vec4(a_pos, 1.0);
+    v_uv = a_uv;
+}
+)";
+
+static const char * tex_frag_src = R"(
+precision mediump float;
+varying vec2 v_uv;
+uniform sampler2D u_tex;
+void main()
+{
+    gl_FragColor = texture2D(u_tex, v_uv);
+}
+)";
+
 static GLuint compile_shader(GLenum type, const char * src)
 {
 	GLuint shader = glCreateShader(type);
@@ -149,8 +171,11 @@ static Mat4 mat4_view(const float orient[4], const float pos[3])
 pico_lobby::~pico_lobby()
 {
 	if (program) glDeleteProgram(program);
+	if (tex_program) glDeleteProgram(tex_program);
 	if (grid_vbo) glDeleteBuffers(1, &grid_vbo);
 	if (controller_vbo) glDeleteBuffers(1, &controller_vbo);
+	if (quad_vbo) glDeleteBuffers(1, &quad_vbo);
+	if (ui_texture) glDeleteTextures(1, &ui_texture);
 }
 
 void pico_lobby::init(int w, int h)
@@ -227,6 +252,53 @@ void pico_lobby::init(int w, int h)
 	glBufferData(GL_ARRAY_BUFFER, sizeof(box), box, GL_STATIC_DRAW);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 
+	// Texture shader program
+	GLuint tvert = compile_shader(GL_VERTEX_SHADER, tex_vert_src);
+	GLuint tfrag = compile_shader(GL_FRAGMENT_SHADER, tex_frag_src);
+	tex_program = glCreateProgram();
+	glAttachShader(tex_program, tvert);
+	glAttachShader(tex_program, tfrag);
+	glLinkProgram(tex_program);
+	GLint tstatus = GL_FALSE;
+	glGetProgramiv(tex_program, GL_LINK_STATUS, &tstatus);
+	if (tstatus != GL_TRUE)
+	{
+		char log[1024];
+		glGetProgramInfoLog(tex_program, sizeof(log), nullptr, log);
+		spdlog::error("Lobby tex program link error: {}", log);
+	}
+	glDeleteShader(tvert);
+	glDeleteShader(tfrag);
+
+	tex_pos_attrib = glGetAttribLocation(tex_program, "a_pos");
+	tex_uv_attrib = glGetAttribLocation(tex_program, "a_uv");
+	tex_mvp_uniform = glGetUniformLocation(tex_program, "u_mvp");
+	tex_sampler_uniform = glGetUniformLocation(tex_program, "u_tex");
+
+	// UI texture (will be updated from Java Bitmap)
+	glGenTextures(1, &ui_texture);
+	glBindTexture(GL_TEXTURE_2D, ui_texture);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1400, 900, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	// Quad VBO for UI panel (position xyz + uv)
+	float quad[] = {
+		-1.0f, -1.0f, 0.0f,  0.0f, 0.0f,
+		 1.0f, -1.0f, 0.0f,  1.0f, 0.0f,
+		 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,
+		-1.0f, -1.0f, 0.0f,  0.0f, 0.0f,
+		 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,
+		-1.0f,  1.0f, 0.0f,  0.0f, 1.0f,
+	};
+	glGenBuffers(1, &quad_vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+
 	initialized = true;
 	spdlog::info("Lobby initialized ({}x{})", w, h);
 }
@@ -248,6 +320,9 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
+
+	if (eye == 0)
+		update_interaction(head_orient, head_pos, controllers);
 
 	glUseProgram(program);
 
@@ -317,4 +392,206 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	glDisableVertexAttribArray(pos_attrib);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glUseProgram(0);
+
+	draw_quad(head_orient, head_pos, fov, ipd, eye);
+}
+
+void pico_lobby::update_texture(int width, int height, const void * pixels)
+{
+	if (!ui_texture || !pixels)
+		return;
+
+	glBindTexture(GL_TEXTURE_2D, ui_texture);
+	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+	glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+void pico_lobby::draw_quad(const float head_orient[4], const float head_pos[3],
+                           const XrFovf & fov, float ipd, int eye)
+{
+	Mat4 proj = mat4_perspective(fov.angleLeft, fov.angleRight, fov.angleUp, fov.angleDown, 0.1f, 100.0f);
+
+	neo2::quat hq = neo2::normalize_quat({head_orient[0], head_orient[1], head_orient[2], head_orient[3]});
+	float eye_offset = (eye == 0 ? -ipd * 0.5f : ipd * 0.5f);
+	float v[3] = {eye_offset, 0, 0};
+	float rotated[3];
+	neo2::rotate_vector(hq, v, rotated);
+	float eye_pos[3] = {head_pos[0] + rotated[0], head_pos[1] + rotated[1], head_pos[2] + rotated[2]};
+	Mat4 view = mat4_view(head_orient, eye_pos);
+	Mat4 vp = mat4_mul(proj, view);
+
+	Mat4 model = mat4_mul(mat4_translate(panel_pos[0], panel_pos[1], panel_pos[2]),
+	                      mat4_mul(mat4_rotate_y(panel_yaw), mat4_rotate_y(M_PI)));
+
+	Mat4 scale = mat4_scale(panel_w * 0.5f, panel_h * 0.5f, 1.0f);
+	model = mat4_mul(model, scale);
+
+	Mat4 mvp = mat4_mul(vp, model);
+
+	glUseProgram(tex_program);
+	glUniformMatrix4fv(tex_mvp_uniform, 1, GL_FALSE, mvp.m);
+	glUniform1i(tex_sampler_uniform, 0);
+
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, ui_texture);
+
+	glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
+	glEnableVertexAttribArray(tex_pos_attrib);
+	glVertexAttribPointer(tex_pos_attrib, 3, GL_FLOAT, GL_FALSE, 20, (void *)0);
+	glEnableVertexAttribArray(tex_uv_attrib);
+	glVertexAttribPointer(tex_uv_attrib, 2, GL_FLOAT, GL_FALSE, 20, (void *)12);
+
+	glDrawArrays(GL_TRIANGLES, 0, 6);
+
+	glDisableVertexAttribArray(tex_pos_attrib);
+	glDisableVertexAttribArray(tex_uv_attrib);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glUseProgram(0);
+}
+
+static bool ray_plane_intersect(
+    const float ray_origin[3], const float ray_dir[3],
+    const float plane_center[3], const float plane_normal[3],
+    const float plane_u[3], const float plane_v[3],
+    float plane_half_w, float plane_half_h,
+    float & out_u, float & out_v)
+{
+	float denom = ray_dir[0]*plane_normal[0] + ray_dir[1]*plane_normal[1] + ray_dir[2]*plane_normal[2];
+	if (fabsf(denom) < 1e-6f)
+		return false;
+
+	float to_center[3] = {
+		plane_center[0] - ray_origin[0],
+		plane_center[1] - ray_origin[1],
+		plane_center[2] - ray_origin[2],
+	};
+	float t = (to_center[0]*plane_normal[0] + to_center[1]*plane_normal[1] + to_center[2]*plane_normal[2]) / denom;
+	if (t < 0)
+		return false;
+
+	float hit[3] = {
+		ray_origin[0] + ray_dir[0] * t,
+		ray_origin[1] + ray_dir[1] * t,
+		ray_origin[2] + ray_dir[2] * t,
+	};
+
+	float local[3] = {
+		hit[0] - plane_center[0],
+		hit[1] - plane_center[1],
+		hit[2] - plane_center[2],
+	};
+
+	float du = local[0]*plane_u[0] + local[1]*plane_u[1] + local[2]*plane_u[2];
+	float dv = local[0]*plane_v[0] + local[1]*plane_v[1] + local[2]*plane_v[2];
+
+	out_u = du / plane_half_w;
+	out_v = dv / plane_half_h;
+
+	return (out_u >= -1.0f && out_u <= 1.0f && out_v >= -1.0f && out_v <= 1.0f);
+}
+
+void pico_lobby::update_interaction(const float head_orient[4], const float head_pos[3],
+                                    const controller_sample controllers[2])
+{
+	if (!panel_placed)
+	{
+		neo2::quat hq = neo2::normalize_quat({head_orient[0], head_orient[1], head_orient[2], head_orient[3]});
+		float fwd[3] = {0, 0, -1};
+		float fwd_world[3];
+		neo2::rotate_vector(hq, fwd, fwd_world);
+		panel_pos[0] = head_pos[0] + fwd_world[0] * 2.5f;
+		panel_pos[1] = head_pos[1];
+		panel_pos[2] = head_pos[2] + fwd_world[2] * 2.5f;
+		panel_yaw = atan2f(fwd_world[0], fwd_world[2]);
+		panel_placed = true;
+	}
+
+	// Both grips: recenter panel
+	bool both_grip = controllers[0].grip && controllers[1].grip;
+	bool prev_both = prev_grip[0] && prev_grip[1];
+	if (both_grip && !prev_both)
+	{
+		neo2::quat hq = neo2::normalize_quat({head_orient[0], head_orient[1], head_orient[2], head_orient[3]});
+		float fwd[3] = {0, 0, -1};
+		float fwd_world[3];
+		neo2::rotate_vector(hq, fwd, fwd_world);
+		panel_pos[0] = head_pos[0] + fwd_world[0] * 2.5f;
+		panel_pos[1] = head_pos[1];
+		panel_pos[2] = head_pos[2] + fwd_world[2] * 2.5f;
+		panel_yaw = atan2f(fwd_world[0], fwd_world[2]);
+	}
+
+	// Compute panel coordinate frame
+	float cy = cosf(panel_yaw), sy = sinf(panel_yaw);
+	// Panel faces -Z after yaw rotation + 180 flip, so normal is +Z rotated by yaw
+	float normal[3] = {sy, 0, cy};
+	// After the 180 deg Y rotation, U axis is -X rotated by yaw, V is +Y
+	float u_axis[3] = {-cy, 0, sy};
+	float v_axis[3] = {0, 1, 0};
+	float half_w = panel_w * 0.5f;
+	float half_h = panel_h * 0.5f;
+
+	for (int h = 0; h < 2; h++)
+	{
+		last_hit[h].valid = false;
+
+		if (!controllers[h].connected)
+			continue;
+
+		// Controller position in meters
+		float origin[3] = {
+			controllers[h].position[0] * 0.001f,
+			controllers[h].position[1] * 0.001f,
+			controllers[h].position[2] * 0.001f,
+		};
+
+		// Controller forward direction (from orientation quaternion)
+		neo2::quat cq = neo2::normalize_quat({
+			controllers[h].orientation[0],
+			controllers[h].orientation[1],
+			controllers[h].orientation[2],
+			controllers[h].orientation[3],
+		});
+		float dir[3] = {0, 0, -1};
+		float ray_dir[3];
+		neo2::rotate_vector(cq, dir, ray_dir);
+
+		float u, v;
+		if (ray_plane_intersect(origin, ray_dir, panel_pos, normal, u_axis, v_axis, half_w, half_h, u, v))
+		{
+			last_hit[h].valid = true;
+			last_hit[h].u = u;
+			last_hit[h].v = v;
+		}
+
+		bool trigger_pressed = controllers[h].trigger > 128;
+		bool trigger_down = trigger_pressed && !prev_trigger[h];
+
+		if (last_hit[h].valid)
+		{
+			// Convert u,v from [-1,1] to pixel coordinates (0,1400) x (0,900)
+			// Note: v is flipped because texture V=0 is bottom
+			float px = (u + 1.0f) * 0.5f * 1400.0f;
+			float py = (1.0f - (v + 1.0f) * 0.5f) * 900.0f;
+
+			// Call Java touch handler via JNI (done in main.cpp)
+			lobby_touch_x[h] = px;
+			lobby_touch_y[h] = py;
+			lobby_touch_down[h] = trigger_pressed;
+			lobby_touch_pressed[h] = trigger_down;
+		}
+		else
+		{
+			lobby_touch_down[h] = false;
+			lobby_touch_pressed[h] = false;
+		}
+
+		prev_trigger[h] = trigger_pressed;
+	}
+
+	for (int h = 0; h < 2; h++)
+	{
+		prev_grip[h] = controllers[h].grip;
+	}
 }

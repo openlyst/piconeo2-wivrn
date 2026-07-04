@@ -1,15 +1,11 @@
 package org.meumeu.wivrn;
 
-import android.app.AlertDialog;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.text.InputType;
 import android.util.Log;
 import android.view.Window;
 import android.view.WindowManager;
-import android.widget.EditText;
 
 import com.picovr.cvclient.CVController;
 import com.picovr.cvclient.CVControllerListener;
@@ -37,6 +33,7 @@ public class MainActivity extends VRActivity implements RenderInterface {
     private final float[] mHeadData = new float[7];
 
     private long nativePtr;
+    private WivrnLobbyView lobbyView;
 
     private CVControllerListener cvListener = new CVControllerListener() {
         @Override
@@ -94,6 +91,8 @@ public class MainActivity extends VRActivity implements RenderInterface {
 
         cvManager = new CVControllerManager(this.getApplicationContext());
         cvManager.setListener(cvListener);
+
+        lobbyView = new WivrnLobbyView(this);
 
         try {
             nativeWivrnInit(nativePtr, getIntent());
@@ -223,6 +222,11 @@ public class MainActivity extends VRActivity implements RenderInterface {
 
     @Override
     public void onDrawEye(Eye eye) {
+        if (lobbyView != null && lobbyView.isDirty()) {
+            lobbyView.render();
+            nativeUpdateLobbyTexture(nativePtr, lobbyView.getBitmap());
+            lobbyView.markClean();
+        }
         nativeWivrnDrawEye(nativePtr, eye.getType());
     }
 
@@ -293,32 +297,45 @@ public class MainActivity extends VRActivity implements RenderInterface {
     public native void nativeWivrnRendererShutdown(long ptr);
     public native void nativeWivrnRenderEvent(long ptr, int event);
     public native void nativeWivrnSubmitPin(long ptr, String pin);
+    public native void nativeUpdateLobbyTexture(long ptr, Bitmap bitmap);
+    public native void nativeWivrnConnect(long ptr, String hostname, int port, boolean tcpOnly);
+    public native void nativeWivrnDisconnect(long ptr);
+
+    public void onLobbyTouch(float x, float y, boolean down, boolean pressed) {
+        if (lobbyView != null) {
+            lobbyView.handleTouch(x, y, down, pressed);
+        }
+    }
+
+    public void onConnectionStateChanged(int state, String message) {
+        if (lobbyView != null) {
+            lobbyView.setConnectionState(state, message);
+        }
+    }
 
     public void requestPinEntry() {
-        final Handler handler = new Handler(Looper.getMainLooper());
-        handler.post(() -> {
-            AlertDialog.Builder builder = new AlertDialog.Builder(this);
-            builder.setTitle("Enter WiVRn PIN");
-            builder.setMessage("Enter the PIN displayed on the server dashboard");
+        if (lobbyView != null) {
+            lobbyView.setConnectionState(WivrnLobbyView.STATE_PIN_ENTRY, "");
+        }
+    }
 
-            final EditText input = new EditText(this);
-            input.setInputType(InputType.TYPE_CLASS_NUMBER);
-            input.setHint("6-digit PIN");
-            builder.setView(input);
+    public void onServerConnect(String hostname, int port, boolean tcpOnly) {
+        Log.d(TAG, "Connect requested: " + hostname + ":" + port + " tcp=" + tcpOnly);
+        nativeWivrnConnect(nativePtr, hostname, port, tcpOnly);
+    }
 
-            builder.setPositiveButton("OK", (dialog, which) -> {
-                String pin = input.getText().toString().trim();
-                Log.d(TAG, "PIN entered: " + pin);
-                nativeWivrnSubmitPin(nativePtr, pin);
-            });
+    public void onPinEntered(String pin) {
+        Log.d(TAG, "PIN entered: " + pin);
+        nativeWivrnSubmitPin(nativePtr, pin);
+    }
 
-            builder.setNegativeButton("Cancel", (dialog, which) -> {
-                Log.d(TAG, "PIN entry cancelled");
-                nativeWivrnSubmitPin(nativePtr, "");
-            });
+    public void onPinCancelled() {
+        Log.d(TAG, "PIN entry cancelled");
+        nativeWivrnSubmitPin(nativePtr, "");
+    }
 
-            builder.setCancelable(false);
-            builder.show();
-        });
+    public void onDisconnectRequested() {
+        Log.d(TAG, "Disconnect requested");
+        nativeWivrnDisconnect(nativePtr);
     }
 }
