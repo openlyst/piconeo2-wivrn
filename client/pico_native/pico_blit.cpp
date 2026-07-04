@@ -2,6 +2,7 @@
 
 #include <spdlog/spdlog.h>
 #include <cstring>
+#include <cmath>
 #include <GLES2/gl2ext.h>
 
 static const char * vert_src = R"(
@@ -20,6 +21,7 @@ static const char * frag_src = R"(
 precision mediump float;
 varying vec2 v_uv;
 uniform samplerExternalOES u_tex;
+
 void main()
 {
     gl_FragColor = texture2D(u_tex, v_uv);
@@ -97,7 +99,9 @@ void pico_blit_pipeline::init(int w, int h)
 	spdlog::info("GLES blit pipeline initialized ({}x{})", w, h);
 }
 
-void pico_blit_pipeline::draw(int eye, GLuint src_texture)
+void pico_blit_pipeline::draw(int eye, GLuint src_texture,
+                               const XrPosef & server_pose, const XrPosef & current_pose,
+                               const XrFovf & fov)
 {
 	if (!initialized || src_texture == 0)
 	{
@@ -130,3 +134,4 @@ void pico_blit_pipeline::draw(int eye, GLuint src_texture)
 	glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
 	glUseProgram(0);
 }
+

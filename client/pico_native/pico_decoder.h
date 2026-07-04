@@ -25,6 +25,9 @@ struct pico_decoded_frame
 	uint64_t frame_index = 0;
 	bool valid = false;
 
+	XrPosef server_pose[2]{};
+	XrFovf server_fov[2]{};
+
 	~pico_decoded_frame()
 	{
 		if (hardware_buffer)
@@ -39,10 +42,14 @@ public:
 
 private:
 	uint8_t stream_index;
+	wivrn::video_codec codec_type;
 
 	std::shared_ptr<AImageReader> image_reader;
 
 	AMediaCodec * media_codec = nullptr;
+
+	std::vector<uint8_t> csd_data;
+	std::atomic<bool> csd_sent{false};
 
 	struct pending_frame
 	{
@@ -61,6 +68,9 @@ private:
 	};
 	std::mutex frame_info_mutex;
 	std::vector<frame_info> pending_frame_infos;
+
+	std::mutex ts_mutex;
+	std::unordered_map<int64_t, uint64_t> ts_to_frame;
 
 	std::atomic<bool> exiting = false;
 	std::thread worker;

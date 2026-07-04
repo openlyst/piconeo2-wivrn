@@ -141,4 +141,9 @@ public:
 	{
 		return handshake_ok;
 	}
+
+	int get_control_fd() const
+	{
+		return control.get_fd();
+	}
 };
