@@ -29,6 +29,7 @@ No sorry, this is not a usable client for now please us this ALVR port instead: 
 - [ ] Killing a applcation doesn't apply a visual indiactor.
 - [ ] Laucning a applcation doesnt apply a visual indiactor.
 - [ ] Right eye is slightly jittery compared to the left eye
+- [ ] Cursor on the UI doesn't work
 - [X] Reprojection is broken causing some people to get sick
 - [X] Stream will crash just when it wonts
 - [X] UI gets super laggy when active (32bit)
