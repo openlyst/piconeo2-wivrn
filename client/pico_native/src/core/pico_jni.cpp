@@ -1,5 +1,6 @@
 #include "pico_client.h"
 #include "pico_stutter.h"
+#include "pico_sched.h"
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/android_sink.h>
@@ -256,6 +257,20 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnOnFrameBegi
 	bool log_this_frame = (++frame_begin_count % 60 == 1);
 	if (log_this_frame)
 		spdlog::warn("onFrameBegin #{}: pos=({:.3f},{:.3f},{:.3f})", frame_begin_count, head_p[0], head_p[1], head_p[2]);
+
+	static bool submit_pinned = false;
+	static bool warp_pinned = false;
+	if (!submit_pinned)
+	{
+		pico_sched::pin_current_thread("submit thread", 2, -8);
+		submit_pinned = true;
+	}
+	if (!warp_pinned && frame_begin_count % 60 == 1)
+	{
+		warp_pinned = pico_sched::try_pin_warp_thread();
+		if (warp_pinned)
+			pico_sched::pin_current_thread("submit thread", 2, -8);
+	}
 
 	g_client->tracker.set_head_pose(head_o, head_p);
 

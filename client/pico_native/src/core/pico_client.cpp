@@ -1,5 +1,6 @@
 #include "pico_client.h"
 #include "pico_stutter.h"
+#include "pico_sched.h"
 
 #include <spdlog/spdlog.h>
 
@@ -524,6 +525,8 @@ void pico_client::handle_packet(to_headset::packets & packet)
 
 void pico_client::network_loop()
 {
+	pico_sched::pin_current_thread("video recv", 1, -4);
+
 	while (!shutdown && session)
 	{
 		try

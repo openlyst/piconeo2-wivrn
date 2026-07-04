@@ -1,4 +1,5 @@
 #include "pico_decoder.h"
+#include "../core/pico_sched.h"
 
 #include <spdlog/spdlog.h>
 #include <cstring>
@@ -268,37 +269,29 @@ pico_video_decoder::~pico_video_decoder()
 
 void pico_video_decoder::input_loop()
 {
+	pico_sched::pin_current_thread("decoder input", 2, -8);
+
 	while (!exiting)
 	{
-		ssize_t in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 1000);
-		if (in_idx < 0)
-			continue;
+		pending_frame frame;
+		{
+			std::unique_lock lock(pending_mutex);
+			pending_cv.wait(lock, [&]() { return !pending_frames.empty() || exiting; });
+			if (exiting)
+				return;
+			frame = std::move(pending_frames.front());
+			pending_frames.erase(pending_frames.begin());
+		}
+
+		ssize_t in_idx = -1;
+		while (!exiting && in_idx < 0)
+			in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 1000);
+		if (exiting)
+			return;
 
 		size_t buf_size;
 		uint8_t * buf = AMediaCodec_getInputBuffer(media_codec, in_idx, &buf_size);
 		if (!buf)
-		{
-			AMediaCodec_queueInputBuffer(media_codec, in_idx, 0, 0, 0, 0);
-			continue;
-		}
-
-		pending_frame frame;
-		bool has_frame = false;
-		{
-			std::unique_lock lock(pending_mutex);
-			if (pending_cv.wait_for(lock, std::chrono::milliseconds(10),
-			    [&]() { return !pending_frames.empty() || exiting; }))
-			{
-				if (!pending_frames.empty())
-				{
-					frame = std::move(pending_frames.front());
-					pending_frames.erase(pending_frames.begin());
-					has_frame = true;
-				}
-			}
-		}
-
-		if (!has_frame)
 		{
 			AMediaCodec_queueInputBuffer(media_codec, in_idx, 0, 0, 0, 0);
 			continue;
@@ -329,6 +322,8 @@ void pico_video_decoder::input_loop()
 
 void pico_video_decoder::output_loop()
 {
+	pico_sched::pin_current_thread("decoder output", 2, -8);
+
 	while (!exiting)
 	{
 		AMediaCodecBufferInfo info;
@@ -482,7 +477,9 @@ void pico_video_decoder::on_image_available(AImageReader * reader)
 		frame->server_fov[i] = info.view_info.fov[i];
 	}
 
-	spdlog::warn("Decoded frame {} available ({}x{})", frame_index, desc.width, desc.height);
+	static int decoded_count = 0;
+	if (++decoded_count % 300 == 1)
+		spdlog::warn("Decoded frame {} available ({}x{})", frame_index, desc.width, desc.height);
 
 	if (on_frame_decoded)
 		on_frame_decoded(frame);
