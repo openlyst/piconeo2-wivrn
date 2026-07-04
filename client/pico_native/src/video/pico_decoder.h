@@ -10,7 +10,6 @@
 
 #include <atomic>
 #include <cstdint>
-#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -68,9 +67,6 @@ private:
 	};
 	std::mutex frame_info_mutex;
 	std::vector<frame_info> pending_frame_infos;
-
-	std::mutex fifo_mutex;
-	std::deque<uint64_t> frame_index_fifo;
 
 	std::atomic<bool> exiting = false;
 	std::thread input_worker;

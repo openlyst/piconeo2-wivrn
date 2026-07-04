@@ -307,11 +307,6 @@ void pico_video_decoder::input_loop()
 		size_t copy_size = std::min(frame_data.size(), buf_size);
 		memcpy(buf, frame_data.data(), copy_size);
 
-		{
-			std::lock_guard lock(fifo_mutex);
-			frame_index_fifo.push_back(frame.frame_index);
-		}
-
 		uint64_t timestamp = frame.frame_index * 10'000;
 		auto status = AMediaCodec_queueInputBuffer(
 			media_codec, in_idx, 0, copy_size, timestamp, 0);
@@ -411,26 +406,12 @@ void pico_video_decoder::on_image_available_cb(void * ctx, AImageReader * reader
 void pico_video_decoder::on_image_available(AImageReader * reader)
 {
 	AImage * tmp;
-	check(AImageReader_acquireNextImage(image_reader.get(), &tmp), "AImageReader_acquireNextImage");
+	check(AImageReader_acquireLatestImage(image_reader.get(), &tmp), "AImageReader_acquireLatestImage");
 	std::shared_ptr<AImage> image(tmp, [](AImage * img) { AImage_delete(img); });
 
-	uint64_t frame_index = 0;
-	bool found_ts = false;
-	{
-		std::lock_guard lock(fifo_mutex);
-		if (!frame_index_fifo.empty())
-		{
-			frame_index = frame_index_fifo.front();
-			frame_index_fifo.pop_front();
-			found_ts = true;
-		}
-	}
-
-	if (!found_ts)
-	{
-		spdlog::warn("No pending frame index for decoded image, dropping");
-		return;
-	}
+	int64_t fake_timestamp_ns;
+	check(AImage_getTimestamp(image.get(), &fake_timestamp_ns), "AImage_getTimestamp");
+	uint64_t frame_index = (fake_timestamp_ns + 5'000'000) / 10'000'000;
 
 	frame_info info{};
 	bool found = false;
