@@ -286,13 +286,14 @@ void pico_lobby::init(int w, int h)
 	glBindTexture(GL_TEXTURE_2D, 0);
 
 	// Quad VBO for UI panel (position xyz + uv)
+	// V is flipped because Android Bitmap data starts top-left but OpenGL V=0 is bottom
 	float quad[] = {
-		-1.0f, -1.0f, 0.0f,  0.0f, 0.0f,
-		 1.0f, -1.0f, 0.0f,  1.0f, 0.0f,
-		 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,
-		-1.0f, -1.0f, 0.0f,  0.0f, 0.0f,
-		 1.0f,  1.0f, 0.0f,  1.0f, 1.0f,
-		-1.0f,  1.0f, 0.0f,  0.0f, 1.0f,
+		-1.0f, -1.0f, 0.0f,  0.0f, 1.0f,
+		 1.0f, -1.0f, 0.0f,  1.0f, 1.0f,
+		 1.0f,  1.0f, 0.0f,  1.0f, 0.0f,
+		-1.0f, -1.0f, 0.0f,  0.0f, 1.0f,
+		 1.0f,  1.0f, 0.0f,  1.0f, 0.0f,
+		-1.0f,  1.0f, 0.0f,  0.0f, 0.0f,
 	};
 	glGenBuffers(1, &quad_vbo);
 	glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
