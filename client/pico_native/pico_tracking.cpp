@@ -359,14 +359,13 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 	constexpr float k_ipd = 0.064f;
 	for (int eye = 0; eye < 2; eye++)
 	{
-		pkt.views[eye].pose = head_pose;
+		// View poses are relative to the head (XR_REFERENCE_SPACE_TYPE_VIEW),
+		// not absolute world positions. The server composes head_pose * view_pose
+		// to get eye world positions. Sending absolute positions here caused
+		// the "super tall" feeling (eyes ended up at ~2x head height).
 		float eye_offset = (eye == 0 ? -k_ipd * 0.5f : k_ipd * 0.5f);
-		float v[3] = {eye_offset, 0, 0};
-		float rotated[3];
-		neo2::rotate_vector(hq, v, rotated);
-		pkt.views[eye].pose.position.x += rotated[0];
-		pkt.views[eye].pose.position.y += rotated[1];
-		pkt.views[eye].pose.position.z += rotated[2];
+		pkt.views[eye].pose.orientation = {0, 0, 0, 1};
+		pkt.views[eye].pose.position = {eye_offset, 0, 0};
 		pkt.views[eye].fov = eye_fov[eye];
 	}
 
