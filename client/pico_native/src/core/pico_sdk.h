@@ -17,6 +17,8 @@ int   InitSensor();
 void  Pvr_SetInitActivity(void *activity, void *vrActivityClass);
 void  Pvr_DisableBoundary();
 void  Pvr_ShutdownSDKBoundary();
+bool  Pvr_BoundaryGetConfigured();
+float Pvr_GetFloorHeight();
 bool  Pvr_SetSinglePassDepthBufferWidthHeight(int width, int height);
 float Pvr_GetIPD();
 void  Pvr_SetProjectionFov(float fovX, float fovY);

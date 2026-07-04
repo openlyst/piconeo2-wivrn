@@ -142,6 +142,12 @@ void pico_render_thread::init_sdk()
 	int startRc = Pvr_StartSensor(0);
 	spdlog::info("Pvr_Init={} InitSensor={} Pvr_StartSensor={}", initRc, sensRc, startRc);
 
+	bool guardian = Pvr_BoundaryGetConfigured();
+	int originType = guardian ? 2 : 1;
+	bool originRc = Pvr_SetTrackingOriginType(originType);
+	spdlog::info("Pvr_SetTrackingOriginType({})={} floorHeight={:.3f} guardian={}",
+		guardian ? "StageLevel" : "FloorLevel", originRc, Pvr_GetFloorHeight(), guardian);
+
 	Pvr_DisableBoundary();
 	Pvr_ShutdownSDKBoundary();
 
