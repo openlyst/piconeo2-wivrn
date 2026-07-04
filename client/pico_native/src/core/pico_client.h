@@ -47,6 +47,7 @@ struct pico_client
 	std::atomic<bool> streaming{false};
 	std::atomic<bool> stream_ui_visible{false};
 	bool prev_thumbstick_click[2] = {false, false};
+	bool prev_thumbstick_down[2] = {false, false};
 
 	uint64_t stats_bytes_rx = 0;
 	uint64_t stats_bytes_tx = 0;
@@ -105,7 +106,7 @@ struct pico_client
 	AHardwareBuffer * last_hb[3]{nullptr, nullptr, nullptr};
 	std::shared_ptr<pico_decoded_frame> eye_current_frames[3];
 
-	static constexpr int kSwapLen = 3;
+	static constexpr int kSwapLen = 5;
 	GLuint swap_tex[2][kSwapLen]{{0}};
 	int swap_idx = 0;
 	GLuint stream_fbo = 0;

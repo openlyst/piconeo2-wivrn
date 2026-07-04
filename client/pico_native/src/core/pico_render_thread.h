@@ -56,7 +56,7 @@ private:
 	bool warp_to_window = false;
 	bool atw_enabled = false;
 
-	static constexpr int kSwapLen = 3;
+	static constexpr int kSwapLen = 5;
 	GLuint swap_tex[2][kSwapLen]{{0}};
 	GLuint stream_fbo = 0;
 	int swap_idx = 0;

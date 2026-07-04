@@ -261,7 +261,12 @@ void pico_client::setup_audio()
 
 void pico_client::handle_video_shard(to_headset::video_stream_data_shard && shard)
 {
-	streaming = true;
+	if (!streaming.load())
+	{
+		streaming = true;
+		stream_ui_visible = false;
+		spdlog::info("Streaming started, hiding lobby UI");
+	}
 	static int shard_count = 0;
 	++shard_count;
 

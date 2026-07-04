@@ -378,17 +378,19 @@ void pico_render_thread::submit_to_warp(int slot_idx, uint64_t fence_wait_ns)
 		         + pose.orientation.y * pose.orientation.y
 		         + pose.orientation.z * pose.orientation.z
 		         + pose.orientation.w * pose.orientation.w;
-		if (n2 < 1e-6f)
-		{
-			pose.orientation = {0, 0, 0, 1};
-		}
-		else if (std::abs(n2 - 1.0f) > 1e-4f)
+		static XrQuaternionf last_good_q[2] = {{0,0,0,1}, {0,0,0,1}};
+		if (n2 > 1e-6f)
 		{
 			float inv = 1.0f / std::sqrt(n2);
 			pose.orientation.x *= inv;
 			pose.orientation.y *= inv;
 			pose.orientation.z *= inv;
 			pose.orientation.w *= inv;
+			last_good_q[e] = pose.orientation;
+		}
+		else
+		{
+			pose.orientation = last_good_q[e];
 		}
 
 		PvrPoseBlk blk;
@@ -584,11 +586,11 @@ void pico_render_thread::run()
 			controller_sample cs[2];
 			client->tracker.get_controllers(cs);
 
-			bool both_click = cs[0].connected && cs[1].connected &&
-				cs[0].thumbstick_click && cs[1].thumbstick_click;
-			bool prev_both = client->prev_thumbstick_click[0] && client->prev_thumbstick_click[1];
+			bool both_down = cs[0].connected && cs[1].connected &&
+				cs[0].touch[1] < 64 && cs[1].touch[1] < 64;
+			bool prev_both = client->prev_thumbstick_down[0] && client->prev_thumbstick_down[1];
 
-			if (both_click && !prev_both)
+			if (both_down && !prev_both)
 			{
 				client->stream_ui_visible = !client->stream_ui_visible.load();
 				spdlog::info("Stream UI toggled: {}", client->stream_ui_visible.load());
@@ -614,8 +616,8 @@ void pico_render_thread::run()
 						client->vm->DetachCurrentThread();
 				}
 			}
-			client->prev_thumbstick_click[0] = cs[0].thumbstick_click;
-			client->prev_thumbstick_click[1] = cs[1].thumbstick_click;
+			client->prev_thumbstick_down[0] = cs[0].touch[1] < 64;
+			client->prev_thumbstick_down[1] = cs[1].touch[1] < 64;
 
 			std::shared_ptr<pico_decoded_frame> frames[2];
 			{
@@ -624,18 +626,37 @@ void pico_render_thread::run()
 				frames[1] = client->latest_decoded_frames[1];
 			}
 
+			bool both_valid = frames[0] && frames[0]->valid && frames[0]->hardware_buffer
+			               && frames[1] && frames[1]->valid && frames[1]->hardware_buffer;
+			bool same_index = both_valid && frames[0]->frame_index == frames[1]->frame_index;
+
 			bool has_new_frame = false;
-			for (int e = 0; e < 2; e++)
+			if (both_valid)
 			{
-				if (frames[e] && frames[e]->valid && frames[e]->hardware_buffer)
-				{
-					if (frames[e]->frame_index != last_frame_idx[e])
+				if (same_index && frames[0]->frame_index != last_frame_idx[0])
+					has_new_frame = true;
+			}
+			else
+			{
+				for (int e = 0; e < 2; e++)
+					if (frames[e] && frames[e]->valid && frames[e]->hardware_buffer
+					    && frames[e]->frame_index != last_frame_idx[e])
 						has_new_frame = true;
-				}
 			}
 
-			if (has_new_frame || !prev_swap_valid)
+			static int64_t stale_since = 0;
+			if (both_valid && !same_index && stale_since == 0)
+				stale_since = now_ns();
+			if (both_valid && same_index)
+				stale_since = 0;
+			bool stale_timeout = stale_since && (now_ns() - stale_since > 50000000LL);
+
+			if ((has_new_frame && (same_index || !both_valid || stale_timeout)) || !prev_swap_valid)
 			{
+				bool first_frame = !prev_swap_valid;
+				if (!first_frame)
+					submit_to_warp(prev_swap_idx, 5000000ULL);
+
 				blit_decoded_to_swap(frames);
 
 				for (int e = 0; e < 2; e++)
@@ -650,10 +671,7 @@ void pico_render_thread::run()
 				slots[swap_idx].fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
 				glFlush();
 
-				bool first_frame = !prev_swap_valid;
-				if (!first_frame)
-					submit_to_warp(prev_swap_idx, 5000000ULL);
-				else
+				if (first_frame)
 					submit_to_warp(swap_idx, 50000000ULL);
 
 				prev_swap_idx = swap_idx;
@@ -700,11 +718,6 @@ void pico_render_thread::run()
 						client->stats_bandwidth_rx * 8, client->stats_bandwidth_tx * 8, 50);
 				}
 			}
-			else
-			{
-				if (prev_swap_valid)
-					submit_to_warp(prev_swap_idx, 0);
-			}
 		}
 		else
 		{
@@ -719,15 +732,13 @@ void pico_render_thread::run()
 			spdlog::info("frame {} elapsed={:.1f}ms", frame, elapsed / 1e6f);
 		}
 
-		int64_t elapsed = now_ns() - t_start;
-		int64_t sleep_ns = target_frame_ns - elapsed;
-		if (sleep_ns > 1000000LL)
-		{
-			struct timespec ts;
-			ts.tv_sec = sleep_ns / 1000000000LL;
-			ts.tv_nsec = sleep_ns % 1000000000LL;
-			nanosleep(&ts, nullptr);
-		}
+		struct timespec deadline;
+		clock_gettime(CLOCK_MONOTONIC, &deadline);
+		int64_t deadline_ns = (int64_t)deadline.tv_sec * 1000000000LL + deadline.tv_nsec;
+		deadline_ns += target_frame_ns;
+		deadline.tv_sec = deadline_ns / 1000000000LL;
+		deadline.tv_nsec = deadline_ns % 1000000000LL;
+		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &deadline, nullptr);
 	}
 
 	if (atw_enabled)
