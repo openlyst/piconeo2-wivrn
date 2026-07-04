@@ -1276,14 +1276,9 @@ public class WivrnLobbyView {
             return;
         }
 
-        float iconW = 300;
-        float iconH = 120;
-        float gap = 20;
-        int perRow = (int)((w + gap) / (iconW + gap));
-        if (perRow < 1) perRow = 1;
-
-        int totalRows = (availableAppNames.length + perRow - 1) / perRow;
-        float contentHeight = totalRows * (iconH + gap) - gap;
+        float cardH = 90;
+        float gap = 12;
+        float contentHeight = availableAppNames.length * (cardH + gap) - gap;
         float visibleHeight = height - y - 20;
         launchMaxScroll = Math.max(0, contentHeight - visibleHeight);
         launchScrollY = Math.max(0, Math.min(launchMaxScroll, launchScrollY));
@@ -1292,53 +1287,96 @@ public class WivrnLobbyView {
         canvas.clipRect(x - 5, y - 5, x + w + 5, height);
 
         for (int i = 0; i < availableAppNames.length; i++) {
-            int col = i % perRow;
-            int row = i / perRow;
-            float cx = x + col * (iconW + gap);
-            float cy = y + row * (iconH + gap) - launchScrollY;
-
-            RectF card = new RectF(cx, cy, cx + iconW, cy + iconH);
+            float cy = y + i * (cardH + gap) - launchScrollY;
+            RectF card = new RectF(x, cy, x + w, cy + cardH);
             boolean hover = touchDown && card.contains(touchX, touchY);
 
             Paint cardPaint = new Paint();
             cardPaint.setAntiAlias(true);
-            cardPaint.setColor(hover ? Color.rgb(45, 60, 85) : cardBgPaint.getColor());
-            canvas.drawRoundRect(card, 12, 12, cardPaint);
+            cardPaint.setColor(hover ? Color.rgb(40, 52, 72) : cardBgPaint.getColor());
+            canvas.drawRoundRect(card, 10, 10, cardPaint);
 
-            float iconBoxSize = 80;
-            float iconX = cx + 15;
-            float iconY = cy + (iconH - iconBoxSize) / 2;
-            RectF iconBox = new RectF(iconX, iconY, iconX + iconBoxSize, iconY + iconBoxSize);
+            if (hover) {
+                Paint accentBar = new Paint();
+                accentBar.setAntiAlias(true);
+                accentBar.setColor(Color.rgb(80, 140, 220));
+                canvas.drawRoundRect(new RectF(x, cy, x + 4, cy + cardH), 2, 2, accentBar);
+            }
+
+            float iconSize = 56;
+            float iconCx = x + 30 + iconSize / 2;
+            float iconCy = cy + cardH / 2;
+            RectF iconBox = new RectF(iconCx - iconSize / 2, iconCy - iconSize / 2,
+                                       iconCx + iconSize / 2, iconCy + iconSize / 2);
+
             Paint iconBgPaint = new Paint();
             iconBgPaint.setAntiAlias(true);
-            iconBgPaint.setColor(Color.rgb(50, 60, 75));
-            canvas.drawRoundRect(iconBox, 8, 8, iconBgPaint);
+            iconBgPaint.setColor(Color.rgb(45, 55, 70));
+            canvas.drawCircle(iconCx, iconCy, iconSize / 2, iconBgPaint);
 
             Bitmap icon = (i < availableAppIds.length) ? appIcons.get(availableAppIds[i]) : null;
             if (icon != null) {
                 Rect src = new Rect(0, 0, icon.getWidth(), icon.getHeight());
-                RectF dst = new RectF(iconX + 4, iconY + 4, iconX + iconBoxSize - 4, iconY + iconBoxSize - 4);
+                RectF dst = new RectF(iconCx - iconSize / 2 + 4, iconCy - iconSize / 2 + 4,
+                                       iconCx + iconSize / 2 - 4, iconCy + iconSize / 2 - 4);
                 Paint iconPaint = new Paint();
                 iconPaint.setAntiAlias(true);
                 iconPaint.setFilterBitmap(true);
                 canvas.drawBitmap(icon, src, dst, iconPaint);
             } else {
-                textPaint.setColor(Color.rgb(180, 200, 230));
-                textPaint.setTextSize(20);
-                canvas.drawText("App", iconBox.centerX() - 17, iconBox.centerY() + 7, textPaint);
+                textPaint.setColor(Color.rgb(160, 180, 210));
+                textPaint.setTextSize(16);
+                String firstLetter = availableAppNames[i].length() > 0
+                    ? availableAppNames[i].substring(0, 1).toUpperCase()
+                    : "?";
+                canvas.drawText(firstLetter, iconCx - textPaint.measureText(firstLetter) / 2,
+                                iconCy + 6, textPaint);
                 textPaint.setTextSize(28);
                 textPaint.setColor(Color.rgb(230, 235, 245));
             }
 
-            float textX = cx + 100;
-            float maxTextW = iconW - 110;
+            float textX = x + 30 + iconSize + 20;
+            float maxTextW = w - (textX - x) - 80;
+
+            textPaint.setColor(Color.rgb(235, 240, 250));
+            textPaint.setTextSize(26);
             String displayName = availableAppNames[i];
             if (textPaint.measureText(displayName) > maxTextW) {
                 while (textPaint.measureText(displayName + "...") > maxTextW && displayName.length() > 0)
                     displayName = displayName.substring(0, displayName.length() - 1);
                 displayName += "...";
             }
-            canvas.drawText(displayName, textX, cy + iconH / 2f + 10, textPaint);
+            canvas.drawText(displayName, textX, cy + 38, textPaint);
+            textPaint.setTextSize(28);
+
+            if (i < availableAppIds.length) {
+                textSmallPaint.setColor(Color.rgb(110, 120, 135));
+                textSmallPaint.setTextSize(14);
+                String idStr = availableAppIds[i];
+                if (textSmallPaint.measureText(idStr) > maxTextW) {
+                    while (textSmallPaint.measureText(idStr + "...") > maxTextW && idStr.length() > 0)
+                        idStr = idStr.substring(0, idStr.length() - 1);
+                    idStr += "...";
+                }
+                canvas.drawText(idStr, textX, cy + 60, textSmallPaint);
+                textSmallPaint.setTextSize(18);
+            }
+
+            float btnCx = x + w - 35;
+            float btnCy = cy + cardH / 2;
+            Paint launchBtnPaint = new Paint();
+            launchBtnPaint.setAntiAlias(true);
+            launchBtnPaint.setColor(hover ? Color.rgb(70, 130, 210) : Color.rgb(50, 60, 78));
+            canvas.drawCircle(btnCx, btnCy, 22, launchBtnPaint);
+
+            Paint arrowPaint = new Paint();
+            arrowPaint.setAntiAlias(true);
+            arrowPaint.setColor(Color.rgb(220, 230, 245));
+            arrowPaint.setStyle(Paint.Style.STROKE);
+            arrowPaint.setStrokeWidth(3);
+            arrowPaint.setStrokeCap(Paint.Cap.ROUND);
+            canvas.drawLine(btnCx - 6, btnCy - 7, btnCx + 5, btnCy, arrowPaint);
+            canvas.drawLine(btnCx + 5, btnCy, btnCx - 6, btnCy + 7, arrowPaint);
         }
 
         canvas.restoreToCount(clipSave);
@@ -1641,19 +1679,13 @@ public class WivrnLobbyView {
                     return;
                 }
             } else {
-                float iconW = 300;
-                float iconH = 120;
-                float gap = 20;
-                int perRow = (int)((contentW + gap) / (iconW + gap));
-                if (perRow < 1) perRow = 1;
+                float cardH = 90;
+                float gap = 12;
                 float startY = 40 + 70;
 
                 for (int i = 0; i < availableAppNames.length; i++) {
-                    int col = i % perRow;
-                    int row = i / perRow;
-                    float cx = contentX + col * (iconW + gap);
-                    float cy = startY + row * (iconH + gap) - launchScrollY;
-                    RectF card = new RectF(cx, cy, cx + iconW, cy + iconH);
+                    float cy = startY + i * (cardH + gap) - launchScrollY;
+                    RectF card = new RectF(contentX, cy, contentX + contentW, cy + cardH);
                     if (card.contains(x, y) && i < availableAppIds.length) {
                         ((MainActivity) context).onStartApp(availableAppIds[i]);
                         markDirty();
