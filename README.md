@@ -7,6 +7,9 @@ Got questions or want to contribute? Join the Discord for dev discussion and hel
 ### Experimental
 This project is really early and still has issues with the code. The project does work but wouldn't say playable. 
 
+### Can I still play?
+No sorry, this is not a usable client for now please us this ALVR port instead: [https://github.com/Juspertinry/alvr-pico-legacy](https://github.com/Juspertinry/alvr-pico-legacy-2)
+
 ## Supported headsets
 - Pico Neo 2
 - Pico Neo 2 Eye* (not tested no eye tracking)
@@ -26,6 +29,7 @@ This project is really early and still has issues with the code. The project doe
 - [ ] Create a gitlab builder
 - [ ] Implament audio
 - [ ] Implament controller haptics 
+- [ ] Add i18n for Chinese Simplfed and English so we aint hardcoding.
 
 ### Getting the Pico SDK
 
@@ -72,3 +76,9 @@ If you want to point the cache somewhere specific:
 ### Building on Linux
 
 <!-- TODO: Write Linux build instructions -->
+
+
+### Acknowledgments
+- [WiVRn](https://github.com/Vrixyz/WiVRn) - The main project that this is based on
+- [Juspertinry - ALVR](https://github.com/Juspertinry/alvr-pico-legacy) - stolen grid and rendering a 3d object.
+- [Pico SDK](https://developer.picoxr.com/) - The Pico SDK for the Pico Neo 2*
