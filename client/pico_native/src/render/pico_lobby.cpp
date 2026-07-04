@@ -172,7 +172,7 @@ pico_lobby::~pico_lobby()
 {
 	if (program) glDeleteProgram(program);
 	if (tex_program) glDeleteProgram(tex_program);
-	if (grid_vbo) glDeleteBuffers(1, &grid_vbo);
+	if (beam_vbo) glDeleteBuffers(1, &beam_vbo);
 	if (controller_vbo) glDeleteBuffers(1, &controller_vbo);
 	if (quad_vbo) glDeleteBuffers(1, &quad_vbo);
 	if (ui_texture) glDeleteTextures(1, &ui_texture);
@@ -210,24 +210,59 @@ void pico_lobby::init(int w, int h)
 	mvp_uniform = glGetUniformLocation(program, "u_mvp");
 	color_uniform = glGetUniformLocation(program, "u_color");
 
-	// Floor grid: lines on the XZ plane at y=0, from -5 to +5, every 0.5m
-	std::vector<float> grid_verts;
-	float grid_size = 5.0f;
-	float grid_step = 0.5f;
-	for (float x = -grid_size; x <= grid_size; x += grid_step)
+	// Beam: a tall pole underneath the user fading into the void
+	// Rings at exponentially increasing depth
+	static constexpr float y_vals[] = {
+		0.0f, -0.15f, -0.35f, -0.6f, -0.9f, -1.3f, -1.8f, -2.4f,
+		-3.2f, -4.2f, -5.5f, -7.0f, -9.0f, -11.5f, -14.5f, -18.0f, -23.0f
+	};
+	static constexpr int n_rings = (int)(sizeof(y_vals) / sizeof(y_vals[0]));
+	static constexpr float beam_radius = 0.84f;
+	static constexpr int ring_segments = 32;
+	static constexpr int n_verticals = 8;
+
+	std::vector<float> beam_verts;
+	beam_segments.clear();
+
+	for (int i = 0; i < n_rings; i++)
 	{
-		grid_verts.push_back(x); grid_verts.push_back(0.0f); grid_verts.push_back(-grid_size);
-		grid_verts.push_back(x); grid_verts.push_back(0.0f); grid_verts.push_back(grid_size);
-	}
-	for (float z = -grid_size; z <= grid_size; z += grid_step)
-	{
-		grid_verts.push_back(-grid_size); grid_verts.push_back(0.0f); grid_verts.push_back(z);
-		grid_verts.push_back(grid_size); grid_verts.push_back(0.0f); grid_verts.push_back(z);
+		int seg_start = (int)(beam_verts.size() / 3);
+
+		// Ring at this depth
+		for (int j = 0; j < ring_segments; j++)
+		{
+			float a1 = (float)j / ring_segments * 2.0f * M_PI;
+			float a2 = (float)(j + 1) / ring_segments * 2.0f * M_PI;
+			beam_verts.push_back(cosf(a1) * beam_radius);
+			beam_verts.push_back(y_vals[i]);
+			beam_verts.push_back(sinf(a1) * beam_radius);
+			beam_verts.push_back(cosf(a2) * beam_radius);
+			beam_verts.push_back(y_vals[i]);
+			beam_verts.push_back(sinf(a2) * beam_radius);
+		}
+
+		// Vertical connectors to next ring
+		if (i < n_rings - 1)
+		{
+			for (int j = 0; j < n_verticals; j++)
+			{
+				float a = (float)j / n_verticals * 2.0f * M_PI;
+				beam_verts.push_back(cosf(a) * beam_radius);
+				beam_verts.push_back(y_vals[i]);
+				beam_verts.push_back(sinf(a) * beam_radius);
+				beam_verts.push_back(cosf(a) * beam_radius);
+				beam_verts.push_back(y_vals[i + 1]);
+				beam_verts.push_back(sinf(a) * beam_radius);
+			}
+		}
+
+		int seg_count = (int)(beam_verts.size() / 3) - seg_start;
+		beam_segments.push_back({seg_start, seg_count});
 	}
 
-	glGenBuffers(1, &grid_vbo);
-	glBindBuffer(GL_ARRAY_BUFFER, grid_vbo);
-	glBufferData(GL_ARRAY_BUFFER, grid_verts.size() * sizeof(float), grid_verts.data(), GL_STATIC_DRAW);
+	glGenBuffers(1, &beam_vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, beam_vbo);
+	glBufferData(GL_ARRAY_BUFFER, beam_verts.size() * sizeof(float), beam_verts.data(), GL_STATIC_DRAW);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 
 	// Controller representation: a small box (24 verts = 12 triangles)
@@ -343,17 +378,44 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 
 	Mat4 vp = mat4_mul(proj, view);
 
-	// Draw floor grid (no depth write so it doesn't occlude anything)
+	// Draw beam (pole underneath user fading into void)
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glDepthMask(GL_FALSE);
-	glUniform4f(color_uniform, 0.5f, 0.5f, 0.8f, 1.0f);
-	glBindBuffer(GL_ARRAY_BUFFER, grid_vbo);
-	glEnableVertexAttribArray(pos_attrib);
-	glVertexAttribPointer(pos_attrib, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
-	int grid_vert_count = 0;
-	glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &grid_vert_count);
-	grid_vert_count /= (3 * sizeof(float));
-	glUniformMatrix4fv(mvp_uniform, 1, GL_FALSE, vp.m);
-	glDrawArrays(GL_LINES, 0, grid_vert_count);
+
+	int n_segs = (int)beam_segments.size();
+	for (int i = 0; i < n_segs; i++)
+	{
+		float depth_frac = (float)i / (n_segs - 1);
+		float alpha = powf(1.0f - depth_frac, 1.5f);
+		if (alpha < 0.02f)
+			alpha = 0.02f;
+
+		// Color: bright cyan at top, dark blue fading down
+		float r = 0.3f + 0.2f * (1.0f - depth_frac);
+		float g = 0.5f + 0.3f * (1.0f - depth_frac);
+		float b = 0.8f + 0.2f * (1.0f - depth_frac);
+
+		if (i == 0)
+		{
+			// Top ring: brighter, thicker feel
+			r = 0.5f; g = 0.8f; b = 1.0f;
+			alpha = 0.95f;
+		}
+
+		Mat4 model = mat4_translate(head_pos[0], 0.0f, head_pos[2]);
+		Mat4 mvp = mat4_mul(vp, model);
+
+		glUniform4f(color_uniform, r, g, b, alpha);
+		glUniformMatrix4fv(mvp_uniform, 1, GL_FALSE, mvp.m);
+		glBindBuffer(GL_ARRAY_BUFFER, beam_vbo);
+		glEnableVertexAttribArray(pos_attrib);
+		glVertexAttribPointer(pos_attrib, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
+		glDrawArrays(GL_LINES, beam_segments[i].offset, beam_segments[i].count);
+	}
+
+	glDisable(GL_BLEND);
+	glDepthMask(GL_TRUE);
 
 	// Draw controllers as small boxes (with depth write so they occlude the panel)
 	glDepthMask(GL_TRUE);
@@ -376,17 +438,6 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 		else
 			glUniform4f(color_uniform, 1.0f, 0.3f, 0.2f, 1.0f);
 
-		glBindBuffer(GL_ARRAY_BUFFER, controller_vbo);
-		glVertexAttribPointer(pos_attrib, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
-		glUniformMatrix4fv(mvp_uniform, 1, GL_FALSE, mvp.m);
-		glDrawArrays(GL_TRIANGLES, 0, 36);
-	}
-
-	// Head position marker (green)
-	{
-		Mat4 model = mat4_translate(head_pos[0], head_pos[1], head_pos[2]);
-		Mat4 mvp = mat4_mul(vp, model);
-		glUniform4f(color_uniform, 0.2f, 1.0f, 0.2f, 1.0f);
 		glBindBuffer(GL_ARRAY_BUFFER, controller_vbo);
 		glVertexAttribPointer(pos_attrib, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
 		glUniformMatrix4fv(mvp_uniform, 1, GL_FALSE, mvp.m);
