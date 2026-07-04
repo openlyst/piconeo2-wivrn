@@ -511,8 +511,7 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 		panel_placed = true;
 	}
 
-	// Grip-to-follow: holding grip on a controller makes the panel follow it
-	// Like WiVRn: panel follows controller position and yaw only, stays upright
+	// Grip-to-follow: like WiVRn's update_gui_position
 	if (recentering_controller >= 0)
 	{
 		int h = recentering_controller;
@@ -530,24 +529,23 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 				controllers[h].orientation[3],
 			});
 
-			// Extract yaw only from controller orientation
-			float fwd[3] = {0, 0, -1};
-			float fwd_world[3];
-			neo2::rotate_vector(cq, fwd, fwd_world);
-			float controller_yaw = atan2f(fwd_world[0], fwd_world[2]);
-
-			// Build yaw-only quaternion
-			float half_yaw = controller_yaw * 0.5f;
-			neo2::quat yaw_only = {0, sinf(half_yaw), 0, cosf(half_yaw)};
-
-			// Apply offset using yaw-only rotation (panel stays upright)
+			// panel_pos = controller_pos + controller_orient * offset_pos
 			float rotated_offset[3];
-			neo2::rotate_vector(yaw_only, recenter_offset_pos, rotated_offset);
+			neo2::rotate_vector(cq, recenter_offset_pos, rotated_offset);
 			panel_pos[0] = cpos[0] + rotated_offset[0];
 			panel_pos[1] = cpos[1] + rotated_offset[1];
 			panel_pos[2] = cpos[2] + rotated_offset[2];
 
-			panel_yaw = controller_yaw + recenter_offset_yaw;
+			// panel_orient = controller_orient * offset_orient
+			neo2::quat offset_q = {recenter_offset_orient[0], recenter_offset_orient[1],
+			                       recenter_offset_orient[2], recenter_offset_orient[3]};
+			neo2::quat panel_orient = neo2::multiply_quat(cq, offset_q);
+
+			// Extract yaw from panel orientation for our yaw-only rendering
+			float fwd[3] = {0, 0, -1};
+			float fwd_world[3];
+			neo2::rotate_vector(panel_orient, fwd, fwd_world);
+			panel_yaw = atan2f(fwd_world[0], fwd_world[2]);
 		}
 		else
 		{
@@ -572,24 +570,78 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 					controllers[h].orientation[3],
 				});
 
-				// Extract yaw only
+				// Ray-cast from controller to panel (like WiVRn)
 				float fwd[3] = {0, 0, -1};
 				float fwd_world[3];
 				neo2::rotate_vector(cq, fwd, fwd_world);
-				float controller_yaw = atan2f(fwd_world[0], fwd_world[2]);
-				float half_yaw = controller_yaw * 0.5f;
-				neo2::quat yaw_only = {0, sinf(half_yaw), 0, cosf(half_yaw)};
 
-				// Compute panel position relative to controller, rotated by yaw only
-				float delta[3] = {
+				float cy = cosf(panel_yaw), sy = sinf(panel_yaw);
+				float normal[3] = {sy, 0, cy};
+
+				float to_panel[3] = {
 					panel_pos[0] - cpos[0],
 					panel_pos[1] - cpos[1],
 					panel_pos[2] - cpos[2],
 				};
-				neo2::quat inv_yaw = {0, -sinf(half_yaw), 0, cosf(half_yaw)};
-				neo2::rotate_vector(inv_yaw, delta, recenter_offset_pos);
+				float denom = normal[0] * fwd_world[0] + normal[1] * fwd_world[1] + normal[2] * fwd_world[2];
 
-				recenter_offset_yaw = panel_yaw - controller_yaw;
+				bool hit = false;
+				if (fabsf(denom) > 1e-6f)
+				{
+					float lambda = (to_panel[0] * normal[0] + to_panel[1] * normal[1] + to_panel[2] * normal[2]) / denom;
+					if (lambda > 0)
+					{
+						float hit_pt[3] = {
+							cpos[0] + lambda * fwd_world[0],
+							cpos[1] + lambda * fwd_world[1],
+							cpos[2] + lambda * fwd_world[2],
+						};
+						// Check if hit point is within panel bounds
+						float local[3] = {
+							hit_pt[0] - panel_pos[0],
+							hit_pt[1] - panel_pos[1],
+							hit_pt[2] - panel_pos[2],
+						};
+						float u_axis[3] = {-cy, 0, sy};
+						float u = local[0] * u_axis[0] + local[1] * u_axis[1] + local[2] * u_axis[2];
+						float v = local[1];
+						if (fabsf(u) <= panel_w * 0.5f && fabsf(v) <= panel_h * 0.5f)
+							hit = true;
+					}
+				}
+
+				if (hit)
+				{
+					// Store panel position relative to controller in controller's local frame
+					float delta[3] = {
+						panel_pos[0] - cpos[0],
+						panel_pos[1] - cpos[1],
+						panel_pos[2] - cpos[2],
+					};
+					neo2::quat inv_cq = {cq.x, cq.y, cq.z, -cq.w};
+					neo2::rotate_vector(inv_cq, delta, recenter_offset_pos);
+
+					// Store panel orientation relative to controller
+					// panel_yaw corresponds to a yaw quaternion; offset = inv(controller) * panel_yaw_q
+					float panel_half_yaw = panel_yaw * 0.5f;
+					neo2::quat panel_q = {0, sinf(panel_half_yaw), 0, cosf(panel_half_yaw)};
+					neo2::quat offset_q = neo2::multiply_quat(inv_cq, panel_q);
+					recenter_offset_orient[0] = offset_q.x;
+					recenter_offset_orient[1] = offset_q.y;
+					recenter_offset_orient[2] = offset_q.z;
+					recenter_offset_orient[3] = offset_q.w;
+				}
+				else
+				{
+					// Ray doesn't intersect panel: teleport to 1m in front of controller
+					recenter_offset_pos[0] = 0;
+					recenter_offset_pos[1] = 0;
+					recenter_offset_pos[2] = -1;
+					recenter_offset_orient[0] = 0;
+					recenter_offset_orient[1] = 0;
+					recenter_offset_orient[2] = 0;
+					recenter_offset_orient[3] = 1;
+				}
 
 				recentering_controller = h;
 				break;

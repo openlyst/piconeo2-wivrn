@@ -32,7 +32,7 @@ class pico_lobby
 
 	int recentering_controller = -1;
 	float recenter_offset_pos[3] = {0, 0, 0};
-	float recenter_offset_yaw = 0.0f;
+	float recenter_offset_orient[4] = {0, 0, 0, 1};
 
 	struct ray_hit
 	{
