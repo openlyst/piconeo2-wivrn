@@ -239,7 +239,60 @@ public class WivrnLobbyView {
         return Color.rgb(80, 200, 120);
     }
 
-    private void renderBatteryIcon(float rightX, float centerY, int pct, boolean connected, String label) {
+    private static final int DEVICE_HMD = 0;
+    private static final int DEVICE_LEFT = 1;
+    private static final int DEVICE_RIGHT = 2;
+
+    private void renderDeviceIcon(float rightX, float centerY, int deviceType, int color) {
+        Paint p = new Paint();
+        p.setAntiAlias(true);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(2);
+        p.setColor(color);
+
+        Paint fill = new Paint();
+        fill.setAntiAlias(true);
+        fill.setStyle(Paint.Style.FILL);
+        fill.setColor(color);
+
+        float cx = rightX - 14;
+        float cy = centerY;
+
+        if (deviceType == DEVICE_HMD) {
+            float w = 22, h = 14;
+            RectF visor = new RectF(cx - w/2, cy - h/2, cx + w/2, cy + h/2);
+            canvas.drawRoundRect(visor, 6, 6, p);
+            fill.setStyle(Paint.Style.STROKE);
+            fill.setStrokeWidth(1.5f);
+            RectF lensL = new RectF(cx - 7, cy - 4, cx - 1, cy + 4);
+            RectF lensR = new RectF(cx + 1, cy - 4, cx + 7, cy + 4);
+            canvas.drawOval(lensL, fill);
+            canvas.drawOval(lensR, fill);
+        } else {
+            float w = 10, h = 20;
+            float ctrlX = cx;
+            if (deviceType == DEVICE_LEFT) ctrlX -= 2;
+            else ctrlX += 2;
+
+            RectF body = new RectF(ctrlX - w/2, cy - h/2, ctrlX + w/2, cy + h/2);
+            canvas.drawRoundRect(body, 4, 4, p);
+
+            fill.setStyle(Paint.Style.STROKE);
+            fill.setStrokeWidth(1.5f);
+            canvas.drawCircle(ctrlX, cy - 4, 2.5f, fill);
+            canvas.drawPoint(ctrlX, cy + 4, fill);
+
+            if (deviceType == DEVICE_LEFT) {
+                p.setStrokeWidth(2);
+                canvas.drawArc(new RectF(ctrlX - w/2 - 4, cy - 6, ctrlX + w/2 - 2, cy + 8), 180, 90, false, p);
+            } else {
+                p.setStrokeWidth(2);
+                canvas.drawArc(new RectF(ctrlX - w/2 + 2, cy - 6, ctrlX + w/2 + 4, cy + 8), 270, 90, false, p);
+            }
+        }
+    }
+
+    private void renderBatteryIcon(float rightX, float centerY, int pct, boolean connected, int deviceType) {
         float iconW = 36;
         float iconH = 18;
         float pad = 8;
@@ -256,11 +309,14 @@ public class WivrnLobbyView {
         fillPaint.setStyle(Paint.Style.FILL);
 
         int color = batteryColor(pct);
+        if (!connected) color = Color.rgb(100, 110, 125);
+
+        renderDeviceIcon(bx - pad, centerY, deviceType, color);
+
+        battPaint.setColor(color);
+        fillPaint.setColor(color);
 
         if (!connected) {
-            battPaint.setColor(Color.rgb(100, 110, 125));
-            fillPaint.setColor(Color.rgb(100, 110, 125));
-
             RectF body = new RectF(bx, by, bx + iconW - 4, by + iconH);
             canvas.drawRoundRect(body, 2, 2, battPaint);
             RectF cap = new RectF(bx + iconW - 4, by + 4, bx + iconW, by + iconH - 4);
@@ -268,16 +324,8 @@ public class WivrnLobbyView {
 
             battPaint.setStrokeWidth(3);
             canvas.drawLine(bx + 2, by + 2, bx + iconW - 6, by + iconH - 2, battPaint);
-
-            textSmallPaint.setColor(Color.rgb(100, 110, 125));
-            float textW = textSmallPaint.measureText(label);
-            canvas.drawText(label, bx - pad - textW, centerY + 7, textSmallPaint);
-            textSmallPaint.setColor(Color.rgb(160, 170, 185));
             return;
         }
-
-        battPaint.setColor(color);
-        fillPaint.setColor(color);
 
         RectF body = new RectF(bx, by, bx + iconW - 4, by + iconH);
         canvas.drawRoundRect(body, 2, 2, battPaint);
@@ -291,7 +339,7 @@ public class WivrnLobbyView {
         String pctText = pct + "%";
         textSmallPaint.setColor(color);
         float textW = textSmallPaint.measureText(pctText);
-        canvas.drawText(pctText, bx - pad - textW, centerY + 7, textSmallPaint);
+        canvas.drawText(pctText, bx - pad - textW - 28, centerY + 7, textSmallPaint);
         textSmallPaint.setColor(Color.rgb(160, 170, 185));
     }
 
@@ -305,11 +353,11 @@ public class WivrnLobbyView {
         float rightX = width - 25;
         renderWifiIcon(rightX, TOPBAR_HEIGHT / 2f);
         rightX -= 60;
-        renderBatteryIcon(rightX, TOPBAR_HEIGHT / 2f, rightBattery, rightConnected, "R");
-        rightX -= 110;
-        renderBatteryIcon(rightX, TOPBAR_HEIGHT / 2f, leftBattery, leftConnected, "L");
-        rightX -= 110;
-        renderBatteryIcon(rightX, TOPBAR_HEIGHT / 2f, hmdBattery, true, "HMD");
+        renderBatteryIcon(rightX, TOPBAR_HEIGHT / 2f, rightBattery, rightConnected, DEVICE_RIGHT);
+        rightX -= 130;
+        renderBatteryIcon(rightX, TOPBAR_HEIGHT / 2f, leftBattery, leftConnected, DEVICE_LEFT);
+        rightX -= 130;
+        renderBatteryIcon(rightX, TOPBAR_HEIGHT / 2f, hmdBattery, true, DEVICE_HMD);
     }
 
     public void startDiscovery() {
