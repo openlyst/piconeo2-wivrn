@@ -207,9 +207,17 @@ struct pico_client
 	std::optional<wivrn::to_headset::audio_stream_description> audio_desc;
 	std::unique_ptr<pico_audio> audio_handle;
 
-	// Haptics
+	// Haptics — one rumble slot per hand. The server can fire haptics faster
+	// than the Java poll can drain them, so we coalesce into a single pending
+	// pulse per controller rather than queuing.
+	struct rumble_slot
+	{
+		float amplitude = 0.f;
+		int duration_ms = 0;
+		bool active = false;
+	};
 	std::mutex haptics_mutex;
-	std::vector<wivrn::to_headset::haptics> pending_haptics;
+	rumble_slot rumble[2];
 
 	// Feature control
 	std::atomic<bool> microphone_enabled{false};
@@ -658,8 +666,36 @@ void pico_client::handle_packet(to_headset::packets & packet)
 		}
 		else if constexpr (std::is_same_v<T, to_headset::haptics>)
 		{
+			int hand = -1;
+			switch (p.id)
+			{
+				case device_id::LEFT_CONTROLLER_HAPTIC:
+				case device_id::LEFT_TRIGGER_HAPTIC:
+				case device_id::LEFT_THUMB_HAPTIC:
+					hand = 0;
+					break;
+				case device_id::RIGHT_CONTROLLER_HAPTIC:
+				case device_id::RIGHT_TRIGGER_HAPTIC:
+				case device_id::RIGHT_THUMB_HAPTIC:
+					hand = 1;
+					break;
+				default:
+					break;
+			}
+			if (hand < 0 || p.amplitude <= 0.f)
+				return;
+
+			int ms = static_cast<int>(p.duration.count() / 1000000);
+			if (ms < 10)   ms = 10;
+			if (ms > 1000) ms = 1000;
+
 			std::lock_guard lock(haptics_mutex);
-			pending_haptics.push_back(p);
+			auto & slot = rumble[hand];
+			if (!slot.active || p.amplitude > slot.amplitude)
+				slot.amplitude = p.amplitude;
+			if (!slot.active || ms > slot.duration_ms)
+				slot.duration_ms = ms;
+			slot.active = true;
 		}
 		else if constexpr (std::is_same_v<T, to_headset::timesync_query>)
 		{
@@ -1979,6 +2015,33 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnStopApp(JNI
 	{
 		spdlog::warn("Failed to stop application: {}", e.what());
 	}
+}
+
+JNIEXPORT jboolean JNICALL Java_org_meumeu_wivrn_MainActivity_nativeDrainRumble(
+	JNIEnv * env, jobject thiz, jlong ptr, jint hand, jfloatArray out)
+{
+	if (!g_client || hand < 0 || hand > 1 || !out)
+		return JNI_FALSE;
+	if (env->GetArrayLength(out) < 2)
+		return JNI_FALSE;
+
+	float amp;
+	int ms;
+	{
+		std::lock_guard lock(g_client->haptics_mutex);
+		auto & slot = g_client->rumble[hand];
+		if (!slot.active)
+			return JNI_FALSE;
+		amp = slot.amplitude;
+		ms = slot.duration_ms;
+		slot.active = false;
+		slot.amplitude = 0.f;
+		slot.duration_ms = 0;
+	}
+
+	float vals[2] = {amp, static_cast<float>(ms)};
+	env->SetFloatArrayRegion(out, 0, 2, vals);
+	return JNI_TRUE;
 }
 
 } // extern "C"
