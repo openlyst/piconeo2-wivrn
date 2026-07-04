@@ -250,13 +250,21 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnFrameEnd(JN
 
 	g_stutter.on_frame_end();
 
+	auto left = g_client->render_frames[0];
+	auto right = g_client->render_frames[1];
+
+	std::shared_ptr<pico_decoded_frame> pose_source;
+	if (left && right)
+		pose_source = (left->frame_index <= right->frame_index) ? left : right;
+	else
+		pose_source = left ? left : right;
+
 	for (int eye = 0; eye < 2; eye++)
 	{
-		auto decoded = g_client->render_frames[eye];
-		if (!decoded || !decoded->valid)
+		if (!pose_source || !pose_source->valid)
 			continue;
 
-		XrPosef pose = decoded->server_pose[eye];
+		XrPosef pose = pose_source->server_pose[eye];
 
 		float n2 = pose.orientation.x * pose.orientation.x
 		         + pose.orientation.y * pose.orientation.y
