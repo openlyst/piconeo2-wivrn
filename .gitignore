@@ -25,3 +25,4 @@ compile_commands.json
 !libopenxr_loader.so
 .alvr-ref/
 .wivrn-ref/
+tools/keyframe_tool.html
