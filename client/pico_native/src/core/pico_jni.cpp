@@ -1,4 +1,5 @@
 #include "pico_client.h"
+#include "pico_stutter.h"
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/android_sink.h>
@@ -263,6 +264,11 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnOnFrameBegi
 		g_client->render_frames[0] = g_client->latest_decoded_frames[0];
 		g_client->render_frames[1] = g_client->latest_decoded_frames[1];
 	}
+
+	uint64_t left_fi = g_client->render_frames[0] ? g_client->render_frames[0]->frame_index : 0;
+	uint64_t right_fi = g_client->render_frames[1] ? g_client->render_frames[1]->frame_index : 0;
+	g_stutter.on_frame_begin(left_fi, right_fi);
+	g_stutter.log_summary();
 
 	if (leftOrient && leftPos)
 	{

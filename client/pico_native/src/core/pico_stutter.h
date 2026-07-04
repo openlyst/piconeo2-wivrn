@@ -1,0 +1,247 @@
+#pragma once
+
+#include <spdlog/spdlog.h>
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <deque>
+#include <mutex>
+#include <vector>
+
+struct stutter_event
+{
+	int64_t timestamp_ns;
+	const char * stage;
+	const char * reason;
+	int64_t value_ns;
+	uint64_t frame_index;
+};
+
+class stutter_detector
+{
+public:
+	static constexpr int64_t TARGET_FRAME_NS = 13'888'888; // 72fps
+	static constexpr int64_t STUTTER_THRESHOLD_NS = 20'000'000; // 20ms = missed deadline
+	static constexpr int64_t STALE_FRAME_THRESHOLD_NS = 40'000'000; // 40ms old = stale
+	static constexpr int64_t DECODE_SLOW_THRESHOLD_NS = 15'000'000; // 15ms decode = slow
+	static constexpr int64_t ASSEMBLY_SLOW_THRESHOLD_NS = 10'000'000; // 10ms shard assembly = slow
+	static constexpr size_t HISTORY_SIZE = 120;
+
+private:
+	struct frame_record
+	{
+		uint64_t frame_index = 0;
+		int64_t first_shard_ns = 0;
+		int64_t last_shard_ns = 0;
+		int64_t pushed_to_decoder_ns = 0;
+		int64_t decoded_ns = 0;
+		int64_t picked_for_render_ns = 0;
+		int stream = -1;
+	};
+
+	std::mutex records_mutex;
+	std::deque<frame_record> records;
+
+	std::mutex frame_begin_mutex;
+	int64_t last_frame_begin_ns = 0;
+	uint64_t last_rendered_frame_index[2] = {0, 0};
+	int64_t last_frame_begin_intervals[HISTORY_SIZE]{};
+	size_t interval_idx = 0;
+	size_t interval_count = 0;
+
+	std::atomic<int> stutter_count{0};
+	std::atomic<int> total_frames{0};
+
+	int64_t now_ns()
+	{
+		struct timespec ts;
+		clock_gettime(CLOCK_MONOTONIC, &ts);
+		return (int64_t)ts.tv_sec * 1'000'000'000LL + ts.tv_nsec;
+	}
+
+	void log_stutter(const char * stage, const char * reason, int64_t value_ns, uint64_t frame_index)
+	{
+		stutter_count.fetch_add(1, std::memory_order_relaxed);
+		spdlog::warn("[STUTTER] stage={} reason={} value={:.1f}ms frame={}",
+			stage, reason, value_ns / 1'000'000.0f, frame_index);
+	}
+
+	int64_t median_interval()
+	{
+		if (interval_count == 0)
+			return TARGET_FRAME_NS;
+		std::lock_guard lock(frame_begin_mutex);
+		std::vector<int64_t> sorted(intervals, intervals + interval_count);
+		std::sort(sorted.begin(), sorted.end());
+		return sorted[sorted.size() / 2];
+	}
+
+	int64_t intervals[HISTORY_SIZE]{};
+
+public:
+	void on_shard_arrived(uint64_t frame_index, int stream, bool is_first, bool is_last)
+	{
+		int64_t t = now_ns();
+		std::lock_guard lock(records_mutex);
+
+		frame_record * rec = nullptr;
+		for (auto & r : records)
+		{
+			if (r.frame_index == frame_index && r.stream == stream)
+			{
+				rec = &r;
+				break;
+			}
+		}
+		if (!rec)
+		{
+			records.push_back({frame_index, t, t, 0, 0, 0, stream});
+			rec = &records.back();
+		}
+		else
+		{
+			rec->last_shard_ns = t;
+		}
+
+		if (is_last)
+		{
+			int64_t assembly_time = rec->last_shard_ns - rec->first_shard_ns;
+			if (assembly_time > ASSEMBLY_SLOW_THRESHOLD_NS)
+			{
+				log_stutter("network", "shard assembly slow", assembly_time, frame_index);
+			}
+		}
+
+		while (records.size() > 64)
+			records.pop_front();
+	}
+
+	void on_pushed_to_decoder(uint64_t frame_index, int stream)
+	{
+		int64_t t = now_ns();
+		std::lock_guard lock(records_mutex);
+		for (auto & r : records)
+		{
+			if (r.frame_index == frame_index && r.stream == stream)
+			{
+				r.pushed_to_decoder_ns = t;
+				if (r.first_shard_ns > 0)
+				{
+					int64_t wait = t - r.last_shard_ns;
+					if (wait > 5'000'000)
+						log_stutter("queue", "frame waited in queue before decoder", wait, frame_index);
+				}
+				return;
+			}
+		}
+	}
+
+	void on_frame_decoded(uint64_t frame_index, int stream)
+	{
+		int64_t t = now_ns();
+		std::lock_guard lock(records_mutex);
+		for (auto & r : records)
+		{
+			if (r.frame_index == frame_index && r.stream == stream)
+			{
+				r.decoded_ns = t;
+				if (r.pushed_to_decoder_ns > 0)
+				{
+					int64_t decode_time = t - r.pushed_to_decoder_ns;
+					if (decode_time > DECODE_SLOW_THRESHOLD_NS)
+						log_stutter("decoder", "decode took too long", decode_time, frame_index);
+				}
+				return;
+			}
+		}
+	}
+
+	void on_frame_begin(uint64_t left_frame_index, uint64_t right_frame_index)
+	{
+		int64_t t = now_ns();
+		total_frames.fetch_add(1, std::memory_order_relaxed);
+
+		int64_t interval = 0;
+		int64_t median = TARGET_FRAME_NS;
+		{
+			std::lock_guard lock(frame_begin_mutex);
+			if (last_frame_begin_ns > 0)
+			{
+				interval = t - last_frame_begin_ns;
+				intervals[interval_idx % HISTORY_SIZE] = interval;
+				interval_idx++;
+				if (interval_count < HISTORY_SIZE)
+					interval_count++;
+			}
+			last_frame_begin_ns = t;
+
+			if (interval_count >= 10)
+			{
+				std::vector<int64_t> sorted(intervals, intervals + interval_count);
+				std::sort(sorted.begin(), sorted.end());
+				median = sorted[sorted.size() / 2];
+			}
+		}
+
+		if (interval > STUTTER_THRESHOLD_NS && median > 0 && median < STUTTER_THRESHOLD_NS)
+		{
+			log_stutter("render", "frame begin interval exceeded threshold", interval, left_frame_index);
+		}
+
+		if (interval > 0 && median > 0)
+		{
+			int64_t jitter = interval - median;
+			if (std::abs(jitter) > 6'000'000 && interval > median)
+			{
+				log_stutter("render", "frame interval jitter (vs median)", jitter, left_frame_index);
+			}
+		}
+
+		for (int eye = 0; eye < 2; eye++)
+		{
+			uint64_t fi = (eye == 0) ? left_frame_index : right_frame_index;
+			if (fi == last_rendered_frame_index[eye] && fi != 0)
+			{
+				log_stutter("display", "same decoded frame repeated (no new frame arrived)", interval, fi);
+			}
+			last_rendered_frame_index[eye] = fi;
+
+			int64_t frame_age = 0;
+			{
+				std::lock_guard lock(records_mutex);
+				for (auto & r : records)
+				{
+					if (r.frame_index == fi && r.decoded_ns > 0)
+					{
+						frame_age = t - r.decoded_ns;
+						r.picked_for_render_ns = t;
+						break;
+					}
+				}
+			}
+
+			if (frame_age > STALE_FRAME_THRESHOLD_NS)
+			{
+				log_stutter("display", "displayed frame is stale", frame_age, fi);
+			}
+		}
+	}
+
+	void on_frame_end()
+	{
+		// could track frame end vs begin for total render time
+	}
+
+	void log_summary()
+	{
+		int total = total_frames.load(std::memory_order_relaxed);
+		int stutters = stutter_count.load(std::memory_order_relaxed);
+		if (total > 0 && total % 300 == 0)
+		{
+			spdlog::warn("[STUTTER SUMMARY] frames={} stutters={} rate={:.1f}%",
+				total, stutters, 100.0f * stutters / total);
+		}
+	}
+};
+
+extern stutter_detector g_stutter;

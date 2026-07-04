@@ -1,4 +1,5 @@
 #include "pico_client.h"
+#include "pico_stutter.h"
 
 #include <spdlog/spdlog.h>
 #include <GLES3/gl3.h>
@@ -246,6 +247,8 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnFrameEnd(JN
 
 	if (!g_client->streaming.load() || g_client->stream_ui_visible.load())
 		return;
+
+	g_stutter.on_frame_end();
 
 	for (int eye = 0; eye < 2; eye++)
 	{
