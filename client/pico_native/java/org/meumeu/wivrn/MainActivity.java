@@ -425,6 +425,12 @@ public class MainActivity extends VRActivity implements RenderInterface {
         }
     }
 
+    public void onStreamStats(int fps, int latencyMs, int bandwidthRxBps, int bandwidthTxBps, int bitrateMbps) {
+        if (lobbyView != null) {
+            lobbyView.updateStreamStats(fps, latencyMs, bandwidthRxBps, bandwidthTxBps, bitrateMbps);
+        }
+    }
+
     public void requestPinEntry() {
         if (lobbyView != null) {
             lobbyView.setConnectionState(WivrnLobbyView.STATE_PIN_ENTRY, "");

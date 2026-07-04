@@ -636,13 +636,12 @@ public class WivrnLobbyView {
         }
     }
 
-    public void updateStreamStats(int fps, int latencyMs, float bandwidthRx, float bandwidthTx, int cpuMs, int gpuMs) {
+    public void updateStreamStats(int fps, int latencyMs, int bandwidthRxBps, int bandwidthTxBps, int bitrateMbps) {
         this.streamFps = fps;
         this.streamLatencyMs = latencyMs;
-        this.streamBandwidthRx = bandwidthRx;
-        this.streamBandwidthTx = bandwidthTx;
-        this.streamCpuMs = cpuMs;
-        this.streamGpuMs = gpuMs;
+        this.streamBandwidthRx = bandwidthRxBps;
+        this.streamBandwidthTx = bandwidthTxBps;
+        this.streamBitrateMbps = bitrateMbps;
         if (connectionState == STATE_CONNECTED) {
             markDirty();
         }
@@ -1363,20 +1362,46 @@ public class WivrnLobbyView {
         String[][] stats = {
             {"FPS", streamFps > 0 ? streamFps + " fps" : "--"},
             {"Motion to Photon Latency", streamLatencyMs > 0 ? streamLatencyMs + " ms" : "--"},
-            {"Download", String.format("%.1f Mbit/s", streamBandwidthRx * 8e-6f)},
-            {"Upload", String.format("%.1f Mbit/s", streamBandwidthTx * 8e-6f)},
-            {"CPU Time", streamCpuMs > 0 ? streamCpuMs + " ms" : "--"},
-            {"GPU Time", streamGpuMs > 0 ? streamGpuMs + " ms" : "--"},
+            {"Download", String.format("%.1f Mbit/s", streamBandwidthRx * 1e-6f)},
+            {"Upload", String.format("%.1f Mbit/s", streamBandwidthTx * 1e-6f)},
             {"Bitrate", streamBitrateMbps + " Mbit/s"},
         };
 
+        float labelW = 320;
+        float valueX = x + labelW;
+
         for (String[] stat : stats) {
+            textSmallPaint.setColor(Color.rgb(140, 150, 165));
             canvas.drawText(stat[0], x, y, textSmallPaint);
-            canvas.drawText(stat[1], x + 350, y, textPaint);
-            y += 45;
+            textPaint.setColor(Color.rgb(230, 235, 245));
+            canvas.drawText(stat[1], valueX, y, textPaint);
+            y += 42;
         }
 
+        textSmallPaint.setColor(Color.rgb(140, 150, 165));
+
         y += 20;
+        Paint sepPaint = new Paint();
+        sepPaint.setColor(Color.rgb(50, 60, 75));
+        canvas.drawRect(x, y, x + w, y + 1, sepPaint);
+        y += 20;
+
+        canvas.drawText("Resolution", x, y, textSmallPaint);
+        textPaint.setColor(Color.rgb(230, 235, 245));
+        canvas.drawText(streamResolutionScale + "%", valueX, y, textPaint);
+        y += 42;
+
+        canvas.drawText("Microphone", x, y, textSmallPaint);
+        textPaint.setColor(streamMicEnabled ? Color.rgb(120, 200, 120) : Color.rgb(200, 120, 120));
+        canvas.drawText(streamMicEnabled ? "Enabled" : "Disabled", valueX, y, textPaint);
+        y += 42;
+
+        canvas.drawText("High Power Mode", x, y, textSmallPaint);
+        textPaint.setColor(streamHighPower ? Color.rgb(120, 200, 120) : Color.rgb(200, 120, 120));
+        canvas.drawText(streamHighPower ? "Enabled" : "Disabled", valueX, y, textPaint);
+        y += 42;
+
+        y += 30;
         textDimPaint.setColor(Color.rgb(100, 110, 125));
         canvas.drawText("Press both thumbsticks to toggle this overlay", x, y, textDimPaint);
         textDimPaint.setColor(Color.rgb(100, 110, 125));

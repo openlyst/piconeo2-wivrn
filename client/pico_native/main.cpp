@@ -128,6 +128,17 @@ struct pico_client
 	std::atomic<bool> stream_ui_visible{false};
 	bool prev_thumbstick_click[2] = {false, false};
 
+	// Stats tracking
+	uint64_t stats_bytes_rx = 0;
+	uint64_t stats_bytes_tx = 0;
+	int64_t stats_last_time = 0;
+	int stats_frame_count = 0;
+	int stats_fps = 0;
+	float stats_bandwidth_rx = 0;
+	float stats_bandwidth_tx = 0;
+	int64_t stats_last_latency = 0;
+	int64_t stats_last_encode_begin = 0;
+
 	// Pico Neo 2: 101 deg FOV, 50.50 deg per side (https://vr-compare.com/headset/piconeo2)
 	XrFovf eye_fov[2]{
 		XrFovf{-0.8814f, 0.8814f, 0.8814f, -0.8814f},
@@ -404,6 +415,34 @@ struct pico_client
 	void handle_video_shard(to_headset::video_stream_data_shard && shard);
 	void send_feedback(uint64_t frame_index);
 
+	void notify_stream_stats(int fps, int latency_ms, float bandwidth_rx, float bandwidth_tx, int bitrate_mbps)
+	{
+		if (!vm || !activity)
+			return;
+
+		JNIEnv * env = nullptr;
+		bool attached = false;
+		if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
+		{
+			if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK)
+				attached = true;
+		}
+
+		if (env && activity)
+		{
+			jclass clazz = env->GetObjectClass(activity);
+			jmethodID method = env->GetMethodID(clazz, "onStreamStats", "(IIIII)V");
+			if (method)
+			{
+				env->CallVoidMethod(activity, method, fps, latency_ms, (int)bandwidth_rx, (int)bandwidth_tx, bitrate_mbps);
+			}
+			env->DeleteLocalRef(clazz);
+		}
+
+		if (attached)
+			vm->DetachCurrentThread();
+	}
+
 	int64_t get_timestamp_ns()
 	{
 		struct timespec ts;
@@ -463,6 +502,13 @@ void pico_client::handle_video_shard(to_headset::video_stream_data_shard && shar
 	streaming = true;
 	static int shard_count = 0;
 	++shard_count;
+
+	if (shard.timing_info)
+	{
+		stats_frame_count++;
+		stats_last_encode_begin = shard.timing_info->encode_begin;
+	}
+
 	bool has_timing = shard.timing_info.has_value();
 	if (shard_count <= 20 || shard_count % 100 == 0)
 		spdlog::warn("Video shard #{}: stream={} frame={} shard_idx={} payload={} timing={}",
@@ -1491,6 +1537,51 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 		}
 		g_client->prev_thumbstick_click[0] = cs[0].thumbstick_click;
 		g_client->prev_thumbstick_click[1] = cs[1].thumbstick_click;
+
+		// Compute and send stats every 500ms
+		int64_t now_ns = g_client->get_timestamp_ns();
+		if (g_client->stats_last_time == 0)
+			g_client->stats_last_time = now_ns;
+
+		int64_t elapsed = now_ns - g_client->stats_last_time;
+		if (elapsed >= 500000000LL)
+		{
+			float dt = elapsed * 1e-9f;
+			int fps = (int)(g_client->stats_frame_count / dt);
+			g_client->stats_frame_count = 0;
+			g_client->stats_last_time = now_ns;
+
+			uint64_t rx = g_client->session ? g_client->session->bytes_received() : 0;
+			uint64_t tx = g_client->session ? g_client->session->bytes_sent() : 0;
+			float bw_rx = (float)(rx - g_client->stats_bytes_rx) / dt;
+			float bw_tx = (float)(tx - g_client->stats_bytes_tx) / dt;
+			g_client->stats_bytes_rx = rx;
+			g_client->stats_bytes_tx = tx;
+
+			g_client->stats_bandwidth_rx = 0.8f * g_client->stats_bandwidth_rx + 0.2f * bw_rx;
+			g_client->stats_bandwidth_tx = 0.8f * g_client->stats_bandwidth_tx + 0.2f * bw_tx;
+
+			int latency_ms = 0;
+			if (g_client->stats_last_encode_begin > 0)
+			{
+				int64_t latency = now_ns - g_client->stats_last_encode_begin;
+				if (latency > 0 && latency < 1000000000LL)
+					latency_ms = (int)(latency / 1000000LL);
+			}
+
+			int bitrate_mbps = 20;
+			{
+				std::lock_guard lock(g_client->tracking_mutex);
+				if (g_client->tracking_control_received)
+				{
+					// could extract more info from tracking_control if needed
+				}
+			}
+
+			g_client->notify_stream_stats(fps, latency_ms,
+				g_client->stats_bandwidth_rx * 8, g_client->stats_bandwidth_tx * 8,
+				bitrate_mbps);
+		}
 	}
 
 	if (show_lobby)
