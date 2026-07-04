@@ -698,12 +698,9 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 
 		if (last_hit[h].valid)
 		{
-			// Convert u,v from [-1,1] to pixel coordinates (0,1400) x (0,900)
-			// Note: v is flipped because texture V=0 is bottom
 			float px = (u + 1.0f) * 0.5f * 1400.0f;
 			float py = (1.0f - (v + 1.0f) * 0.5f) * 900.0f;
 
-			// Call Java touch handler via JNI (done in main.cpp)
 			lobby_touch_x[h] = px;
 			lobby_touch_y[h] = py;
 			lobby_touch_down[h] = trigger_pressed;
@@ -711,6 +708,7 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 		}
 		else
 		{
+			lobby_touch_x[h] = -1;
 			lobby_touch_down[h] = false;
 			lobby_touch_pressed[h] = false;
 		}

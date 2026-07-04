@@ -1303,7 +1303,7 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 		{
 			for (int h = 0; h < 2; h++)
 			{
-				if (g_client->lobby.lobby_touch_down[h] || g_client->lobby.lobby_touch_pressed[h])
+				if (g_client->lobby.lobby_touch_x[h] >= 0)
 				{
 					JNIEnv * env2 = nullptr;
 					bool attached = false;
