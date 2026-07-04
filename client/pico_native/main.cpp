@@ -125,6 +125,8 @@ struct pico_client
 	int eye_height = 1664;
 	bool gl_initialized = false;
 	std::atomic<bool> streaming{false};
+	std::atomic<bool> stream_ui_visible{false};
+	bool prev_thumbstick_click[2] = {false, false};
 
 	// Pico Neo 2: 101 deg FOV, 50.50 deg per side (https://vr-compare.com/headset/piconeo2)
 	XrFovf eye_fov[2]{
@@ -1430,12 +1432,63 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 		ext_tex = g_client->eye_textures[eye];
 	}
 
-	if (ext_tex == 0 || !g_client->streaming.load())
+	bool show_lobby = (ext_tex == 0 || !g_client->streaming.load() || g_client->stream_ui_visible.load());
+
+	if (eye == 0 && g_client->streaming.load())
+	{
+		controller_sample cs[2];
+		g_client->tracker.get_controllers(cs);
+
+		bool both_click = cs[0].connected && cs[1].connected &&
+			cs[0].thumbstick_click && cs[1].thumbstick_click;
+		bool prev_both = g_client->prev_thumbstick_click[0] && g_client->prev_thumbstick_click[1];
+
+		static int ts_log_count = 0;
+		if (++ts_log_count % 60 == 0)
+		{
+			spdlog::info("Thumbstick: L connected={} click={} R connected={} click={} both={} prev_both={}",
+				cs[0].connected, cs[0].thumbstick_click,
+				cs[1].connected, cs[1].thumbstick_click,
+				both_click, prev_both);
+		}
+
+		if (both_click && !prev_both)
+		{
+			g_client->stream_ui_visible = !g_client->stream_ui_visible;
+			spdlog::info("Stream UI toggled: {}", g_client->stream_ui_visible.load());
+
+			if (g_client->vm && g_client->activity)
+			{
+				JNIEnv * env2 = nullptr;
+				bool attached = false;
+				if (g_client->vm->GetEnv((void **)&env2, JNI_VERSION_1_6) != JNI_OK)
+				{
+					if (g_client->vm->AttachCurrentThread(&env2, nullptr) == JNI_OK)
+						attached = true;
+				}
+				if (env2 && g_client->activity)
+				{
+					jclass clazz = env2->GetObjectClass(g_client->activity);
+					jmethodID method = env2->GetMethodID(clazz, "onLobbyTouch", "(FFZZF)V");
+					if (method)
+						env2->CallVoidMethod(g_client->activity, method, -1.0f, -1.0f, false, false, 0.0f);
+					env2->DeleteLocalRef(clazz);
+				}
+				if (attached)
+					g_client->vm->DetachCurrentThread();
+			}
+		}
+		g_client->prev_thumbstick_click[0] = cs[0].thumbstick_click;
+		g_client->prev_thumbstick_click[1] = cs[1].thumbstick_click;
+	}
+
+	if (show_lobby)
 	{
 		float h_orient[4], h_pos[3];
 		g_client->tracker.get_head_pose(h_orient, h_pos);
 		controller_sample cs[2];
 		g_client->tracker.get_controllers(cs);
+
 		g_client->lobby.draw(eye, h_orient, h_pos, cs, g_client->eye_fov[eye], 0.064f);
 
 		if (eye == 0 && g_client->vm && g_client->activity)
