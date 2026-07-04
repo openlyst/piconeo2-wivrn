@@ -20,7 +20,6 @@ constexpr float k_rot_offset_y_deg = -34.0f;
 constexpr float k_grip_side_mm = 0.0f;
 constexpr float k_grip_up_mm = 12.5f;
 constexpr float k_grip_back_mm = 40.0f;
-constexpr float k_predict_factor = 0.4f;
 constexpr float k_rot_swing = 1.0f;
 
 constexpr float k_head_vel_tau = 0.66f;
@@ -98,10 +97,20 @@ void pico_native_tracker::stop()
 
 void pico_native_tracker::set_head_pose(const float orient[4], const float pos[3])
 {
+	uint64_t ts = (uint64_t)now_ns();
+	neo2::quat hq = neo2::normalize_quat({orient[0], orient[1], orient[2], orient[3]});
+
 	std::lock_guard lock(state_mutex);
 	std::memcpy(head_orient, orient, sizeof(head_orient));
 	std::memcpy(head_pos, pos, sizeof(head_pos));
 	head_valid = true;
+
+	step_head_filter(pos, hq, ts);
+}
+
+void pico_native_tracker::set_prediction_ns(int64_t ns)
+{
+	prediction_ns.store(ns);
 }
 
 void pico_native_tracker::get_head_pose(float out_orient[4], float out_pos[3])
@@ -270,9 +279,6 @@ void pico_native_tracker::run()
 			continue;
 		}
 
-		neo2::quat hq = neo2::normalize_quat({h_orient[0], h_orient[1], h_orient[2], h_orient[3]});
-		step_head_filter(h_pos, hq, ts);
-
 		controller_sample cs[2];
 		{
 			std::lock_guard lock(state_mutex);
@@ -343,7 +349,7 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 	from_headset::tracking pkt{};
 
 	pkt.production_timestamp = headset_ns;
-	pkt.timestamp = to_xr_time(headset_ns);
+	pkt.timestamp = to_xr_time(headset_ns + prediction_ns.load());
 	pkt.view_flags = XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_POSITION_VALID_BIT;
 	pkt.state_flags = 0;
 
@@ -369,9 +375,6 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 		pkt.views[eye].fov = eye_fov[eye];
 	}
 
-	float p = k_predict_factor;
-	if (p < 0.0f) p = 0.0f; else if (p > 1.0f) p = 1.0f;
-
 	from_headset::tracking::pose head_tp{};
 	head_tp.pose = head_pose;
 	head_tp.device = device_id::HEAD;
@@ -382,9 +385,9 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 	                from_headset::tracking::linear_velocity_valid |
 	                from_headset::tracking::angular_velocity_valid;
 	head_tp.linear_velocity = {
-		head_lin_vel[0] * p,
-		head_lin_vel[1] * p,
-		head_lin_vel[2] * p};
+		head_lin_vel[0],
+		head_lin_vel[1],
+		head_lin_vel[2]};
 	head_tp.angular_velocity = {
 		head_ang_vel[0],
 		head_ang_vel[1],

@@ -426,6 +426,17 @@ void pico_client::handle_packet(to_headset::packets & packet)
 			tracking_control_received = true;
 			spdlog::info("Received tracking control: {} samples, m2p={}ns",
 				p.pattern.size(), p.motions_to_photons);
+
+			int64_t head_pred = 0;
+			for (const auto & s : p.pattern)
+			{
+				if (s.device == device_id::HEAD)
+				{
+					head_pred = std::max(head_pred, s.prediction_ns);
+				}
+			}
+			tracker.set_prediction_ns(head_pred);
+			spdlog::info("Head prediction: {}ns", head_pred);
 		}
 		else if constexpr (std::is_same_v<T, to_headset::haptics>)
 		{

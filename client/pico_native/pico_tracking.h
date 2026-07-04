@@ -90,6 +90,7 @@ public:
 	void set_head_pose(const float orient[4], const float pos[3]);
 	void get_head_pose(float out_orient[4], float out_pos[3]);
 	void get_controllers(controller_sample out[2]);
+	void set_prediction_ns(int64_t ns);
 	void update_controller(int hand, const float orient[4], const float pos[3],
 	                       int trigger, const int touch[2], int battery,
 	                       bool a, bool b, bool grip, bool click, bool menu);
@@ -107,13 +108,16 @@ private:
 
 	controller_sample controllers[2];
 
-	// Velocity filter state (updated at 300Hz in run(), read in transmit_tracking)
+	// Velocity filter state (updated in set_head_pose on new data)
 	float head_lin_vel[3]{0, 0, 0};
 	float head_ang_vel[3]{0, 0, 0};
 	float head_prev_pos[3]{0, 0, 0};
 	neo2::quat head_prev_orient{0, 0, 0, 1};
 	uint64_t head_prev_ts = 0;
 	bool head_filter_init = false;
+
+	// Prediction offset from server's tracking_control
+	std::atomic<int64_t> prediction_ns{0};
 
 	float ctrl_lin_vel[2][3]{{0, 0, 0}, {0, 0, 0}};
 	float ctrl_prev_pos[2][3]{{0, 0, 0}, {0, 0, 0}};
