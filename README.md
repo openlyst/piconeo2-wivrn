@@ -25,6 +25,7 @@ This project has most everything created however with same issues.
 #### Features
 - [ ] Create a gitlab builder
 - [ ] Implament audio
+- [ ] Implament controller haptics 
 
 ### Getting the Pico SDK
 
