@@ -143,6 +143,9 @@ add_library(wivrn-neo2 MODULE)
 
 target_sources(wivrn-neo2 PRIVATE
     main.cpp
+    pico_client.cpp
+    pico_jni.cpp
+    pico_render.cpp
     wivrn_client_pico.cpp
     pico_decoder.cpp
     pico_audio.cpp
