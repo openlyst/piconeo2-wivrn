@@ -410,6 +410,12 @@ public class MainActivity extends VRActivity implements RenderInterface {
         }
     }
 
+    public void onApplicationIcon(String appId, byte[] pngData) {
+        if (lobbyView != null) {
+            lobbyView.updateAppIcon(appId, pngData);
+        }
+    }
+
     public void onRunningApplications(String[] names) {
         if (lobbyView != null) {
             lobbyView.updateRunningApps(names);

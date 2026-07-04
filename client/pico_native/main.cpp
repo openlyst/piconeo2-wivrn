@@ -311,6 +311,39 @@ struct pico_client
 			vm->DetachCurrentThread();
 	}
 
+	void notify_application_icon(const std::string & app_id, const std::vector<std::byte> & png_data)
+	{
+		if (!vm || !activity)
+			return;
+
+		JNIEnv * env = nullptr;
+		bool attached = false;
+		if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
+		{
+			if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK)
+				attached = true;
+		}
+
+		if (env && activity)
+		{
+			jclass clazz = env->GetObjectClass(activity);
+			jmethodID method = env->GetMethodID(clazz, "onApplicationIcon", "(Ljava/lang/String;[B)V");
+			if (method)
+			{
+				jstring jid = env->NewStringUTF(app_id.c_str());
+				jbyteArray jdata = env->NewByteArray(png_data.size());
+				env->SetByteArrayRegion(jdata, 0, png_data.size(), reinterpret_cast<const jbyte *>(png_data.data()));
+				env->CallVoidMethod(activity, method, jid, jdata);
+				env->DeleteLocalRef(jid);
+				env->DeleteLocalRef(jdata);
+			}
+			env->DeleteLocalRef(clazz);
+		}
+
+		if (attached)
+			vm->DetachCurrentThread();
+	}
+
 	void notify_running_applications(const std::vector<std::string> & names)
 	{
 		if (!vm || !activity)
@@ -616,9 +649,10 @@ void pico_client::handle_packet(to_headset::packets & packet)
 				apps.emplace_back(app.id, app.name);
 			notify_application_list(apps);
 		}
-		else if constexpr (std::is_same_v<T, to_headset::application_icon>)
+	else if constexpr (std::is_same_v<T, to_headset::application_icon>)
 		{
 			spdlog::info("Received application icon for id={} ({} bytes)", p.id, p.image.size());
+			notify_application_icon(p.id, p.image);
 		}
 		else if constexpr (std::is_same_v<T, to_headset::running_applications>)
 		{

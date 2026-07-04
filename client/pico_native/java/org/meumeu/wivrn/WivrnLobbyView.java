@@ -3,6 +3,7 @@ package org.meumeu.wivrn;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -55,6 +56,7 @@ public class WivrnLobbyView {
     private String[] runningApps = new String[0];
     private String[] availableAppIds = new String[0];
     private String[] availableAppNames = new String[0];
+    private Map<String, Bitmap> appIcons = new HashMap<>();
     private boolean appListRequested = false;
     private int streamBitrateSetting = 50;
     private int streamResolutionScale = 100;
@@ -646,8 +648,26 @@ public class WivrnLobbyView {
         this.availableAppIds = ids != null ? ids : new String[0];
         this.availableAppNames = names != null ? names : new String[0];
         appListRequested = false;
+        for (String id : this.availableAppIds) {
+            if (!appIcons.containsKey(id)) {
+                appIcons.put(id, null);
+            }
+        }
+        appIcons.keySet().retainAll(java.util.Arrays.asList(this.availableAppIds));
         if (connectionState == STATE_CONNECTED) {
             markDirty();
+        }
+    }
+
+    public void updateAppIcon(String appId, byte[] pngData) {
+        if (pngData != null && pngData.length > 0) {
+            Bitmap icon = BitmapFactory.decodeByteArray(pngData, 0, pngData.length);
+            if (icon != null) {
+                appIcons.put(appId, icon);
+                if (connectionState == STATE_CONNECTED) {
+                    markDirty();
+                }
+            }
         }
     }
 
@@ -1220,18 +1240,30 @@ public class WivrnLobbyView {
             cardPaint.setColor(hover ? Color.rgb(45, 60, 85) : cardBgPaint.getColor());
             canvas.drawRoundRect(card, 12, 12, cardPaint);
 
-            float iconBoxSize = 70;
-            RectF iconBox = new RectF(cx + 15, cy + (iconH - iconBoxSize) / 2, cx + 15 + iconBoxSize, cy + (iconH + iconBoxSize) / 2);
+            float iconBoxSize = 80;
+            float iconX = cx + 15;
+            float iconY = cy + (iconH - iconBoxSize) / 2;
+            RectF iconBox = new RectF(iconX, iconY, iconX + iconBoxSize, iconY + iconBoxSize);
             Paint iconBgPaint = new Paint();
             iconBgPaint.setAntiAlias(true);
             iconBgPaint.setColor(Color.rgb(50, 60, 75));
             canvas.drawRoundRect(iconBox, 8, 8, iconBgPaint);
 
-            textPaint.setColor(Color.rgb(180, 200, 230));
-            textPaint.setTextSize(20);
-            canvas.drawText("App", iconBox.centerX() - 17, iconBox.centerY() + 7, textPaint);
-            textPaint.setTextSize(28);
-            textPaint.setColor(Color.rgb(230, 235, 245));
+            Bitmap icon = (i < availableAppIds.length) ? appIcons.get(availableAppIds[i]) : null;
+            if (icon != null) {
+                Rect src = new Rect(0, 0, icon.getWidth(), icon.getHeight());
+                RectF dst = new RectF(iconX + 4, iconY + 4, iconX + iconBoxSize - 4, iconY + iconBoxSize - 4);
+                Paint iconPaint = new Paint();
+                iconPaint.setAntiAlias(true);
+                iconPaint.setFilterBitmap(true);
+                canvas.drawBitmap(icon, src, dst, iconPaint);
+            } else {
+                textPaint.setColor(Color.rgb(180, 200, 230));
+                textPaint.setTextSize(20);
+                canvas.drawText("App", iconBox.centerX() - 17, iconBox.centerY() + 7, textPaint);
+                textPaint.setTextSize(28);
+                textPaint.setColor(Color.rgb(230, 235, 245));
+            }
 
             float textX = cx + 100;
             float maxTextW = iconW - 110;
