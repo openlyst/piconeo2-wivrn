@@ -147,6 +147,8 @@ target_sources(wivrn-neo2 PRIVATE
     pico_decoder.cpp
     pico_audio.cpp
     pico_blit.cpp
+    pico_tracking.cpp
+    pico_lobby.cpp
 )
 
 target_include_directories(wivrn-neo2 PRIVATE

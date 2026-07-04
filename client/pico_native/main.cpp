@@ -21,6 +21,8 @@
 #include "pico_decoder.h"
 #include "pico_audio.h"
 #include "pico_blit.h"
+#include "pico_tracking.h"
+#include "pico_lobby.h"
 #include "crypto.h"
 #include "protocol_version.h"
 #include "wivrn_packets.h"
@@ -46,14 +48,42 @@
 #include <mutex>
 #include <netdb.h>
 #include <optional>
+#include <sys/stat.h>
+#include <sys/socket.h>
+#include <netinet/tcp.h>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <cmath>
 #include <unistd.h>
 #include <vector>
 
 using namespace std::chrono_literals;
 using namespace wivrn;
+
+extern "C" {
+bool Pvr_SetTrackingOriginType(int trackingOriginType);
+void PVR_CameraEndFrame(unsigned int eye, unsigned int texId);
+struct PvrPoseBlk { float v[22]; };
+void PVR_ChangeRenderPose(unsigned int eye, unsigned int pad, struct PvrPoseBlk blk);
+void Pvr_SetAsyncTimeWarp(unsigned char enable);
+void PVR_TimeWarpEvent(unsigned int eye);
+void *GetRenderEventFunc();
+int   Pvr_Init(int index);
+int   Pvr_StartSensor(int index);
+int   Pvr_Enable6DofModule(bool enable);
+int   InitSensor();
+void  Pvr_SetInitActivity(void *activity, void *vrActivityClass);
+void  Pvr_DisableBoundary();
+void  Pvr_ShutdownSDKBoundary();
+bool  Pvr_SetSinglePassDepthBufferWidthHeight(int width, int height);
+float Pvr_GetIPD();
+void  Pvr_SetProjectionFov(float fovX, float fovY);
+float Pvr_GetFOV();
+}
+
+enum { EV_InitRenderThread = 1024, EV_Pause = 1025, EV_Resume = 1026 };
+typedef void (*RenderEventFunc)(int);
 
 namespace
 {
@@ -82,14 +112,17 @@ struct pico_client
 
 	std::atomic<bool> running{false};
 	std::atomic<bool> shutdown{false};
+	std::atomic<bool> pvr_initialized{false};
 
 	std::unique_ptr<wivrn_session_pico> session;
 
 	// GLES
 	pico_blit_pipeline blit_pipeline;
-	int eye_width = 2048;
-	int eye_height = 2048;
+	pico_lobby lobby;
+	int eye_width = 1664;
+	int eye_height = 1664;
 	bool gl_initialized = false;
+	std::atomic<bool> streaming{false};
 
 	// Pico Neo 2: 101 deg FOV, 50.50 deg per side (https://vr-compare.com/headset/piconeo2)
 	XrFovf eye_fov[2]{
@@ -136,11 +169,21 @@ struct pico_client
 	std::shared_ptr<pico_decoded_frame> latest_decoded_frames[3];
 	std::atomic<uint64_t> latest_decoded_frame_index{0};
 
+	// Snapshot of decoded frames for the current render frame (both eyes must use same server frame)
+	std::shared_ptr<pico_decoded_frame> render_frames[2];
+
 	// Per-stream GL textures (managed on render thread)
 	GLuint eye_textures[3]{0, 0, 0};
 	EGLImageKHR eye_egl_images[3]{EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR};
 	AHardwareBuffer * last_hb[3]{nullptr, nullptr, nullptr};
 	std::shared_ptr<pico_decoded_frame> eye_current_frames[3];
+
+	// DIATW warp swapchain (GL_TEXTURE_2D textures submitted to PVR warp)
+	static constexpr int kSwapLen = 3;
+	GLuint swap_tex[2][kSwapLen]{{0}};
+	int swap_idx = 0;
+	GLuint stream_fbo = 0;
+	bool atw_enabled = false;
 
 	// Audio
 	std::mutex audio_mutex;
@@ -165,43 +208,22 @@ struct pico_client
 	crypto::key headset_keypair;
 
 	std::thread network_thread;
-	std::thread tracking_thread;
 	std::thread connect_thread;
 	std::mutex connect_mutex;
 
-	// Current frame tracking data (from Java callbacks)
-	std::mutex frame_mutex;
-	float head_orientation[4]{};
-	float head_position[3]{};
-	bool has_head_pose = false;
-
-	struct controller_state
-	{
-		float orientation[4]{};
-		float position[3]{};
-		int trigger = 0;
-		int touch[2]{};
-		int battery = 0;
-		bool connected = false;
-		bool button_a = false;
-		bool button_b = false;
-		bool grip = false;
-		bool thumbstick_click = false;
-		bool menu = false;
-	};
-	controller_state controllers[2];
+	pico_native_tracker tracker;
 
 	~pico_client()
 	{
 		shutdown = true;
 		running = false;
 
+		tracker.stop();
+
 		if (connect_thread.joinable())
 			connect_thread.join();
 		if (network_thread.joinable())
 			network_thread.join();
-		if (tracking_thread.joinable())
-			tracking_thread.join();
 	}
 
 	void setup_decoders();
@@ -210,12 +232,9 @@ struct pico_client
 	void try_connect();
 	void send_headset_info();
 	void network_loop();
-	void tracking_loop();
 
 	void handle_packet(to_headset::packets & packet);
 	void handle_video_shard(to_headset::video_stream_data_shard && shard);
-	void send_tracking();
-	void send_inputs();
 	void send_feedback(uint64_t frame_index);
 
 	int64_t get_timestamp_ns()
@@ -274,6 +293,15 @@ void pico_client::setup_audio()
 
 void pico_client::handle_video_shard(to_headset::video_stream_data_shard && shard)
 {
+	streaming = true;
+	static int shard_count = 0;
+	++shard_count;
+	bool has_timing = shard.timing_info.has_value();
+	if (shard_count <= 20 || shard_count % 100 == 0)
+		spdlog::warn("Video shard #{}: stream={} frame={} shard_idx={} payload={} timing={}",
+			shard_count, (int)shard.stream_item_idx, shard.frame_idx,
+			shard.shard_idx, (int)shard.payload.size(), has_timing);
+
 	uint8_t idx = shard.stream_item_idx;
 	if (idx >= 3 || !decoders[idx])
 		return;
@@ -286,7 +314,14 @@ void pico_client::handle_video_shard(to_headset::video_stream_data_shard && shar
 		target = &next_shards[idx];
 	else if (frame_idx > current_shards[idx].frame_index)
 	{
-		current_shards[idx] = std::move(next_shards[idx]);
+		if (next_shards[idx].frame_index == frame_idx)
+		{
+			current_shards[idx] = std::move(next_shards[idx]);
+		}
+		else
+		{
+			current_shards[idx].reset(frame_idx);
+		}
 		next_shards[idx].reset(frame_idx + 1);
 		target = &current_shards[idx];
 	}
@@ -305,7 +340,15 @@ void pico_client::handle_video_shard(to_headset::video_stream_data_shard && shar
 	if (shard.shard_idx >= target->shards.size())
 		target->shards.resize(shard.shard_idx + 1);
 
+	bool is_last_shard = shard.timing_info.has_value();
 	target->shards[shard.shard_idx] = std::move(shard);
+
+	if (!is_last_shard)
+	{
+		if (shard_count <= 20)
+			spdlog::warn("Shard not last (no timing_info), waiting for more shards");
+		return;
+	}
 
 	size_t filled = 0;
 	for (auto & s : target->shards)
@@ -326,6 +369,16 @@ void pico_client::handle_video_shard(to_headset::video_stream_data_shard && shar
 	{
 		if (s)
 			data.push_back(s->payload);
+	}
+
+	static int recon_count = 0;
+	++recon_count;
+	if (recon_count <= 20 || recon_count % 100 == 0)
+	{
+		size_t total_size = 0;
+		for (auto & d : data) total_size += d.size();
+		spdlog::warn("Frame reconstructed #{}: stream={} frame={} shards={} bytes={}",
+			recon_count, idx, frame_idx, data.size(), total_size);
 	}
 
 	wivrn::from_headset::feedback feedback{};
@@ -376,6 +429,17 @@ void pico_client::handle_packet(to_headset::packets & packet)
 			tracking_control_received = true;
 			spdlog::info("Received tracking control: {} samples, m2p={}ns",
 				p.pattern.size(), p.motions_to_photons);
+
+			int64_t head_pred = 0;
+			for (const auto & s : p.pattern)
+			{
+				if (s.device == device_id::HEAD)
+				{
+					head_pred = std::max(head_pred, s.prediction_ns);
+				}
+			}
+			tracker.set_prediction_ns(head_pred);
+			spdlog::info("Head prediction: {}ns", head_pred);
 		}
 		else if constexpr (std::is_same_v<T, to_headset::haptics>)
 		{
@@ -446,206 +510,19 @@ void pico_client::network_loop()
 		catch (std::exception & e)
 		{
 			spdlog::error("Network error: {}", e.what());
-			shutdown = true;
 			break;
 		}
 		catch (...)
 		{
 			spdlog::error("Network error: unknown exception");
-			shutdown = true;
 			break;
 		}
 	}
-}
 
-// Pico SDK tracking data is already in OpenXR's coordinate system.
-// Controller has a 34° pitch offset from the Unity SDK.
-static XrQuaternionf pico_to_openxr_quat(const float q[4])
-{
-	return XrQuaternionf{q[0], q[1], q[2], q[3]};
-}
-
-static XrQuaternionf pico_controller_to_openxr_quat(const float q[4])
-{
-	XrQuaternionf base = pico_to_openxr_quat(q);
-	// 34° pitch offset: q_result = base * q_offset
-	// q_offset = (-sin(17°), 0, 0, cos(17°))
-	float ox = -0.29237170f, ow = 0.95630476f;
-	XrQuaternionf result;
-	result.x = base.w * ox + base.x * ow;
-	result.y = base.y * ox + base.z * ow;
-	result.z = base.z * ow - base.y * ox;
-	result.w = base.w * ow - base.x * ox;
-	return result;
-}
-
-static XrVector3f pico_to_openxr_pos(const float p[3])
-{
-	return XrVector3f{p[0], p[1], p[2]};
-}
-
-void pico_client::send_tracking()
-{
-	if (!session)
-		return;
-
-	from_headset::tracking tracking_packet{};
-
-	tracking_packet.production_timestamp = get_timestamp_ns();
-	tracking_packet.timestamp = to_xr_time(get_timestamp_ns());
-	tracking_packet.view_flags = XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_POSITION_VALID_BIT;
-	tracking_packet.state_flags = 0;
-
-	tracking_packet.interaction_profiles[0] = interaction_profile::bytedance_pico_neo3_controller;
-	tracking_packet.interaction_profiles[1] = interaction_profile::bytedance_pico_neo3_controller;
-
-	float head_orient[4], head_pos[3];
-	{
-		std::lock_guard lock(frame_mutex);
-		if (!has_head_pose)
-			return;
-		memcpy(head_orient, head_orientation, sizeof(head_orient));
-		memcpy(head_pos, head_position, sizeof(head_pos));
-	}
-
-	XrPosef head_pose;
-	head_pose.orientation = pico_to_openxr_quat(head_orient);
-	head_pose.position = pico_to_openxr_pos(head_pos);
-
-	for (int eye = 0; eye < 2; eye++)
-	{
-		tracking_packet.views[eye].pose = head_pose;
-		tracking_packet.views[eye].fov = eye_fov[eye];
-	}
-
-	from_headset::tracking::pose head_tracking_pose{};
-	head_tracking_pose.pose = head_pose;
-	head_tracking_pose.device = device_id::HEAD;
-	head_tracking_pose.flags = from_headset::tracking::orientation_valid |
-	                           from_headset::tracking::position_valid |
-	                           from_headset::tracking::orientation_tracked |
-	                           from_headset::tracking::position_tracked;
-	tracking_packet.device_poses.push_back(head_tracking_pose);
-
-	for (int c = 0; c < 2; c++)
-	{
-		controller_state cs;
-		{
-			std::lock_guard lock(frame_mutex);
-			cs = controllers[c];
-		}
-		if (!cs.connected)
-			continue;
-
-		XrPosef controller_pose;
-		controller_pose.orientation = pico_controller_to_openxr_quat(cs.orientation);
-		controller_pose.position = pico_to_openxr_pos(cs.position);
-
-		bool is_left = (c == 0);
-
-		from_headset::tracking::pose grip_pose{};
-		grip_pose.pose = controller_pose;
-		grip_pose.device = is_left ? device_id::LEFT_GRIP : device_id::RIGHT_GRIP;
-		grip_pose.flags = from_headset::tracking::orientation_valid |
-		                 from_headset::tracking::position_valid |
-		                 from_headset::tracking::orientation_tracked |
-		                 from_headset::tracking::position_tracked;
-		tracking_packet.device_poses.push_back(grip_pose);
-
-		from_headset::tracking::pose aim_pose = grip_pose;
-		aim_pose.device = is_left ? device_id::LEFT_AIM : device_id::RIGHT_AIM;
-		tracking_packet.device_poses.push_back(aim_pose);
-	}
-
-	session->send_stream(tracking_packet);
-
-	static int track_count = 0;
-	if (++track_count % 60 == 1)
-	{
-		spdlog::warn("TRACKING SEND: HMD orient=({:.4f},{:.4f},{:.4f},{:.4f}) pos=({:.4f},{:.4f},{:.4f})",
-			head_pose.orientation.x, head_pose.orientation.y, head_pose.orientation.z, head_pose.orientation.w,
-			head_pose.position.x, head_pose.position.y, head_pose.position.z);
-		for (int c = 0; c < 2; c++)
-		{
-			if (!controllers[c].connected)
-				continue;
-			auto & dp = tracking_packet.device_poses;
-			for (size_t i = 0; i < dp.size(); i++)
-			{
-				if (dp[i].device == (c == 0 ? device_id::LEFT_GRIP : device_id::RIGHT_GRIP))
-				{
-					spdlog::warn("TRACKING SEND {} grip: orient=({:.4f},{:.4f},{:.4f},{:.4f}) pos=({:.4f},{:.4f},{:.4f})",
-						c == 0 ? "LEFT" : "RIGHT",
-						dp[i].pose.orientation.x, dp[i].pose.orientation.y, dp[i].pose.orientation.z, dp[i].pose.orientation.w,
-						dp[i].pose.position.x, dp[i].pose.position.y, dp[i].pose.position.z);
-				}
-			}
-		}
-	}
-}
-
-void pico_client::send_inputs()
-{
-	if (!session)
-		return;
-
-	from_headset::inputs inputs_packet{};
-	XrTime now = to_xr_time(get_timestamp_ns());
-
-	for (int c = 0; c < 2; c++)
-	{
-		controller_state cs;
-		{
-			std::lock_guard lock(frame_mutex);
-			cs = controllers[c];
-		}
-		if (!cs.connected)
-			continue;
-
-		bool is_left = (c == 0);
-
-		auto add_input = [&](device_id id, float value) {
-			inputs_packet.values.push_back({
-				.id = id,
-				.value = value,
-				.last_change_time = now,
-			});
-		};
-
-		float trigger_val = cs.trigger / 255.0f;
-		float touch_x = (cs.touch[0] - 128) / 128.0f;
-		float touch_y = (128 - cs.touch[1]) / 128.0f;
-
-		if (is_left)
-		{
-			add_input(device_id::LEFT_TRIGGER_VALUE, trigger_val);
-			add_input(device_id::LEFT_TRIGGER_CLICK, trigger_val > 0.9f ? 1.0f : 0.0f);
-			add_input(device_id::LEFT_THUMBSTICK_X, touch_x);
-			add_input(device_id::LEFT_THUMBSTICK_Y, touch_y);
-			add_input(device_id::LEFT_THUMBSTICK_CLICK, cs.thumbstick_click ? 1.0f : 0.0f);
-			add_input(device_id::X_CLICK, cs.button_a ? 1.0f : 0.0f);
-			add_input(device_id::Y_CLICK, cs.button_b ? 1.0f : 0.0f);
-			add_input(device_id::MENU_CLICK, cs.menu ? 1.0f : 0.0f);
-			add_input(device_id::LEFT_SQUEEZE_VALUE, cs.grip ? 1.0f : 0.0f);
-			add_input(device_id::LEFT_SQUEEZE_CLICK, cs.grip ? 1.0f : 0.0f);
-		}
-		else
-		{
-			add_input(device_id::RIGHT_TRIGGER_VALUE, trigger_val);
-			add_input(device_id::RIGHT_TRIGGER_CLICK, trigger_val > 0.9f ? 1.0f : 0.0f);
-			add_input(device_id::RIGHT_THUMBSTICK_X, touch_x);
-			add_input(device_id::RIGHT_THUMBSTICK_Y, touch_y);
-			add_input(device_id::RIGHT_THUMBSTICK_CLICK, cs.thumbstick_click ? 1.0f : 0.0f);
-			add_input(device_id::A_CLICK, cs.button_a ? 1.0f : 0.0f);
-			add_input(device_id::B_CLICK, cs.button_b ? 1.0f : 0.0f);
-			add_input(device_id::SYSTEM_CLICK, cs.menu ? 1.0f : 0.0f);
-			add_input(device_id::RIGHT_SQUEEZE_VALUE, cs.grip ? 1.0f : 0.0f);
-			add_input(device_id::RIGHT_SQUEEZE_CLICK, cs.grip ? 1.0f : 0.0f);
-		}
-	}
-
-	if (!inputs_packet.values.empty())
-		session->send_stream(inputs_packet);
+	spdlog::info("Network loop ended, cleaning up session");
+	tracker.stop();
+	tracker.session = nullptr;
+	session.reset();
 }
 
 void pico_client::send_feedback(uint64_t frame_index)
@@ -673,39 +550,13 @@ void pico_client::send_feedback(uint64_t frame_index)
 	session->send_stream(fb);
 }
 
-void pico_client::tracking_loop()
-{
-	while (!shutdown)
-	{
-		try
-		{
-			send_tracking();
-			send_inputs();
-		}
-		catch (std::exception & e)
-		{
-			spdlog::error("Tracking error: {}", e.what());
-		}
-		catch (...)
-		{
-			spdlog::error("Tracking error: unknown exception");
-		}
-
-		{
-			std::lock_guard lock(haptics_mutex);
-			pending_haptics.clear();
-		}
-
-		std::this_thread::sleep_for(2ms);
-	}
-}
-
 bool pico_client::connect_to_server()
 {
 	spdlog::info("Connecting to server {}:{}", server_host, server_port);
 
 	try
 	{
+		const char * key_dir = "/data/data/org.meumeu.wivrn.neo2.local/files";
 		const char * key_path = "/data/data/org.meumeu.wivrn.neo2.local/files/private_key.pem";
 		spdlog::info("connect: loading keypair from {}", key_path);
 		try
@@ -718,9 +569,15 @@ bool pico_client::connect_to_server()
 		catch (...)
 		{
 			spdlog::info("connect: generating new keypair");
+			mkdir(key_dir, 0700);
 			headset_keypair = crypto::key::generate_x448_keypair();
-			std::ofstream{key_path} << headset_keypair.private_key();
-			spdlog::info("connect: generated and saved new keypair");
+			std::ofstream f{key_path};
+			f << headset_keypair.private_key();
+			f.close();
+			if (f.good())
+				spdlog::info("connect: generated and saved new keypair");
+			else
+				spdlog::error("connect: failed to save keypair to {}", key_path);
 		}
 		std::string model_name = "Pico Neo2";
 
@@ -879,11 +736,21 @@ void pico_client::send_headset_info()
 	spdlog::warn("Sent headset info: {}x{}, {} codecs",
 		info.render_eye_width, info.render_eye_height,
 		info.supported_codecs.size());
+
+	session->send_control(from_headset::session_state_changed{
+		.state = XR_SESSION_STATE_FOCUSED,
+	});
+	spdlog::warn("Sent session_state_changed: FOCUSED");
+
+	session->send_control(from_headset::stream_tab_changed{
+		.tab = wivrn::stream_tab::hidden,
+	});
+	spdlog::warn("Sent stream_tab_changed: hidden");
 }
 
 void pico_client::try_connect()
 {
-	if (session || server_host.empty())
+	if (server_host.empty() || shutdown)
 		return;
 
 	std::lock_guard lock(connect_mutex);
@@ -895,23 +762,60 @@ void pico_client::try_connect()
 	}
 
 	connect_thread = std::thread([this] {
-		if (!connect_to_server())
-			return;
+		int attempt = 0;
+		while (!shutdown)
+		{
+			++attempt;
+			spdlog::info("Connection attempt {}", attempt);
 
-		try
-		{
-			send_headset_info();
-			network_thread = std::thread([] { g_client->network_loop(); });
-			tracking_thread = std::thread([] { g_client->tracking_loop(); });
+			if (connect_to_server())
+			{
+				try
+				{
+					int fd = session->get_control_fd();
+					int keepalive = 1;
+					setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+					int idle = 3;
+					setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+					int intvl = 1;
+					setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
+					int cnt = 3;
+					setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
+
+					send_headset_info();
+					network_thread = std::thread([] { g_client->network_loop(); });
+					tracker.session = session.get();
+					tracker.start();
+
+					network_thread.join();
+				}
+				catch (std::exception & e)
+				{
+					spdlog::error("Failed to start client: {}", e.what());
+					session.reset();
+				}
+				catch (...)
+				{
+					spdlog::error("Failed to start client: unknown exception");
+					session.reset();
+				}
+				attempt = 0;
+				continue;
+			}
+
+			if (session)
+				session.reset();
+
+			if (!shutdown)
+			{
+				int delay_s = std::min(1 << std::min(attempt - 1, 4), 16);
+				spdlog::info("Retrying in {} seconds...", delay_s);
+				for (int i = 0; i < delay_s * 10 && !shutdown; ++i)
+					std::this_thread::sleep_for(100ms);
+			}
 		}
-		catch (std::exception & e)
-		{
-			spdlog::error("Failed to start client: {}", e.what());
-		}
-		catch (...)
-		{
-			spdlog::error("Failed to start client: unknown exception");
-		}
+
+		spdlog::info("Connection thread exiting");
 	});
 }
 
@@ -1059,6 +963,17 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInit(JNIEnv
 	}
 }
 
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeGetHeadData(JNIEnv * env, jobject thiz, jlong ptr, jfloatArray out)
+{
+	if (!g_client || !out)
+		return;
+	if (env->GetArrayLength(out) < 7)
+		return;
+	float buf[7];
+	g_client->tracker.get_head_pose(buf, buf + 4);
+	env->SetFloatArrayRegion(out, 0, 7, buf);
+}
+
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDestroy(JNIEnv * env, jobject thiz, jlong ptr)
 {
 	if (!g_client)
@@ -1067,10 +982,10 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDestroy(JNI
 	g_client->shutdown = true;
 	g_client->running = false;
 
+	g_client->tracker.stop();
+
 	if (g_client->network_thread.joinable())
 		g_client->network_thread.join();
-	if (g_client->tracking_thread.joinable())
-		g_client->tracking_thread.join();
 
 	if (g_client->activity)
 		env->DeleteGlobalRef(g_client->activity);
@@ -1120,6 +1035,16 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnNewIntent(J
 			spdlog::info("PIN from new intent URI: {}", *pin);
 		}
 
+		if (g_client->session)
+		{
+			spdlog::info("Tearing down existing session for reconnection");
+			g_client->tracker.stop();
+			g_client->tracker.session = nullptr;
+			g_client->session.reset();
+			if (g_client->network_thread.joinable())
+				g_client->network_thread.join();
+		}
+
 		g_client->try_connect();
 	}
 }
@@ -1144,11 +1069,12 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnOnFrameBegi
 	if (log_this_frame)
 		spdlog::warn("onFrameBegin #{}: pos=({:.3f},{:.3f},{:.3f})", frame_begin_count, head_p[0], head_p[1], head_p[2]);
 
+	g_client->tracker.set_head_pose(head_o, head_p);
+
 	{
-		std::lock_guard lock(g_client->frame_mutex);
-		memcpy(g_client->head_orientation, head_o, sizeof(head_o));
-		memcpy(g_client->head_position, head_p, sizeof(head_p));
-		g_client->has_head_pose = true;
+		std::lock_guard lock(g_client->decoded_frame_mutex);
+		g_client->render_frames[0] = g_client->latest_decoded_frames[0];
+		g_client->render_frames[1] = g_client->latest_decoded_frames[1];
 	}
 
 	if (log_this_frame)
@@ -1163,24 +1089,11 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnOnFrameBegi
 		float o[4], p[3];
 		env->GetFloatArrayRegion(leftOrient, 0, 4, o);
 		env->GetFloatArrayRegion(leftPos, 0, 3, p);
-		std::lock_guard lock(g_client->frame_mutex);
-		memcpy(g_client->controllers[0].orientation, o, sizeof(o));
-		memcpy(g_client->controllers[0].position, p, sizeof(p));
-		g_client->controllers[0].trigger = leftTrigger;
-		g_client->controllers[0].battery = leftBattery;
-		g_client->controllers[0].button_a = leftA;
-		g_client->controllers[0].button_b = leftB;
-		g_client->controllers[0].grip = leftGrip;
-		g_client->controllers[0].thumbstick_click = leftClick;
-		g_client->controllers[0].menu = leftMenu;
-		g_client->controllers[0].connected = true;
+		int t[2] = {128, 128};
 		if (leftTouch)
-		{
-			int t[2];
 			env->GetIntArrayRegion(leftTouch, 0, 2, t);
-			g_client->controllers[0].touch[0] = t[0];
-			g_client->controllers[0].touch[1] = t[1];
-		}
+		g_client->tracker.update_controller(0, o, p, leftTrigger, t, leftBattery,
+			leftA, leftB, leftGrip, leftClick, leftMenu);
 		if (log_this_frame)
 		{
 			spdlog::warn("TRACKING RAW LEFT: orient=({:.4f},{:.4f},{:.4f},{:.4f}) pos=({:.4f},{:.4f},{:.4f}) trigger={} batt={}",
@@ -1190,8 +1103,7 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnOnFrameBegi
 	}
 	else
 	{
-		std::lock_guard lock(g_client->frame_mutex);
-		g_client->controllers[0].connected = false;
+		g_client->tracker.clear_controller(0);
 	}
 
 	if (rightOrient && rightPos)
@@ -1199,24 +1111,11 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnOnFrameBegi
 		float o[4], p[3];
 		env->GetFloatArrayRegion(rightOrient, 0, 4, o);
 		env->GetFloatArrayRegion(rightPos, 0, 3, p);
-		std::lock_guard lock(g_client->frame_mutex);
-		memcpy(g_client->controllers[1].orientation, o, sizeof(o));
-		memcpy(g_client->controllers[1].position, p, sizeof(p));
-		g_client->controllers[1].trigger = rightTrigger;
-		g_client->controllers[1].battery = rightBattery;
-		g_client->controllers[1].button_a = rightA;
-		g_client->controllers[1].button_b = rightB;
-		g_client->controllers[1].grip = rightGrip;
-		g_client->controllers[1].thumbstick_click = rightClick;
-		g_client->controllers[1].menu = rightMenu;
-		g_client->controllers[1].connected = true;
+		int t[2] = {128, 128};
 		if (rightTouch)
-		{
-			int t[2];
 			env->GetIntArrayRegion(rightTouch, 0, 2, t);
-			g_client->controllers[1].touch[0] = t[0];
-			g_client->controllers[1].touch[1] = t[1];
-		}
+		g_client->tracker.update_controller(1, o, p, rightTrigger, t, rightBattery,
+			rightA, rightB, rightGrip, rightClick, rightMenu);
 		if (log_this_frame)
 		{
 			spdlog::warn("TRACKING RAW RIGHT: orient=({:.4f},{:.4f},{:.4f},{:.4f}) pos=({:.4f},{:.4f},{:.4f}) trigger={} batt={}",
@@ -1226,8 +1125,7 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnOnFrameBegi
 	}
 	else
 	{
-		std::lock_guard lock(g_client->frame_mutex);
-		g_client->controllers[1].connected = false;
+		g_client->tracker.clear_controller(1);
 	}
 }
 
@@ -1240,7 +1138,7 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 		return;
 	}
 
-	if (eye < 0 || eye > 2)
+	if (eye < 0 || eye > 1)
 	{
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
@@ -1248,12 +1146,9 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 	}
 
 	std::shared_ptr<pico_decoded_frame> decoded;
-	{
-		std::lock_guard lock(g_client->decoded_frame_mutex);
-		decoded = g_client->latest_decoded_frames[eye];
-	}
+	decoded = g_client->render_frames[eye];
 
-	GLuint tex = 0;
+	GLuint ext_tex = 0;
 	if (decoded && decoded->valid && decoded->hardware_buffer)
 	{
 		AHardwareBuffer * hb = decoded->hardware_buffer;
@@ -1267,7 +1162,6 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 			glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 			glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 			glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
-			spdlog::info("Created eye texture {} for eye {}", g_client->eye_textures[eye], eye);
 		}
 
 		if (g_client->last_hb[eye] != hb)
@@ -1298,22 +1192,30 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDrawEye(JNI
 				glBindTexture(GL_TEXTURE_EXTERNAL_OES, g_client->eye_textures[eye]);
 				g_glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, g_client->eye_egl_images[eye]);
 				glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
-				spdlog::warn("EGLImage created for eye {} tex={} hb={}", eye, g_client->eye_textures[eye], (void*)hb);
-			}
-			else
-			{
-				spdlog::warn("Failed to create EGLImage for eye {} (hb={})", eye, (void*)hb);
 			}
 		}
 
-		tex = g_client->eye_textures[eye];
+		ext_tex = g_client->eye_textures[eye];
 	}
+
+	if (ext_tex == 0 || !g_client->streaming.load())
+	{
+		float h_orient[4], h_pos[3];
+		g_client->tracker.get_head_pose(h_orient, h_pos);
+		controller_sample cs[2];
+		g_client->tracker.get_controllers(cs);
+		g_client->lobby.draw(eye, h_orient, h_pos, cs, g_client->eye_fov[eye], 0.064f);
+	}
+	else
+	{
+		g_client->blit_pipeline.draw(eye, ext_tex, {}, {}, {});
+	}
+
+	glFlush();
 
 	static int draw_count = 0;
 	if (++draw_count % 300 == 0)
-		spdlog::info("DrawEye {}: tex={}, decoded_valid={}", eye, tex, decoded ? decoded->valid : false);
-
-	g_client->blit_pipeline.draw(eye, tex);
+		spdlog::info("DrawEye {}: ext_tex={} decoded_valid={}", eye, ext_tex, decoded ? decoded->valid : false);
 }
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnFrameEnd(JNIEnv * env, jobject thiz, jlong ptr)
@@ -1335,17 +1237,21 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnInitGL(JNIE
 		g_client->eye_fov[0].angleUp, g_client->eye_fov[0].angleDown);
 
 	g_client->blit_pipeline.init(w, h);
+	g_client->lobby.init(w, h);
 	load_egl_procs();
+
 	g_client->gl_initialized = true;
 
-	spdlog::warn("GLES initialized for PvrSDK-Native");
+	spdlog::warn("GLES initialized");
 }
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnDeInitGL(JNIEnv * env, jobject thiz, jlong ptr)
 {
 	spdlog::info("nativeWivrnDeInitGL");
 	if (g_client)
+	{
 		g_client->gl_initialized = false;
+	}
 }
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeWivrnSurfaceChanged(JNIEnv * env, jobject thiz, jlong ptr, jint w, jint h)

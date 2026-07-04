@@ -24,9 +24,12 @@ public class MainActivity extends VRActivity implements RenderInterface {
         System.loadLibrary("wivrn-neo2");
     }
 
+    private static final String CTRL_UNITY_VERSION = "2.8.6.9";
+
     private CVControllerManager cvManager;
     private CVController leftController;
     private CVController rightController;
+    private final float[] mHeadData = new float[7];
 
     private long nativePtr;
 
@@ -99,6 +102,12 @@ public class MainActivity extends VRActivity implements RenderInterface {
     public void onResume() {
         super.onResume();
         cvManager.bindService();
+        try { ControllerClient.setUnityVersion(CTRL_UNITY_VERSION); } catch (Throwable t) {
+            Log.e(TAG, "setUnityVersion failed", t);
+        }
+        try { ControllerClient.startControllerThread(1, 1); } catch (Throwable t) {
+            Log.e(TAG, "startControllerThread failed", t);
+        }
         PicovrSDK.startSensor(0);
         PicovrSDK.setTrackingOriginType(1);
         Log.d(TAG, "onResume, nativePtr=" + nativePtr);
@@ -113,6 +122,7 @@ public class MainActivity extends VRActivity implements RenderInterface {
     public void onPause() {
         nativeWivrnPause(nativePtr);
         PicovrSDK.stopSensor(0);
+        try { ControllerClient.stopControllerThread(1, 1); } catch (Throwable t) {}
         cvManager.unbindService();
         super.onPause();
     }
@@ -144,6 +154,8 @@ public class MainActivity extends VRActivity implements RenderInterface {
 
         cvManager.updateControllerData(hmdData);
 
+        nativeGetHeadData(nativePtr, mHeadData);
+
         float[] leftPose = null, rightPose = null;
         float[] leftOrient = null, rightOrient = null;
         int leftTrigger = 0, rightTrigger = 0;
@@ -152,9 +164,30 @@ public class MainActivity extends VRActivity implements RenderInterface {
         boolean leftA = false, leftB = false, leftGrip = false, leftClick = false, leftMenu = false;
         boolean rightA = false, rightB = false, rightGrip = false, rightClick = false, rightMenu = false;
 
+        int leftConn = 0, rightConn = 0;
+        try { leftConn = ControllerClient.getControllerConnectionState(0); } catch (Throwable t) {}
+        try { rightConn = ControllerClient.getControllerConnectionState(1); } catch (Throwable t) {}
+
+        if (leftConn == 1) {
+            try {
+                float[] sensor = ControllerClient.getControllerSensorState(0, mHeadData);
+                if (sensor != null && sensor.length >= 7) {
+                    leftOrient = new float[]{sensor[0], sensor[1], sensor[2], sensor[3]};
+                    leftPose = new float[]{sensor[4], sensor[5], sensor[6]};
+                }
+            } catch (Throwable t) {}
+        }
+        if (rightConn == 1) {
+            try {
+                float[] sensor = ControllerClient.getControllerSensorState(1, mHeadData);
+                if (sensor != null && sensor.length >= 7) {
+                    rightOrient = new float[]{sensor[0], sensor[1], sensor[2], sensor[3]};
+                    rightPose = new float[]{sensor[4], sensor[5], sensor[6]};
+                }
+            } catch (Throwable t) {}
+        }
+
         if (leftController != null) {
-            leftOrient = leftController.getOrientation();
-            leftPose = leftController.getPosition();
             leftTrigger = leftController.getTriggerNum();
             leftTouch = leftController.getTouchPad();
             leftBattery = leftController.getBatteryLevel();
@@ -166,8 +199,6 @@ public class MainActivity extends VRActivity implements RenderInterface {
         }
 
         if (rightController != null) {
-            rightOrient = rightController.getOrientation();
-            rightPose = rightController.getPosition();
             rightTrigger = rightController.getTriggerNum();
             rightTouch = rightController.getTouchPad();
             rightBattery = rightController.getBatteryLevel();
@@ -237,6 +268,7 @@ public class MainActivity extends VRActivity implements RenderInterface {
 
     // Native methods - WiVRn-specific (PVR SDK handles its own via VRActivity)
     public native void nativeWivrnInit(long ptr, Intent intent);
+    public native void nativeGetHeadData(long ptr, float[] out);
     public native void nativeWivrnDestroy(long ptr);
     public native void nativeWivrnPause(long ptr);
     public native void nativeWivrnResume(long ptr);
