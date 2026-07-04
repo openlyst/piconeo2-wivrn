@@ -269,25 +269,29 @@ pico_video_decoder::~pico_video_decoder()
 
 void pico_video_decoder::input_loop()
 {
-	pico_sched::pin_current_thread("decoder input", 2, -8);
+	int prio = (stream_index == 1) ? 3 : 2;
+	int nice = (stream_index == 1) ? -10 : -8;
+	pico_sched::pin_current_thread("decoder input", prio, nice);
 
 	while (!exiting)
 	{
 		pending_frame frame;
 		{
 			std::unique_lock lock(pending_mutex);
-			pending_cv.wait(lock, [&]() { return !pending_frames.empty() || exiting; });
+			pending_cv.wait(lock, [&]() { return !pending_frames.empty() || exiting || flushing.load(); });
 			if (exiting)
 				return;
+			if (flushing.load())
+				continue;
 			frame = std::move(pending_frames.front());
 			pending_frames.erase(pending_frames.begin());
 		}
 
 		ssize_t in_idx = -1;
-		while (!exiting && in_idx < 0)
+		while (!exiting && !flushing.load() && in_idx < 0)
 			in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 1000);
-		if (exiting)
-			return;
+		if (exiting || flushing.load())
+			continue;
 
 		size_t buf_size;
 		uint8_t * buf = AMediaCodec_getInputBuffer(media_codec, in_idx, &buf_size);
@@ -317,10 +321,18 @@ void pico_video_decoder::input_loop()
 
 void pico_video_decoder::output_loop()
 {
-	pico_sched::pin_current_thread("decoder output", 2, -8);
+	int prio = (stream_index == 1) ? 3 : 2;
+	int nice = (stream_index == 1) ? -10 : -8;
+	pico_sched::pin_current_thread("decoder output", prio, nice);
 
 	while (!exiting)
 	{
+		if (flushing.load())
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(2));
+			continue;
+		}
+
 		AMediaCodecBufferInfo info;
 		ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(media_codec, &info, 1000);
 		if (out_idx >= 0)
@@ -378,6 +390,27 @@ void pico_video_decoder::push_data(std::span<std::span<const uint8_t>> data, uin
 		pending_cv.notify_one();
 }
 
+void pico_video_decoder::flush()
+{
+	flushing.store(true);
+	spdlog::warn("Decoder stream {} flush requested", stream_index);
+
+	AMediaCodec_flush(media_codec);
+
+	{
+		std::lock_guard lock(pending_mutex);
+		pending_frames.clear();
+	}
+	{
+		std::lock_guard lock(frame_info_mutex);
+		pending_frame_infos.clear();
+	}
+	csd_sent.store(false);
+
+	flushing.store(false);
+	spdlog::warn("Decoder stream {} flush complete", stream_index);
+}
+
 void pico_video_decoder::frame_completed(
 	const wivrn::from_headset::feedback & feedback,
 	const wivrn::to_headset::video_stream_data_shard::view_info_t & view_info)
@@ -406,7 +439,7 @@ void pico_video_decoder::on_image_available_cb(void * ctx, AImageReader * reader
 void pico_video_decoder::on_image_available(AImageReader * reader)
 {
 	AImage * tmp;
-	check(AImageReader_acquireLatestImage(image_reader.get(), &tmp), "AImageReader_acquireLatestImage");
+	check(AImageReader_acquireNextImage(image_reader.get(), &tmp), "AImageReader_acquireNextImage");
 	std::shared_ptr<AImage> image(tmp, [](AImage * img) { AImage_delete(img); });
 
 	int64_t fake_timestamp_ns;

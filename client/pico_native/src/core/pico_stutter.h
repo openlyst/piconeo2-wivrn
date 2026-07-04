@@ -49,6 +49,7 @@ private:
 	std::mutex frame_begin_mutex;
 	int64_t last_frame_begin_ns = 0;
 	uint64_t last_rendered_frame_index[2] = {0, 0};
+	int repeat_count[2] = {0, 0};
 	int64_t running_avg = 0;
 
 	XrPosef last_pose[2] = {};
@@ -185,11 +186,12 @@ public:
 			}
 		}
 
-		if (left_frame_index != right_frame_index && left_frame_index != 0 && right_frame_index != 0)
+		if (left_frame_index != 0 && right_frame_index != 0)
 		{
 			int64_t diff = (int64_t)left_frame_index - (int64_t)right_frame_index;
 			if (diff < 0) diff = -diff;
-			log_stutter("pose", "left/right frame index mismatch", diff * 10'000'000LL, left_frame_index);
+			if (diff > 2)
+				log_stutter("pose", "left/right frame index mismatch", diff * 10'000'000LL, left_frame_index);
 		}
 
 		for (int eye = 0; eye < 2; eye++)
@@ -197,7 +199,13 @@ public:
 			uint64_t fi = (eye == 0) ? left_frame_index : right_frame_index;
 			if (fi == last_rendered_frame_index[eye] && fi != 0)
 			{
-				log_stutter("display", "same decoded frame repeated (no new frame arrived)", interval, fi);
+				repeat_count[eye]++;
+				if (repeat_count[eye] == 3)
+					log_stutter("display", "same decoded frame repeated (no new frame arrived)", interval, fi);
+			}
+			else
+			{
+				repeat_count[eye] = 0;
 			}
 			last_rendered_frame_index[eye] = fi;
 		}

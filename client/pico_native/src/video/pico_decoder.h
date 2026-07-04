@@ -69,6 +69,7 @@ private:
 	std::vector<frame_info> pending_frame_infos;
 
 	std::atomic<bool> exiting = false;
+	std::atomic<bool> flushing = false;
 	std::thread input_worker;
 	std::thread output_worker;
 
@@ -89,6 +90,8 @@ public:
 	~pico_video_decoder();
 
 	void push_data(std::span<std::span<const uint8_t>> data, uint64_t frame_index, bool partial);
+
+	void flush();
 
 	void frame_completed(
 		const wivrn::from_headset::feedback & feedback,
