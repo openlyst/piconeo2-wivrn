@@ -1,15 +1,12 @@
 # GitLab CI configuration for building the WiVRn Pico Neo 2 APK.
 #
 # Uses GitLab shared runners (no custom runner tags required).
+# Builds debug APKs that don't require signing.
+# The PvrSDK is automatically downloaded from archive.org.
 #
-# Pipeline variables (set via UI, API, or trigger):
-#   BUILD_STAGE       One of: alpha, debug, rc, release  (default: alpha)
-#   PVR_SDK_URL       URL to download the PvrSDK-Native archive
-#                     (zip/tar containing PvrSDK-Native-release.aar and jni/ dir)
-#   KEYSTORE_BASE64   Base64-encoded keystore for signing (rc/release)
-#   KEYSTORE_PASSWORD Password for the keystore
-#   KEY_ALIAS         Key alias (default: default_key)
-#   KEY_PASSWORD      Key password (default: same as KEYSTORE_PASSWORD)
+# Pipeline variables (optional, set via UI, API, or trigger):
+#   BUILD_STAGE       One of: alpha, debug  (default: alpha)
+#   PVR_SDK_URL       Override the PvrSDK download URL
 
 stages:
   - build
@@ -36,6 +33,7 @@ variables:
       - client/pico_native/.gradle/wrapper
       - client/pico_native/build/_deps
       - .android-sdk
+      - external/pvrsdk-native
     policy: pull-push
   artifacts:
     name: "wivrn-neo2-${BUILD_STAGE}-${CI_PIPELINE_ID}"
@@ -45,7 +43,7 @@ variables:
     reports:
       dotenv: build-output/build-info.env
   before_script:
-    - apt-get update -qq && apt-get install -y -qq unzip curl
+    - apt-get update -qq && apt-get install -y -qq unzip curl p7zip-full
     - |
       if [ ! -d "${ANDROID_SDK_ROOT}/cmdline-tools" ]; then
         mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools"
@@ -89,26 +87,6 @@ build:debug:
     BUILD_STAGE: "debug"
   rules:
     - if: $BUILD_STAGE == "debug"
-      when: always
-    - when: manual
-      allow_failure: true
-
-build:rc:
-  <<: *build_template
-  variables:
-    BUILD_STAGE: "rc"
-  rules:
-    - if: $BUILD_STAGE == "rc"
-      when: always
-    - when: manual
-      allow_failure: true
-
-build:release:
-  <<: *build_template
-  variables:
-    BUILD_STAGE: "release"
-  rules:
-    - if: $BUILD_STAGE == "release"
       when: always
     - when: manual
       allow_failure: true

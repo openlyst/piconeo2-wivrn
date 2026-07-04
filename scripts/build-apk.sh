@@ -10,12 +10,16 @@ set -euo pipefail
 # Defaults to --stage alpha if not specified.
 #
 # Environment variables:
-#   PVR_SDK_URL      URL to a zip/tar containing the PvrSDK-Native files
-#                    (must contain PvrSDK-Native-release.aar and jni/ dir)
+#   PVR_SDK_URL      URL to download the PvrSDK archive
+#                    Defaults to the Pico Neo 2 SDK collection on archive.org
 #   KEYSTORE_BASE64  Base64-encoded keystore file (for signed release builds)
 #   KEYSTORE_PASSWORD  Password for the keystore
 #   KEY_ALIAS        Key alias inside the keystore (default: default_key)
 #   KEY_PASSWORD     Password for the key (default: same as KEYSTORE_PASSWORD)
+#
+# The default PVR_SDK_URL points to a 7z archive containing multiple Pico SDKs.
+# The script extracts pvrSDK-release.aar from the Unity Platform SDK inside it,
+# renames it to PvrSDK-Native-release.aar, and extracts the jni/ libraries.
 #
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -83,36 +87,67 @@ case "${STAGE}" in
         ;;
 esac
 
-# --- Set up PvrSDK-Native ---
-if [[ -n "${PVR_SDK_URL:-}" ]]; then
-    echo "Downloading PvrSDK-Native from provided URL..."
+# --- Set up PvrSDK ---
+DEFAULT_PVR_SDK_URL="https://archive.org/download/pico-neo-2-sdks-exes.-7z/PicoNeo2-SDKs-EXEs.7z"
+PVR_SDK_URL="${PVR_SDK_URL:-${DEFAULT_PVR_SDK_URL}}"
+
+if [[ ! -f "${EXTERNAL_DIR}/PvrSDK-Native-release.aar" ]]; then
+    echo "Downloading PvrSDK from ${PVR_SDK_URL}..."
     mkdir -p "${EXTERNAL_DIR}"
-    TMP_ARCHIVE="/tmp/pvrsdk-archive"
-    curl -fSL -o "${TMP_ARCHIVE}" "${PVR_SDK_URL}"
+    TMP_WORK="/tmp/pvrsdk-extract"
+    rm -rf "${TMP_WORK}"
+    mkdir -p "${TMP_WORK}"
+
     case "${PVR_SDK_URL}" in
+        *.7z)
+            curl -fSL -o "${TMP_WORK}/archive.7z" "${PVR_SDK_URL}"
+
+            # Extract the Unity Platform SDK zip from the 7z
+            7z x -y "${TMP_WORK}/archive.7z" \
+                -o"${TMP_WORK}" \
+                "PicoNeo2-SDKs-EXEs/Unity+Plugin/PicoXR_Platform_SDK-1.2.5_B81.zip" \
+                >/dev/null 2>&1
+
+            # Extract pvrSDK-release.aar from the Platform SDK zip
+            unzip -o "${TMP_WORK}/PicoNeo2-SDKs-EXEs/Unity+Plugin/PicoXR_Platform_SDK-1.2.5_B81.zip" \
+                "Runtime/Android/pvrSDK-release.aar" \
+                -d "${TMP_WORK}" >/dev/null 2>&1
+
+            # Place the AAR with the expected name
+            cp "${TMP_WORK}/Runtime/Android/pvrSDK-release.aar" \
+                "${EXTERNAL_DIR}/PvrSDK-Native-release.aar"
+
+            # Extract jni/ libraries from the AAR
+            cd "${EXTERNAL_DIR}"
+            unzip -o "${TMP_WORK}/Runtime/Android/pvrSDK-release.aar" \
+                "jni/arm64-v8a/*" >/dev/null 2>&1
+            cd - > /dev/null
+
+            # Rename libPvr_UnitySDK.so to libPvr_NativeSDK.so
+            if [[ -f "${EXTERNAL_DIR}/jni/arm64-v8a/libPvr_UnitySDK.so" ]]; then
+                mv "${EXTERNAL_DIR}/jni/arm64-v8a/libPvr_UnitySDK.so" \
+                   "${EXTERNAL_DIR}/jni/arm64-v8a/libPvr_NativeSDK.so"
+            fi
+            ;;
         *.zip)
-            unzip -o "${TMP_ARCHIVE}" -d "${EXTERNAL_DIR}"
+            curl -fSL -o "${TMP_WORK}/archive.zip" "${PVR_SDK_URL}"
+            unzip -o "${TMP_WORK}/archive.zip" -d "${EXTERNAL_DIR}"
             ;;
         *.tar.gz|*.tgz)
-            tar xzf "${TMP_ARCHIVE}" -C "${EXTERNAL_DIR}"
-            ;;
-        *.tar.bz2|*.tbz2)
-            tar xjf "${TMP_ARCHIVE}" -C "${EXTERNAL_DIR}"
-            ;;
-        *.tar)
-            tar xf "${TMP_ARCHIVE}" -C "${EXTERNAL_DIR}"
+            curl -fSL -o "${TMP_WORK}/archive.tar.gz" "${PVR_SDK_URL}"
+            tar xzf "${TMP_WORK}/archive.tar.gz" -C "${EXTERNAL_DIR}"
             ;;
         *)
             echo "Unknown archive format for PVR_SDK_URL" >&2
             exit 1
             ;;
     esac
-    rm -f "${TMP_ARCHIVE}"
+
+    rm -rf "${TMP_WORK}"
 fi
 
 if [[ ! -f "${EXTERNAL_DIR}/PvrSDK-Native-release.aar" ]]; then
     echo "PvrSDK-Native-release.aar not found at ${EXTERNAL_DIR}/" >&2
-    echo "Provide it via PVR_SDK_URL environment variable or place it manually." >&2
     exit 1
 fi
 
