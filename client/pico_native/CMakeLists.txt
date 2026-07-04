@@ -142,19 +142,28 @@ target_compile_definitions(wivrn-common PUBLIC VULKAN_HPP_NO_STRUCT_CONSTRUCTORS
 add_library(wivrn-neo2 MODULE)
 
 target_sources(wivrn-neo2 PRIVATE
-    main.cpp
-    wivrn_client_pico.cpp
-    pico_decoder.cpp
-    pico_audio.cpp
-    pico_blit.cpp
-    pico_tracking.cpp
-    pico_lobby.cpp
+    src/core/main.cpp
+    src/core/pico_client.cpp
+    src/core/pico_jni.cpp
+    src/core/pico_render.cpp
+    src/net/wivrn_client_pico.cpp
+    src/video/pico_decoder.cpp
+    src/audio/pico_audio.cpp
+    src/render/pico_blit.cpp
+    src/tracking/pico_tracking.cpp
+    src/render/pico_lobby.cpp
 )
 
 target_include_directories(wivrn-neo2 PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/common
     ${CMAKE_CURRENT_SOURCE_DIR}/../../external/pico-native-sdk/include
     ${CMAKE_CURRENT_BINARY_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/audio
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/video
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/render
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/tracking
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/net
 )
 
 target_link_libraries(wivrn-neo2
