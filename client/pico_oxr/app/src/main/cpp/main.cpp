@@ -78,7 +78,7 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeGetHeadData(JNIEnv * env, jobject t
     std::lock_guard lock(g_state_mutex);
     float buf[7] = {
         g_head_orient[0], g_head_orient[1], g_head_orient[2], g_head_orient[3],
-        g_head_pos[0] * 1000.0f, g_head_pos[1] * 1000.0f, g_head_pos[2] * 1000.0f};
+        g_head_pos[0], g_head_pos[1], g_head_pos[2]};
     env->SetFloatArrayRegion(out, 0, 7, buf);
 }
 
