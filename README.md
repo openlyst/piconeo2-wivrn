@@ -34,8 +34,8 @@ This project is really early and still has issues with the code. But it should s
 #### Features
 - [ ] Create a Gitlab pipeline for building.
 - [ ] Add i18n for Chinese Simplfed and English so we aint hardcoding.
-- [X] Implament Audio; Dekstop -> Client
-- [X] Implament controller haptics
+- [X] Implement Audio; Dekstop -> Client
+- [X] Implement controller haptics
 
 ### Getting the Pico SDK
 
