@@ -207,7 +207,7 @@ public class MainActivity extends NativeActivity {
                     } catch (Throwable t) {}
                 }
 
-                try { Thread.sleep(11); } catch (InterruptedException e) { break; }
+                try { Thread.sleep(8); } catch (InterruptedException e) { break; }
             }
         }, "ctrl-poll");
         mCtrlThread.start();
@@ -223,12 +223,17 @@ public class MainActivity extends NativeActivity {
         if (mUiRenderRunning) return;
         mUiRenderRunning = true;
         mUiRenderThread = new Thread(() -> {
+            long lastUpload = 0;
             while (mUiRenderRunning) {
                 try {
                     if (lobbyView != null && lobbyView.isDirty()) {
-                        lobbyView.render();
-                        nativeUpdateLobbyTexture(lobbyView.getBitmap());
-                        lobbyView.markClean();
+                        long now = System.currentTimeMillis();
+                        if (now - lastUpload >= 100) {
+                            lobbyView.render();
+                            nativeUpdateLobbyTexture(lobbyView.getBitmap());
+                            lobbyView.markClean();
+                            lastUpload = now;
+                        }
                     }
                 } catch (Throwable t) {
                     Log.e(TAG, "ui render thread error", t);

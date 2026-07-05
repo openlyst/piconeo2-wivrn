@@ -179,6 +179,7 @@ pico_lobby::~pico_lobby()
 	if (controller_vbo) glDeleteBuffers(1, &controller_vbo);
 	if (quad_vbo) glDeleteBuffers(1, &quad_vbo);
 	if (ui_texture) glDeleteTextures(1, &ui_texture);
+	if (pbo[0]) glDeleteBuffers(2, pbo);
 }
 
 static void generate_placeholder_texture(GLuint tex, int w, int h)
@@ -409,6 +410,13 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glDepthMask(GL_FALSE);
 
+	Mat4 model = mat4_translate(head_pos[0], 0.0f, head_pos[2]);
+	Mat4 mvp = mat4_mul(vp, model);
+	glUniformMatrix4fv(mvp_uniform, 1, GL_FALSE, mvp.m);
+	glBindBuffer(GL_ARRAY_BUFFER, beam_vbo);
+	glEnableVertexAttribArray(pos_attrib);
+	glVertexAttribPointer(pos_attrib, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
+
 	int n_segs = (int)beam_segments.size();
 	for (int i = 0; i < n_segs; i++)
 	{
@@ -429,14 +437,7 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 			alpha = 0.95f;
 		}
 
-		Mat4 model = mat4_translate(head_pos[0], 0.0f, head_pos[2]);
-		Mat4 mvp = mat4_mul(vp, model);
-
 		glUniform4f(color_uniform, r, g, b, alpha);
-		glUniformMatrix4fv(mvp_uniform, 1, GL_FALSE, mvp.m);
-		glBindBuffer(GL_ARRAY_BUFFER, beam_vbo);
-		glEnableVertexAttribArray(pos_attrib);
-		glVertexAttribPointer(pos_attrib, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
 		glDrawArrays(GL_LINES, beam_segments[i].offset, beam_segments[i].count);
 	}
 
@@ -486,24 +487,24 @@ void pico_lobby::update_texture(int width, int height, const void * pixels)
 	memcpy(pending_tex_data.data(), pixels, width * height * 4);
 	pending_tex_w = width;
 	pending_tex_h = height;
-	tex_pending = true;
+	tex_pending.store(true, std::memory_order_relaxed);
 }
 
 void pico_lobby::flush_pending_texture()
 {
-	if (!tex_pending || !ui_texture)
+	if (!tex_pending.load(std::memory_order_relaxed) || !ui_texture)
 		return;
 
 	std::vector<uint8_t> data;
 	int w, h;
 	{
 		std::lock_guard lock(tex_mutex);
-		if (!tex_pending)
+		if (!tex_pending.load(std::memory_order_relaxed))
 			return;
 		data = std::move(pending_tex_data);
 		w = pending_tex_w;
 		h = pending_tex_h;
-		tex_pending = false;
+		tex_pending.store(false, std::memory_order_relaxed);
 	}
 
 	glBindTexture(GL_TEXTURE_2D, ui_texture);

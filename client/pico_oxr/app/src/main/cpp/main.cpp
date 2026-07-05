@@ -49,6 +49,10 @@ struct AppState;
 static AppState* g_app = nullptr;
 static JavaVM* g_jvm = nullptr;
 static jobject g_activity = nullptr;
+static PFN_xrGetConfigPICO g_pfnXrGetConfigPICO = nullptr;
+static bool g_hasPicoSessionBegin = false;
+static jmethodID g_onLobbyTouchMethod = nullptr;
+static jclass g_activityClass = nullptr;
 
 static int prev_touch_hand = -1;
 static bool prev_touch_down = false;
@@ -296,22 +300,31 @@ static bool openxr_init(struct android_app* androidApp, AppState* app) {
     xrEnumerateInstanceExtensionProperties(nullptr, extCount, &extCount, exts.data());
 
     bool hasGLES = false, hasAndroidCI = false;
+    bool hasPicoConfigs = false, hasPicoSessionBegin = false;
     for (const auto& e : exts) {
         LOGI("Extension: %s", e.extensionName);
         if (strcmp(e.extensionName, XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME) == 0)
             hasGLES = true;
         if (strcmp(e.extensionName, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME) == 0)
             hasAndroidCI = true;
+        if (strcmp(e.extensionName, XR_PICO_CONFIGS_EXT_EXTENSION_NAME) == 0)
+            hasPicoConfigs = true;
+        if (strcmp(e.extensionName, XR_PICO_SESSION_BEGIN_INFO_EXT_ENABLE_EXTENSION_NAME) == 0)
+            hasPicoSessionBegin = true;
     }
     if (!hasGLES) {
         LOGE("XR_KHR_opengl_es_enable not supported");
         return false;
     }
 
-    const char* enabledExts[] = {
+    std::vector<const char*> enabledExtsVec = {
         XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME,
         XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME,
     };
+    if (hasPicoConfigs)
+        enabledExtsVec.push_back(XR_PICO_CONFIGS_EXT_EXTENSION_NAME);
+    if (hasPicoSessionBegin)
+        enabledExtsVec.push_back(XR_PICO_SESSION_BEGIN_INFO_EXT_ENABLE_EXTENSION_NAME);
 
     XrInstanceCreateInfoAndroidKHR androidCI = {};
     androidCI.type = XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR;
@@ -322,8 +335,8 @@ static bool openxr_init(struct android_app* androidApp, AppState* app) {
     XrInstanceCreateInfo ci = {};
     ci.type = XR_TYPE_INSTANCE_CREATE_INFO;
     ci.next = &androidCI;
-    ci.enabledExtensionCount = hasAndroidCI ? 2 : 1;
-    ci.enabledExtensionNames = enabledExts;
+    ci.enabledExtensionCount = (uint32_t)enabledExtsVec.size();
+    ci.enabledExtensionNames = enabledExtsVec.data();
     strcpy(ci.applicationInfo.applicationName, "WiVRn OXR");
     ci.applicationInfo.applicationVersion = 1;
     strcpy(ci.applicationInfo.engineName, "No Engine");
@@ -335,6 +348,14 @@ static bool openxr_init(struct android_app* androidApp, AppState* app) {
         LOGE("xrCreateInstance failed: %d", r);
         return false;
     }
+
+    PFN_xrGetConfigPICO pfnXrGetConfigPICO = nullptr;
+    if (hasPicoConfigs) {
+        xrGetInstanceProcAddr(app->instance, "xrGetConfigPICO",
+                              reinterpret_cast<PFN_xrVoidFunction*>(&pfnXrGetConfigPICO));
+        g_pfnXrGetConfigPICO = pfnXrGetConfigPICO;
+    }
+    g_hasPicoSessionBegin = hasPicoSessionBegin;
 
     XrInstanceProperties ip = {};
     ip.type = XR_TYPE_INSTANCE_PROPERTIES;
@@ -403,6 +424,13 @@ static bool openxr_create_session(AppState* app) {
         return false;
     }
     LOGI("Session created");
+
+    if (g_pfnXrGetConfigPICO) {
+        float targetFps = 0, refreshRate = 0;
+        g_pfnXrGetConfigPICO(app->session, TARGET_FRAME_RATE, &targetFps);
+        g_pfnXrGetConfigPICO(app->session, DISPLAY_REFRESH_RATE, &refreshRate);
+        LOGI("PICO config: targetFPS=%.1f, refreshRate=%.1f", targetFps, refreshRate);
+    }
 
     XrReferenceSpaceCreateInfo rsci = {};
     rsci.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
@@ -533,8 +561,27 @@ static void poll_events(AppState* app) {
 
 static int g_frame_count = 0;
 static struct timespec g_fps_start = {};
+static float g_wait_total = 0, g_render_total = 0, g_end_total = 0;
+static float g_begin_total = 0, g_locate_total = 0, g_sc_wait_total = 0, g_gl_draw_total = 0, g_sc_rel_total = 0;
+static float g_mid_total = 0, g_sc_acq_total = 0;
+static float g_math_total = 0, g_flush_total = 0;
+static float g_flush_direct_total = 0;
+static float g_inter_total = 0;
+static struct timespec g_prev_end = {};
+
+static double ts_diff(const struct timespec& a, const struct timespec& b) {
+    return (a.tv_sec - b.tv_sec) + (a.tv_nsec - b.tv_nsec) * 1e-9;
+}
 
 static void render_frame(AppState* app) {
+    struct timespec t0, t1, t2, t3;
+    struct timespec ta, tb, tc, td, te;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+
+    if (g_prev_end.tv_sec != 0) {
+        g_inter_total += ts_diff(t0, g_prev_end);
+    }
+
     XrFrameWaitInfo fw = {};
     fw.type = XR_TYPE_FRAME_WAIT_INFO;
     XrFrameState fs = {};
@@ -544,6 +591,7 @@ static void render_frame(AppState* app) {
         LOGE("xrWaitFrame failed: %d", r);
         return;
     }
+    clock_gettime(CLOCK_MONOTONIC, &t1);
 
     XrFrameBeginInfo fb = {};
     fb.type = XR_TYPE_FRAME_BEGIN_INFO;
@@ -552,6 +600,7 @@ static void render_frame(AppState* app) {
         LOGE("xrBeginFrame failed: %d", r);
         return;
     }
+    clock_gettime(CLOCK_MONOTONIC, &ta);
 
     XrViewState vstate = {};
     vstate.type = XR_TYPE_VIEW_STATE;
@@ -567,6 +616,7 @@ static void render_frame(AppState* app) {
 
     uint32_t viewCount = 0;
     r = xrLocateViews(app->session, &vli, &vstate, NUM_EYES, &viewCount, views);
+    clock_gettime(CLOCK_MONOTONIC, &tb);
     if (r != XR_SUCCESS || viewCount != NUM_EYES) {
         LOGE("xrLocateViews failed: %d (count=%u)", r, viewCount);
         xrEndFrame(app->session, nullptr);
@@ -589,6 +639,9 @@ static void render_frame(AppState* app) {
     float dz = views[0].pose.position.z - views[1].pose.position.z;
     float ipd = sqrtf(dx*dx + dy*dy + dz*dz);
 
+    struct timespec tm1;
+    clock_gettime(CLOCK_MONOTONIC, &tm1);
+
     {
         std::lock_guard lock(g_state_mutex);
         memcpy(g_head_orient, head_orient, sizeof(g_head_orient));
@@ -602,10 +655,21 @@ static void render_frame(AppState* app) {
         cs[1] = g_controllers[1];
     }
 
+    struct timespec tm2;
+    clock_gettime(CLOCK_MONOTONIC, &tm2);
+
+    struct timespec tfl0, tfl1;
+    clock_gettime(CLOCK_MONOTONIC, &tfl0);
     app->lobby.flush_pending_texture();
+    clock_gettime(CLOCK_MONOTONIC, &tfl1);
+
+    struct timespec tf;
+    clock_gettime(CLOCK_MONOTONIC, &tf);
 
     XrCompositionLayerProjection layers[1];
     XrCompositionLayerProjectionView layerViews[NUM_EYES];
+
+    float sc_wait_ms = 0, gl_draw_ms = 0, sc_rel_ms = 0;
 
     for (uint32_t eye = 0; eye < NUM_EYES; eye++) {
         uint32_t imgIndex = 0;
@@ -620,7 +684,10 @@ static void render_frame(AppState* app) {
         XrSwapchainImageWaitInfo wi = {};
         wi.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
         wi.timeout = XR_INFINITE_DURATION;
+        clock_gettime(CLOCK_MONOTONIC, &tc);
         r = xrWaitSwapchainImage(app->swapchains[eye].handle, &wi);
+        clock_gettime(CLOCK_MONOTONIC, &td);
+        sc_wait_ms += ts_diff(td, tc) * 1000.0f;
         if (r != XR_SUCCESS) {
             LOGE("xrWaitSwapchainImage eye %u failed: %d", eye, r);
             continue;
@@ -639,12 +706,16 @@ static void render_frame(AppState* app) {
         } else {
             app->lobby.draw(eye, head_orient, head_pos, cs, views[eye].fov, ipd);
         }
+        clock_gettime(CLOCK_MONOTONIC, &te);
+        gl_draw_ms += ts_diff(te, td) * 1000.0f;
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
         XrSwapchainImageReleaseInfo ri = {};
         ri.type = XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
         xrReleaseSwapchainImage(app->swapchains[eye].handle, &ri);
+        clock_gettime(CLOCK_MONOTONIC, &tc);
+        sc_rel_ms += ts_diff(tc, te) * 1000.0f;
 
         layerViews[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
         layerViews[eye].pose = views[eye].pose;
@@ -654,6 +725,8 @@ static void render_frame(AppState* app) {
         layerViews[eye].subImage.imageRect.extent = {w, h};
         layerViews[eye].subImage.imageArrayIndex = 0;
     }
+
+    clock_gettime(CLOCK_MONOTONIC, &t2);
 
     layers[0].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
     layers[0].layerFlags = 0;
@@ -688,7 +761,7 @@ static void render_frame(AppState* app) {
                          (ty != prev_touch_y);
 
     if (state_changed || (hit_hand >= 0 && (tdown || tpressed))) {
-        if (g_jvm && g_activity) {
+        if (g_jvm && g_activity && g_onLobbyTouchMethod) {
             JNIEnv * env = nullptr;
             bool attached = false;
             if (g_jvm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
@@ -696,11 +769,7 @@ static void render_frame(AppState* app) {
                     attached = true;
             }
             if (env) {
-                jclass clazz = env->GetObjectClass(g_activity);
-                jmethodID method = env->GetMethodID(clazz, "onLobbyTouch", "(FFZZF)V");
-                if (method)
-                    env->CallVoidMethod(g_activity, method, tx, ty, tdown, tpressed, tthumb);
-                env->DeleteLocalRef(clazz);
+                env->CallVoidMethod(g_activity, g_onLobbyTouchMethod, tx, ty, tdown, tpressed, tthumb);
             }
             if (attached)
                 g_jvm->DetachCurrentThread();
@@ -727,6 +796,21 @@ static void render_frame(AppState* app) {
     if (r != XR_SUCCESS) {
         LOGE("xrEndFrame failed: %d", r);
     }
+    clock_gettime(CLOCK_MONOTONIC, &t3);
+    g_prev_end = t3;
+
+    g_wait_total += ts_diff(t1, t0);
+    g_begin_total += ts_diff(ta, t1);
+    g_locate_total += ts_diff(tb, ta);
+    g_mid_total += ts_diff(tf, tb);
+    g_math_total += ts_diff(tm1, tb);
+    g_flush_total += ts_diff(tf, tm2);
+    g_flush_direct_total += ts_diff(tfl1, tfl0);
+    g_sc_wait_total += sc_wait_ms / 1000.0f;
+    g_gl_draw_total += gl_draw_ms / 1000.0f;
+    g_sc_rel_total += sc_rel_ms / 1000.0f;
+    g_render_total += ts_diff(t2, t1);
+    g_end_total += ts_diff(t3, t2);
 
     g_frame_count++;
     if (g_fps_start.tv_sec == 0) {
@@ -737,8 +821,15 @@ static void render_frame(AppState* app) {
         float elapsed = (now.tv_sec - g_fps_start.tv_sec) + (now.tv_nsec - g_fps_start.tv_nsec) * 1e-9f;
         if (elapsed >= 10.0f) {
             float fps = g_frame_count / elapsed;
-            LOGI("FPS: %.1f (%d frames in %.1fs)", fps, g_frame_count, elapsed);
+            float frame_time = elapsed * 1000.0f / g_frame_count;
+            LOGI("FPS: %.1f | frame=%.1fms | flush=%.1f glDraw=%.1f end=%.1f",
+                 fps, frame_time,
+                 g_flush_direct_total * 1000.0f / g_frame_count,
+                 g_gl_draw_total * 1000.0f / g_frame_count,
+                 g_end_total * 1000.0f / g_frame_count);
             g_frame_count = 0;
+            g_wait_total = g_render_total = g_end_total = 0;
+            g_begin_total = g_locate_total = g_sc_wait_total = g_gl_draw_total = g_sc_rel_total = g_mid_total = g_math_total = g_flush_total = g_flush_direct_total = g_inter_total = 0;
             g_fps_start = now;
         }
     }
@@ -798,6 +889,10 @@ extern "C" void android_main(struct android_app* androidApp) {
     JNIEnv * env = nullptr;
     if (g_jvm->GetEnv((void**)&env, JNI_VERSION_1_6) == JNI_OK) {
         g_activity = env->NewGlobalRef(androidApp->activity->clazz);
+        jclass clazz = env->GetObjectClass(g_activity);
+        g_activityClass = (jclass)env->NewGlobalRef(clazz);
+        g_onLobbyTouchMethod = env->GetMethodID(clazz, "onLobbyTouch", "(FFZZF)V");
+        env->DeleteLocalRef(clazz);
     }
 
     if (!egl_init(&app)) {
@@ -863,8 +958,12 @@ extern "C" void android_main(struct android_app* androidApp) {
         JNIEnv * env = nullptr;
         if (g_jvm->GetEnv((void**)&env, JNI_VERSION_1_6) == JNI_OK) {
             env->DeleteGlobalRef(g_activity);
+            if (g_activityClass)
+                env->DeleteGlobalRef(g_activityClass);
         }
         g_activity = nullptr;
+        g_activityClass = nullptr;
+        g_onLobbyTouchMethod = nullptr;
     }
     g_jvm = nullptr;
 

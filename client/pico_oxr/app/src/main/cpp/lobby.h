@@ -4,6 +4,7 @@
 #include <openxr/openxr.h>
 #include <vector>
 #include <mutex>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 
@@ -91,7 +92,13 @@ class pico_lobby
 	std::vector<uint8_t> pending_tex_data;
 	int pending_tex_w = 0;
 	int pending_tex_h = 0;
-	bool tex_pending = false;
+	std::atomic<bool> tex_pending{false};
+
+	GLuint pbo[2] = {0, 0};
+	int pbo_index = 0;
+	bool pbo_init = false;
+	int pbo_w = 0;
+	int pbo_h = 0;
 
 	float panel_pos[3] = {0, 1.5f, -2.0f};
 	float panel_yaw = 0.0f;

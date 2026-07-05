@@ -80,8 +80,8 @@ public class WivrnLobbyView {
     private final Context context;
     private final Bitmap bitmap;
     private final Canvas canvas;
-    private final int width = 1400;
-    private final int height = 900;
+    private final int width = 400;
+    private final int height = 258;
 
     private int currentTab = TAB_SERVER_LIST;
     private int connectionState = STATE_IDLE;
@@ -262,6 +262,9 @@ public class WivrnLobbyView {
     }
 
     public void updateBatteryStatus(int hmdBatt, int leftBatt, boolean leftConn, int rightBatt, boolean rightConn) {
+        if (hmdBattery == hmdBatt && leftBattery == leftBatt && leftConnected == leftConn
+                && rightBattery == rightBatt && rightConnected == rightConn)
+            return;
         hmdBattery = hmdBatt;
         leftBattery = leftBatt;
         leftConnected = leftConn;
