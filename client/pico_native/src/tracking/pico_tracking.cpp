@@ -300,23 +300,38 @@ void pico_native_tracker::run()
 		int viewNum;
 		int rc = Pvr_GetMainSensorState(&qx, &qy, &qz, &qw, &px, &py, &pz, &vfov, &hfov, &viewNum);
 		h_valid = (rc >= 0);
+		if (!h_valid)
+		{
+			std::lock_guard lock(state_mutex);
+			h_valid = head_valid;
+			if (h_valid)
+			{
+				std::memcpy(h_orient, head_orient, sizeof(h_orient));
+				std::memcpy(h_pos, head_pos, sizeof(h_pos));
+			}
+		}
 		static int sensor_log_count = 0;
 		if (sensor_log_count < 5 || (sensor_log_count % 300) == 0) {
-			spdlog::info("Pvr_GetMainSensorState rc={} q=({:.3f},{:.3f},{:.3f},{:.3f}) p=({:.3f},{:.3f},{:.3f})",
-				rc, qx, qy, qz, qw, px, py, pz);
+			spdlog::info("sensor rc={} valid={} q=({:.3f},{:.3f},{:.3f},{:.3f}) p=({:.3f},{:.3f},{:.3f})",
+				rc, h_valid, h_orient[0], h_orient[1], h_orient[2], h_orient[3], h_pos[0], h_pos[1], h_pos[2]);
 			sensor_log_count++;
 		}
-		if (h_valid)
+		if (h_valid && rc >= 0)
 		{
 			h_orient[0] = qx; h_orient[1] = qy; h_orient[2] = qz; h_orient[3] = qw;
 			h_pos[0] = px; h_pos[1] = py; h_pos[2] = pz;
 
 			std::lock_guard lock(state_mutex);
 			std::memcpy(head_orient, h_orient, sizeof(head_orient));
-			std::memcpy(head_pos, h_pos, sizeof(head_pos));
+			std::memcpy(head_pos, h_pos, sizeof(h_pos));
 			head_valid = true;
 
 			neo2::quat hq = neo2::normalize_quat({qx, qy, qz, qw});
+			step_head_filter(h_pos, hq, ts);
+		}
+		else if (h_valid)
+		{
+			neo2::quat hq = neo2::normalize_quat({h_orient[0], h_orient[1], h_orient[2], h_orient[3]});
 			step_head_filter(h_pos, hq, ts);
 		}
 

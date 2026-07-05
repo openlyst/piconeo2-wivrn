@@ -706,12 +706,9 @@ static void render_frame(AppState* app) {
     float dz = views[0].pose.position.z - views[1].pose.position.z;
     float ipd = sqrtf(dx*dx + dy*dy + dz*dz);
 
-    if (app->stream.streaming.load())
-    {
-        app->stream.tracker.set_head_pose(head_orient, head_pos);
-        app->stream.eye_fov[0] = views[0].fov;
-        app->stream.eye_fov[1] = views[1].fov;
-    }
+    app->stream.tracker.set_head_pose(head_orient, head_pos);
+    app->stream.eye_fov[0] = views[0].fov;
+    app->stream.eye_fov[1] = views[1].fov;
 
     struct timespec tm1;
     clock_gettime(CLOCK_MONOTONIC, &tm1);
@@ -789,9 +786,13 @@ static void render_frame(AppState* app) {
         if (fbStatus != GL_FRAMEBUFFER_COMPLETE) {
             LOGE("Framebuffer incomplete: 0x%x (eye %u)", fbStatus, eye);
         } else if (app->stream.streaming.load()) {
+            static int blit_log_count = 0;
+            if (eye == 0 && (blit_log_count++ % 300 == 0)) LOGI("STREAMING: blit path active");
             GLuint swap_tex[2] = { glImg, glImg };
             app->blit.blit(&app->stream, swap_tex, w, h);
         } else {
+            static int lobby_log_count = 0;
+            if (eye == 0 && (lobby_log_count++ % 300 == 0)) LOGI("LOBBY: streaming=%d", (int)app->stream.streaming.load());
             app->lobby.draw(eye, head_orient, head_pos, cs, views[eye].fov, ipd);
         }
         clock_gettime(CLOCK_MONOTONIC, &te);
