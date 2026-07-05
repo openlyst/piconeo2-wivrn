@@ -462,9 +462,11 @@ static bool openxr_create_session(AppState* app) {
         return false;
     }
     for (uint32_t i = 0; i < NUM_EYES; i++) {
-        LOGI("Eye %u: %ux%u, samples=%u",
+        LOGI("Eye %u: recommended=%ux%u max=%ux%u samples=%u",
              i, app->viewConfigs[i].recommendedImageRectWidth,
              app->viewConfigs[i].recommendedImageRectHeight,
+             app->viewConfigs[i].maxImageRectWidth,
+             app->viewConfigs[i].maxImageRectHeight,
              app->viewConfigs[i].recommendedSwapchainSampleCount);
     }
 
@@ -473,8 +475,8 @@ static bool openxr_create_session(AppState* app) {
         swci.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
         swci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
         swci.format = GL_RGBA8;
-        swci.width = app->viewConfigs[eye].recommendedImageRectWidth;
-        swci.height = app->viewConfigs[eye].recommendedImageRectHeight;
+        swci.width = 1480;
+        swci.height = 1600;
         swci.sampleCount = app->viewConfigs[eye].recommendedSwapchainSampleCount;
         swci.faceCount = 1;
         swci.arraySize = 1;
