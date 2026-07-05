@@ -438,8 +438,8 @@ static bool openxr_create_session(AppState* app) {
         swci.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
         swci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
         swci.format = GL_RGBA8;
-        swci.width = app->viewConfigs[eye].maxImageRectWidth;
-        swci.height = app->viewConfigs[eye].maxImageRectHeight;
+        swci.width = app->viewConfigs[eye].recommendedImageRectWidth;
+        swci.height = app->viewConfigs[eye].recommendedImageRectHeight;
         swci.sampleCount = app->viewConfigs[eye].recommendedSwapchainSampleCount;
         swci.faceCount = 1;
         swci.arraySize = 1;
@@ -530,6 +530,9 @@ static void poll_events(AppState* app) {
 // ---------------------------------------------------------------------------
 // Render frame
 // ---------------------------------------------------------------------------
+
+static int g_frame_count = 0;
+static struct timespec g_fps_start = {};
 
 static void render_frame(AppState* app) {
     XrFrameWaitInfo fw = {};
@@ -723,6 +726,21 @@ static void render_frame(AppState* app) {
     r = xrEndFrame(app->session, &fe);
     if (r != XR_SUCCESS) {
         LOGE("xrEndFrame failed: %d", r);
+    }
+
+    g_frame_count++;
+    if (g_fps_start.tv_sec == 0) {
+        clock_gettime(CLOCK_MONOTONIC, &g_fps_start);
+    } else {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        float elapsed = (now.tv_sec - g_fps_start.tv_sec) + (now.tv_nsec - g_fps_start.tv_nsec) * 1e-9f;
+        if (elapsed >= 10.0f) {
+            float fps = g_frame_count / elapsed;
+            LOGI("FPS: %.1f (%d frames in %.1fs)", fps, g_frame_count, elapsed);
+            g_frame_count = 0;
+            g_fps_start = now;
+        }
     }
 }
 
