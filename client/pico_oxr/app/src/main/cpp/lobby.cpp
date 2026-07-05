@@ -375,7 +375,7 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	glDepthFunc(GL_LEQUAL);
 	glDisable(GL_CULL_FACE);
 
-	glClearColor(0.8f, 0.0f, 0.0f, 1.0f);
+	glClearColor(0.05f, 0.06f, 0.09f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	if (eye == 0)
@@ -509,7 +509,6 @@ void pico_lobby::flush_pending_texture()
 	glBindTexture(GL_TEXTURE_2D, ui_texture);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, data.data());
 	glBindTexture(GL_TEXTURE_2D, 0);
-	LOGI("Texture uploaded %dx%d", w, h);
 }
 
 void pico_lobby::draw_quad(const float head_orient[4], const float head_pos[3],

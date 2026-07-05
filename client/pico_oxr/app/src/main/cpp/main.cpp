@@ -438,8 +438,8 @@ static bool openxr_create_session(AppState* app) {
         swci.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
         swci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
         swci.format = GL_RGBA8;
-        swci.width = app->viewConfigs[eye].recommendedImageRectWidth;
-        swci.height = app->viewConfigs[eye].recommendedImageRectHeight;
+        swci.width = app->viewConfigs[eye].maxImageRectWidth;
+        swci.height = app->viewConfigs[eye].maxImageRectHeight;
         swci.sampleCount = app->viewConfigs[eye].recommendedSwapchainSampleCount;
         swci.faceCount = 1;
         swci.arraySize = 1;
