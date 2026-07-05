@@ -1,18 +1,16 @@
 // OpenXR POC: Spinning cube in stereo VR on Pico Neo 2
-// Uses the device's built-in OpenXR runtime (libruntime.pxr.so) directly.
+// Uses Pico's libopenxr_loader.so with NativeActivity.
 
 #include <jni.h>
-#include <android/native_window.h>
-#include <android/native_window_jni.h>
 #include <android/log.h>
-#include <dlfcn.h>
-#include <pthread.h>
+#include <android_native_app_glue.h>
+#include <android/input.h>
+#include <android/keycodes.h>
 #include <unistd.h>
-#include <atomic>
 #include <vector>
-#include <string>
-#include <cmath>
 #include <cstring>
+#include <cmath>
+#include <ctime>
 
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
@@ -21,7 +19,6 @@
 #define XR_USE_GRAPHICS_API_OPENGL_ES 1
 #include "openxr/openxr.h"
 #include "openxr/openxr_platform.h"
-#include "openxr/openxr_loader_negotiation.h"
 
 #define LOG_TAG "OpenXRPoc"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
@@ -75,9 +72,7 @@ static void mat4_perspective(float m[16], float fovLeft, float fovRight,
 
 static void mat4_translation(float m[16], float x, float y, float z) {
     mat4_identity(m);
-    m[12] = x;
-    m[13] = y;
-    m[14] = z;
+    m[12] = x; m[13] = y; m[14] = z;
 }
 
 static void mat4_rotation_y(float m[16], float rad) {
@@ -106,26 +101,20 @@ static void mat4_multiply(float out[16], const float a[16], const float b[16]) {
     memcpy(out, t, sizeof(float) * 16);
 }
 
-// Invert a rigid-body transform (rotation + translation)
 static void mat4_invert_rigid(float out[16], const float m[16]) {
-    // Transpose rotation part (3x3 upper-left, column-major)
     float r[16];
     mat4_identity(r);
     r[0] = m[0];  r[1] = m[4];  r[2] = m[8];
     r[4] = m[1];  r[5] = m[5];  r[6] = m[9];
     r[8] = m[2];  r[9] = m[6];  r[10] = m[10];
 
-    // -R^T * t
     float tx = -(r[0] * m[12] + r[4] * m[13] + r[8]  * m[14]);
     float ty = -(r[1] * m[12] + r[5] * m[13] + r[9]  * m[14]);
     float tz = -(r[2] * m[12] + r[6] * m[13] + r[10] * m[14]);
-    r[12] = tx;
-    r[13] = ty;
-    r[14] = tz;
+    r[12] = tx; r[13] = ty; r[14] = tz;
     memcpy(out, r, sizeof(float) * 16);
 }
 
-// Convert XrPosef ( quaternion + position ) to 4x4 matrix
 static void pose_to_mat4(float out[16], const XrPosef& pose) {
     float qx = pose.orientation.x;
     float qy = pose.orientation.y;
@@ -159,7 +148,7 @@ static void pose_to_mat4(float out[16], const XrPosef& pose) {
 }
 
 // ---------------------------------------------------------------------------
-// Cube geometry: 24 vertices (4 per face), 36 indices
+// Cube geometry
 // ---------------------------------------------------------------------------
 
 struct Vertex {
@@ -168,33 +157,27 @@ struct Vertex {
 };
 
 static const Vertex cubeVerts[] = {
-    // +X (red)
     {{ 0.5f, -0.5f, -0.5f}, {1, 0, 0}}, {{ 0.5f,  0.5f, -0.5f}, {1, 0, 0}},
     {{ 0.5f,  0.5f,  0.5f}, {1, 0, 0}}, {{ 0.5f, -0.5f,  0.5f}, {1, 0, 0}},
-    // -X (green)
     {{-0.5f, -0.5f,  0.5f}, {0, 1, 0}}, {{-0.5f,  0.5f,  0.5f}, {0, 1, 0}},
     {{-0.5f,  0.5f, -0.5f}, {0, 1, 0}}, {{-0.5f, -0.5f, -0.5f}, {0, 1, 0}},
-    // +Y (blue)
     {{-0.5f,  0.5f, -0.5f}, {0, 0, 1}}, {{-0.5f,  0.5f,  0.5f}, {0, 0, 1}},
     {{ 0.5f,  0.5f,  0.5f}, {0, 0, 1}}, {{ 0.5f,  0.5f, -0.5f}, {0, 0, 1}},
-    // -Y (yellow)
     {{-0.5f, -0.5f,  0.5f}, {1, 1, 0}}, {{-0.5f, -0.5f, -0.5f}, {1, 1, 0}},
     {{ 0.5f, -0.5f, -0.5f}, {1, 1, 0}}, {{ 0.5f, -0.5f,  0.5f}, {1, 1, 0}},
-    // +Z (magenta)
     {{ 0.5f, -0.5f,  0.5f}, {1, 0, 1}}, {{ 0.5f,  0.5f,  0.5f}, {1, 0, 1}},
     {{-0.5f,  0.5f,  0.5f}, {1, 0, 1}}, {{-0.5f, -0.5f,  0.5f}, {1, 0, 1}},
-    // -Z (cyan)
     {{-0.5f, -0.5f, -0.5f}, {0, 1, 1}}, {{-0.5f,  0.5f, -0.5f}, {0, 1, 1}},
     {{ 0.5f,  0.5f, -0.5f}, {0, 1, 1}}, {{ 0.5f, -0.5f, -0.5f}, {0, 1, 1}},
 };
 
 static const unsigned short cubeIndices[] = {
-     0,  1,  2,   0,  2,  3,   // +X
-     4,  5,  6,   4,  6,  7,   // -X
-     8,  9, 10,   8, 10, 11,   // +Y
-    12, 13, 14,  12, 14, 15,   // -Y
-    16, 17, 18,  16, 18, 19,   // +Z
-    20, 21, 22,  20, 22, 23,   // -Z
+     0,  1,  2,   0,  2,  3,
+     4,  5,  6,   4,  6,  7,
+     8,  9, 10,   8, 10, 11,
+    12, 13, 14,  12, 14, 15,
+    16, 17, 18,  16, 18, 19,
+    20, 21, 22,  20, 22, 23,
 };
 
 // ---------------------------------------------------------------------------
@@ -259,51 +242,6 @@ static GLuint make_program() {
 }
 
 // ---------------------------------------------------------------------------
-// OpenXR function pointer struct
-// ---------------------------------------------------------------------------
-
-struct OpenXRFns {
-    PFN_xrGetInstanceProcAddr        pfnGetInstanceProcAddr;
-    PFN_xrEnumerateInstanceExtensionProperties pfnEnumerateInstanceExtensionProperties;
-    PFN_xrCreateInstance             pfnCreateInstance;
-    PFN_xrGetInstanceProperties      pfnGetInstanceProperties;
-    PFN_xrGetSystem                  pfnGetSystem;
-    PFN_xrGetSystemProperties        pfnGetSystemProperties;
-    PFN_xrCreateSession              pfnCreateSession;
-    PFN_xrDestroySession             pfnDestroySession;
-    PFN_xrCreateReferenceSpace       pfnCreateReferenceSpace;
-    PFN_xrDestroySpace               pfnDestroySpace;
-    PFN_xrEnumerateViewConfigurations pfnEnumerateViewConfigurations;
-    PFN_xrEnumerateViewConfigurationViews pfnEnumerateViewConfigurationViews;
-    PFN_xrCreateSwapchain            pfnCreateSwapchain;
-    PFN_xrDestroySwapchain           pfnDestroySwapchain;
-    PFN_xrEnumerateSwapchainImages   pfnEnumerateSwapchainImages;
-    PFN_xrAcquireSwapchainImage      pfnAcquireSwapchainImage;
-    PFN_xrWaitSwapchainImage         pfnWaitSwapchainImage;
-    PFN_xrReleaseSwapchainImage      pfnReleaseSwapchainImage;
-    PFN_xrWaitFrame                  pfnWaitFrame;
-    PFN_xrBeginFrame                 pfnBeginFrame;
-    PFN_xrEndFrame                   pfnEndFrame;
-    PFN_xrLocateViews                pfnLocateViews;
-    PFN_xrPollEvent                  pfnPollEvent;
-    PFN_xrDestroyInstance            pfnDestroyInstance;
-    PFN_xrGetOpenGLESGraphicsRequirementsKHR pfnGetOpenGLESGraphicsRequirementsKHR;
-    PFN_xrBeginSession               pfnBeginSession;
-    PFN_xrEndSession                 pfnEndSession;
-    PFN_xrRequestExitSession         pfnRequestExitSession;
-};
-
-#define LOAD_FN(name) \
-    do { \
-        XrResult _r = app->xr.pfnGetInstanceProcAddr(app->instance, "xr" #name, \
-            reinterpret_cast<PFN_xrVoidFunction*>(&app->xr.pfn##name)); \
-        if (_r != XR_SUCCESS) { \
-            LOGE("Failed to load %s: %d", #name, _r); \
-            return false; \
-        } \
-    } while (0)
-
-// ---------------------------------------------------------------------------
 // App state
 // ---------------------------------------------------------------------------
 
@@ -315,51 +253,34 @@ struct SwapchainState {
 };
 
 struct AppState {
-    // EGL
     EGLDisplay display = EGL_NO_DISPLAY;
     EGLConfig config = nullptr;
     EGLContext context = EGL_NO_CONTEXT;
     EGLSurface surface = EGL_NO_SURFACE;
-    ANativeWindow* window = nullptr;
 
-    // Android
-    JavaVM* javaVM = nullptr;
-    jobject activity = nullptr;
-    jobject surfaceView = nullptr;
-
-    // OpenXR
-    void* runtimeLib = nullptr;
-    OpenXRFns xr;
     XrInstance instance = XR_NULL_HANDLE;
     XrSystemId systemId = XR_NULL_SYSTEM_ID;
     XrSession session = XR_NULL_HANDLE;
     XrSpace localSpace = XR_NULL_HANDLE;
     XrSessionState sessionState = XR_SESSION_STATE_UNKNOWN;
+    bool sessionRunning = false;
 
     SwapchainState swapchains[NUM_EYES];
-    uint32_t viewConfigCount = 0;
     XrViewConfigurationView viewConfigs[NUM_EYES] = {};
 
-    // GL
     GLuint program = 0;
     GLuint vao = 0;
     GLuint vbo = 0;
     GLuint ibo = 0;
     GLint mvpLoc = -1;
-
-    // Render thread
-    pthread_t renderThread;
-    std::atomic<bool> running{false};
-    std::atomic<bool> sessionActive{false};
-    std::atomic<bool> shouldExit{false};
+    GLuint fbo = 0;
 
     float startTime = 0.f;
+    bool shouldExit = false;
 };
 
-static AppState* g_app = nullptr;
-
 // ---------------------------------------------------------------------------
-// EGL
+// EGL: windowless context (pbuffer surface) for OpenXR rendering
 // ---------------------------------------------------------------------------
 
 static bool egl_init(AppState* app) {
@@ -383,7 +304,7 @@ static bool egl_init(AppState* app) {
         EGL_ALPHA_SIZE, 8,
         EGL_DEPTH_SIZE, 24,
         EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
-        EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
         EGL_NONE
     };
 
@@ -400,39 +321,29 @@ static bool egl_init(AppState* app) {
         return false;
     }
 
-    eglMakeCurrent(app->display, EGL_NO_SURFACE, EGL_NO_SURFACE, app->context);
-    LOGI("EGL context created (GLES3)");
+    const EGLint pbAttribs[] = { EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE };
+    app->surface = eglCreatePbufferSurface(app->display, app->config, pbAttribs);
+    if (app->surface == EGL_NO_SURFACE) {
+        LOGE("eglCreatePbufferSurface failed: 0x%x", eglGetError());
+        return false;
+    }
+
+    if (!eglMakeCurrent(app->display, app->surface, app->surface, app->context)) {
+        LOGE("eglMakeCurrent failed: 0x%x", eglGetError());
+        return false;
+    }
+
+    LOGI("EGL context created (GLES3, windowless)");
     return true;
 }
 
-static bool egl_create_surface(AppState* app, ANativeWindow* win) {
-    app->window = win;
-    // Don't create an EGL window surface — the OpenXR runtime creates its own
-    // surface on the ANativeWindow for the compositor. If we create one first,
-    // the runtime gets EGL_BAD_NATIVE_WINDOW.
-    // We just need the EGL context current with no surface for rendering to FBOs.
-    eglMakeCurrent(app->display, EGL_NO_SURFACE, EGL_NO_SURFACE, app->context);
-    LOGI("ANativeWindow stored (no EGL surface — runtime handles it)");
-    return true;
-}
-
-static void egl_destroy_surface(AppState* app) {
+static void egl_shutdown(AppState* app) {
     if (app->display != EGL_NO_DISPLAY) {
         eglMakeCurrent(app->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         if (app->surface != EGL_NO_SURFACE) {
             eglDestroySurface(app->display, app->surface);
             app->surface = EGL_NO_SURFACE;
         }
-    }
-    if (app->window) {
-        ANativeWindow_release(app->window);
-        app->window = nullptr;
-    }
-}
-
-static void egl_shutdown(AppState* app) {
-    if (app->display != EGL_NO_DISPLAY) {
-        eglMakeCurrent(app->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         if (app->context != EGL_NO_CONTEXT) {
             eglDestroyContext(app->display, app->context);
             app->context = EGL_NO_CONTEXT;
@@ -443,108 +354,38 @@ static void egl_shutdown(AppState* app) {
 }
 
 // ---------------------------------------------------------------------------
-// OpenXR init
+// OpenXR initialization
 // ---------------------------------------------------------------------------
 
-static bool openxr_load_runtime(AppState* app, JavaVM* vm, jobject context) {
-    app->runtimeLib = dlopen("libruntime.pxr.so", RTLD_NOW | RTLD_GLOBAL);
-    if (!app->runtimeLib) {
-        LOGE("dlopen libruntime.pxr.so failed: %s", dlerror());
-        return false;
+static bool openxr_init(struct android_app* androidApp, AppState* app) {
+    PFN_xrInitializeLoaderKHR initializeLoader = nullptr;
+    if (XR_SUCCEEDED(
+            xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR",
+                                  (PFN_xrVoidFunction*)(&initializeLoader)))) {
+        XrLoaderInitInfoAndroidKHR loaderInitInfo;
+        memset(&loaderInitInfo, 0, sizeof(loaderInitInfo));
+        loaderInitInfo.type = XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR;
+        loaderInitInfo.next = nullptr;
+        loaderInitInfo.applicationVM = androidApp->activity->vm;
+        loaderInitInfo.applicationContext = androidApp->activity->clazz;
+        CHK_XR(initializeLoader((const XrLoaderInitInfoBaseHeaderKHR*)&loaderInitInfo),
+               "xrInitializeLoaderKHR");
+        LOGI("xrInitializeLoaderKHR succeeded");
     }
 
-    auto negotiate = reinterpret_cast<PFN_xrNegotiateLoaderRuntimeInterface>(
-        dlsym(app->runtimeLib, "xrNegotiateLoaderRuntimeInterface"));
-    if (!negotiate) {
-        LOGE("xrNegotiateLoaderRuntimeInterface not found: %s", dlerror());
-        return false;
-    }
-
-    XrNegotiateLoaderInfo loaderInfo = {};
-    loaderInfo.structType = XR_LOADER_INTERFACE_STRUCT_LOADER_INFO;
-    loaderInfo.structVersion = XR_LOADER_INFO_STRUCT_VERSION;
-    loaderInfo.structSize = sizeof(XrNegotiateLoaderInfo);
-    loaderInfo.minInterfaceVersion = 1;
-    loaderInfo.maxInterfaceVersion = XR_CURRENT_LOADER_RUNTIME_VERSION;
-    loaderInfo.minApiVersion = XR_MAKE_VERSION(1, 0, 0);
-    loaderInfo.maxApiVersion = XR_MAKE_VERSION(1, 1, 0);
-
-    XrNegotiateRuntimeRequest runtimeReq = {};
-    runtimeReq.structType = XR_LOADER_INTERFACE_STRUCT_RUNTIME_REQUEST;
-    runtimeReq.structVersion = XR_RUNTIME_INFO_STRUCT_VERSION;
-    runtimeReq.structSize = sizeof(XrNegotiateRuntimeRequest);
-
-    XrResult r = negotiate(&loaderInfo, &runtimeReq);
-    if (r != XR_SUCCESS) {
-        LOGE("xrNegotiateLoaderRuntimeInterface failed: %d", r);
-        return false;
-    }
-
-    app->xr.pfnGetInstanceProcAddr = runtimeReq.getInstanceProcAddr;
-    if (!app->xr.pfnGetInstanceProcAddr) {
-        LOGE("negotiate returned null getInstanceProcAddr");
-        return false;
-    }
-
-    LOGI("OpenXR runtime loaded (API %d.%d.%d, iface v%u)",
-         XR_VERSION_MAJOR(runtimeReq.runtimeApiVersion),
-         XR_VERSION_MINOR(runtimeReq.runtimeApiVersion),
-         XR_VERSION_PATCH(runtimeReq.runtimeApiVersion),
-         runtimeReq.runtimeInterfaceVersion);
-
-    // Initialize loader with Android context
-    auto initLoader = reinterpret_cast<PFN_xrInitializeLoaderKHR>(
-        dlsym(app->runtimeLib, "xrInitializeLoaderKHR"));
-    if (initLoader) {
-        XrLoaderInitInfoAndroidKHR initInfo = {};
-        initInfo.type = XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR;
-        initInfo.next = nullptr;
-        initInfo.applicationVM = vm;
-        initInfo.applicationContext = context;
-        r = initLoader(reinterpret_cast<XrLoaderInitInfoBaseHeaderKHR*>(&initInfo));
-        if (r == XR_SUCCESS) {
-            LOGI("xrInitializeLoaderKHR succeeded");
-        } else {
-            LOGW("xrInitializeLoaderKHR failed: %d (continuing)", r);
-        }
-    } else {
-        LOGW("xrInitializeLoaderKHR not found (continuing)");
-    }
-
-    return true;
-}
-
-static bool openxr_create_instance(AppState* app) {
-    // Try loading bootstrap functions via negotiated getInstanceProcAddr
-    // The Pico runtime doesn't export xr* symbols in its dynamic table,
-    // but xrGetInstanceProcAddr may work for some functions even with null instance
-    XrResult r;
-
-    r = app->xr.pfnGetInstanceProcAddr(XR_NULL_HANDLE, "xrEnumerateInstanceExtensionProperties",
-        reinterpret_cast<PFN_xrVoidFunction*>(&app->xr.pfnEnumerateInstanceExtensionProperties));
-    LOGI("Load EnumerateInstanceExtensionProperties via GPA: %d, ptr=%p", r, (void*)app->xr.pfnEnumerateInstanceExtensionProperties);
-
-    r = app->xr.pfnGetInstanceProcAddr(XR_NULL_HANDLE, "xrCreateInstance",
-        reinterpret_cast<PFN_xrVoidFunction*>(&app->xr.pfnCreateInstance));
-    LOGI("Load CreateInstance via GPA: %d, ptr=%p", r, (void*)app->xr.pfnCreateInstance);
-
-    if (!app->xr.pfnEnumerateInstanceExtensionProperties || !app->xr.pfnCreateInstance) {
-        LOGE("Failed to load bootstrap functions");
-        return false;
-    }
-
-    // Enumerate extensions to see if GLES is supported
     uint32_t extCount = 0;
-    app->xr.pfnEnumerateInstanceExtensionProperties(nullptr, 0, &extCount, nullptr);
+    xrEnumerateInstanceExtensionProperties(nullptr, 0, &extCount, nullptr);
     std::vector<XrExtensionProperties> exts(extCount);
     for (auto& e : exts) e.type = XR_TYPE_EXTENSION_PROPERTIES;
-    app->xr.pfnEnumerateInstanceExtensionProperties(nullptr, extCount, &extCount, exts.data());
+    xrEnumerateInstanceExtensionProperties(nullptr, extCount, &extCount, exts.data());
 
-    bool hasGLES = false;
+    bool hasGLES = false, hasAndroidCI = false;
     for (const auto& e : exts) {
         LOGI("Extension: %s", e.extensionName);
         if (strcmp(e.extensionName, XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME) == 0)
             hasGLES = true;
+        if (strcmp(e.extensionName, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME) == 0)
+            hasAndroidCI = true;
     }
     if (!hasGLES) {
         LOGE("XR_KHR_opengl_es_enable not supported");
@@ -554,90 +395,43 @@ static bool openxr_create_instance(AppState* app) {
     const char* enabledExts[] = {
         XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME,
         XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME,
-        "XR_PICO_android_create_instance_ext_enable",
-        "XR_PICO_session_begin_info_ext_enable",
     };
-
-    // PICO-specific struct chained after androidCI to pass ANativeWindow
-    struct XrInstanceCreateInfoPICOAndroid {
-        XrStructureType type;
-        const void* next;
-        void* nativeWindow;
-        void* surfaceView;
-    } picoCI = {};
-    picoCI.type = XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR;
-    picoCI.next = nullptr;
-    picoCI.nativeWindow = app->window;
-    picoCI.surfaceView = nullptr;
 
     XrInstanceCreateInfoAndroidKHR androidCI = {};
     androidCI.type = XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR;
-    androidCI.next = &picoCI;
-    androidCI.applicationVM = app->javaVM;
-    androidCI.applicationActivity = app->activity;
+    androidCI.next = nullptr;
+    androidCI.applicationVM = androidApp->activity->vm;
+    androidCI.applicationActivity = androidApp->activity->clazz;
 
     XrInstanceCreateInfo ci = {};
     ci.type = XR_TYPE_INSTANCE_CREATE_INFO;
     ci.next = &androidCI;
-    ci.enabledExtensionCount = 4;
+    ci.enabledExtensionCount = hasAndroidCI ? 2 : 1;
     ci.enabledExtensionNames = enabledExts;
     strcpy(ci.applicationInfo.applicationName, "OpenXR POC");
     ci.applicationInfo.applicationVersion = 1;
     strcpy(ci.applicationInfo.engineName, "No Engine");
     ci.applicationInfo.engineVersion = 0;
-    ci.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
+    ci.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
 
-    r = app->xr.pfnCreateInstance(&ci, &app->instance);
+    XrResult r = xrCreateInstance(&ci, &app->instance);
     if (r != XR_SUCCESS) {
         LOGE("xrCreateInstance failed: %d", r);
         return false;
     }
 
-    // Load instance-level functions via getInstanceProcAddr (now that we have an instance)
-    LOAD_FN(GetInstanceProperties);
-
     XrInstanceProperties ip = {};
     ip.type = XR_TYPE_INSTANCE_PROPERTIES;
-    app->xr.pfnGetInstanceProperties(app->instance, &ip);
+    xrGetInstanceProperties(app->instance, &ip);
     LOGI("OpenXR runtime: %s (v%d.%d.%d)", ip.runtimeName,
          XR_VERSION_MAJOR(ip.runtimeVersion),
          XR_VERSION_MINOR(ip.runtimeVersion),
          XR_VERSION_PATCH(ip.runtimeVersion));
 
-    LOAD_FN(GetSystem);
-    LOAD_FN(GetSystemProperties);
-    LOAD_FN(CreateSession);
-    LOAD_FN(DestroySession);
-    LOAD_FN(CreateReferenceSpace);
-    LOAD_FN(DestroySpace);
-    LOAD_FN(EnumerateViewConfigurations);
-    LOAD_FN(EnumerateViewConfigurationViews);
-    LOAD_FN(CreateSwapchain);
-    LOAD_FN(DestroySwapchain);
-    LOAD_FN(EnumerateSwapchainImages);
-    LOAD_FN(AcquireSwapchainImage);
-    LOAD_FN(WaitSwapchainImage);
-    LOAD_FN(ReleaseSwapchainImage);
-    LOAD_FN(WaitFrame);
-    LOAD_FN(BeginFrame);
-    LOAD_FN(EndFrame);
-    LOAD_FN(LocateViews);
-    LOAD_FN(PollEvent);
-    LOAD_FN(DestroyInstance);
-    LOAD_FN(GetOpenGLESGraphicsRequirementsKHR);
-    LOAD_FN(BeginSession);
-    LOAD_FN(EndSession);
-    LOAD_FN(RequestExitSession);
-
-    return true;
-}
-
-static bool openxr_get_system(AppState* app) {
     XrSystemGetInfo si = {};
     si.type = XR_TYPE_SYSTEM_GET_INFO;
     si.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
-
-    XrResult r = app->xr.pfnGetSystem(app->instance, &si, &app->systemId);
+    r = xrGetSystem(app->instance, &si, &app->systemId);
     if (r != XR_SUCCESS) {
         LOGE("xrGetSystem failed: %d", r);
         return false;
@@ -645,16 +439,23 @@ static bool openxr_get_system(AppState* app) {
 
     XrSystemProperties sp = {};
     sp.type = XR_TYPE_SYSTEM_PROPERTIES;
-    app->xr.pfnGetSystemProperties(app->instance, app->systemId, &sp);
+    xrGetSystemProperties(app->instance, app->systemId, &sp);
     LOGI("System: %s, maxLayers=%u, maxSwapchainW=%u, maxSwapchainH=%u",
          sp.systemName, sp.graphicsProperties.maxLayerCount,
          sp.graphicsProperties.maxSwapchainImageWidth,
          sp.graphicsProperties.maxSwapchainImageHeight);
 
-    // Check GLES requirements
+    PFN_xrGetOpenGLESGraphicsRequirementsKHR pfnGetGLESReqs = nullptr;
+    xrGetInstanceProcAddr(app->instance, "xrGetOpenGLESGraphicsRequirementsKHR",
+                          reinterpret_cast<PFN_xrVoidFunction*>(&pfnGetGLESReqs));
+    if (!pfnGetGLESReqs) {
+        LOGE("Failed to load xrGetOpenGLESGraphicsRequirementsKHR");
+        return false;
+    }
+
     XrGraphicsRequirementsOpenGLESKHR req = {};
     req.type = XR_TYPE_GRAPHICS_REQUIREMENTS_OPENGL_ES_KHR;
-    r = app->xr.pfnGetOpenGLESGraphicsRequirementsKHR(app->instance, app->systemId, &req);
+    r = pfnGetGLESReqs(app->instance, app->systemId, &req);
     if (r != XR_SUCCESS) {
         LOGE("xrGetOpenGLESGraphicsRequirementsKHR failed: %d", r);
         return false;
@@ -680,40 +481,29 @@ static bool openxr_create_session(AppState* app) {
     sci.next = &binding;
     sci.systemId = app->systemId;
 
-    XrResult r = app->xr.pfnCreateSession(app->instance, &sci, &app->session);
+    XrResult r = xrCreateSession(app->instance, &sci, &app->session);
     if (r != XR_SUCCESS) {
         LOGE("xrCreateSession failed: %d", r);
         return false;
     }
     LOGI("Session created");
 
-    // Local reference space
     XrReferenceSpaceCreateInfo rsci = {};
     rsci.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
     rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
     rsci.poseInReferenceSpace.orientation.w = 1.f;
 
-    r = app->xr.pfnCreateReferenceSpace(app->session, &rsci, &app->localSpace);
+    r = xrCreateReferenceSpace(app->session, &rsci, &app->localSpace);
     if (r != XR_SUCCESS) {
         LOGE("xrCreateReferenceSpace failed: %d", r);
         return false;
     }
 
-    // Enumerate view configs
-    uint32_t viewConfigTypeCount = 0;
-    app->xr.pfnEnumerateViewConfigurations(app->instance, app->systemId, 0, &viewConfigTypeCount, nullptr);
-    std::vector<XrViewConfigurationType> types(viewConfigTypeCount);
-    app->xr.pfnEnumerateViewConfigurations(app->instance, app->systemId, viewConfigTypeCount, &viewConfigTypeCount, types.data());
-    for (auto t : types)
-        LOGI("View config type: %d", t);
-
-    // Use stereo (primary) config
-    app->viewConfigCount = NUM_EYES;
     for (uint32_t i = 0; i < NUM_EYES; i++)
         app->viewConfigs[i].type = XR_TYPE_VIEW_CONFIGURATION_VIEW;
 
     uint32_t actualCount = NUM_EYES;
-    r = app->xr.pfnEnumerateViewConfigurationViews(
+    r = xrEnumerateViewConfigurationViews(
         app->instance, app->systemId, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
         NUM_EYES, &actualCount, app->viewConfigs);
     if (r != XR_SUCCESS) {
@@ -727,7 +517,6 @@ static bool openxr_create_session(AppState* app) {
              app->viewConfigs[i].recommendedSwapchainSampleCount);
     }
 
-    // Create swapchains
     for (uint32_t eye = 0; eye < NUM_EYES; eye++) {
         XrSwapchainCreateInfo swci = {};
         swci.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
@@ -740,7 +529,7 @@ static bool openxr_create_session(AppState* app) {
         swci.arraySize = 1;
         swci.mipCount = 1;
 
-        r = app->xr.pfnCreateSwapchain(app->session, &swci, &app->swapchains[eye].handle);
+        r = xrCreateSwapchain(app->session, &swci, &app->swapchains[eye].handle);
         if (r != XR_SUCCESS) {
             LOGE("xrCreateSwapchain eye %u failed: %d", eye, r);
             return false;
@@ -749,12 +538,11 @@ static bool openxr_create_session(AppState* app) {
         app->swapchains[eye].height = swci.height;
 
         uint32_t imgCount = 0;
-        app->xr.pfnEnumerateSwapchainImages(app->swapchains[eye].handle, 0, &imgCount, nullptr);
+        xrEnumerateSwapchainImages(app->swapchains[eye].handle, 0, &imgCount, nullptr);
         app->swapchains[eye].images.resize(imgCount);
-        for (auto& img : app->swapchains[eye].images) {
+        for (auto& img : app->swapchains[eye].images)
             img.type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
-        }
-        app->xr.pfnEnumerateSwapchainImages(app->swapchains[eye].handle, imgCount, &imgCount,
+        xrEnumerateSwapchainImages(app->swapchains[eye].handle, imgCount, &imgCount,
             reinterpret_cast<XrSwapchainImageBaseHeader*>(app->swapchains[eye].images.data()));
         LOGI("Eye %u swapchain: %ux%u, %u images", eye, swci.width, swci.height, imgCount);
     }
@@ -765,17 +553,17 @@ static bool openxr_create_session(AppState* app) {
 static void openxr_destroy_session(AppState* app) {
     for (uint32_t eye = 0; eye < NUM_EYES; eye++) {
         if (app->swapchains[eye].handle) {
-            app->xr.pfnDestroySwapchain(app->swapchains[eye].handle);
+            xrDestroySwapchain(app->swapchains[eye].handle);
             app->swapchains[eye].handle = XR_NULL_HANDLE;
             app->swapchains[eye].images.clear();
         }
     }
     if (app->localSpace) {
-        app->xr.pfnDestroySpace(app->localSpace);
+        xrDestroySpace(app->localSpace);
         app->localSpace = XR_NULL_HANDLE;
     }
     if (app->session) {
-        app->xr.pfnDestroySession(app->session);
+        xrDestroySession(app->session);
         app->session = XR_NULL_HANDLE;
     }
 }
@@ -806,25 +594,28 @@ static bool gl_init(AppState* app) {
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, color));
 
     glBindVertexArray(0);
+
+    glGenFramebuffers(1, &app->fbo);
     return true;
 }
 
 static void gl_cleanup(AppState* app) {
+    if (app->fbo) glDeleteFramebuffers(1, &app->fbo);
     if (app->vao) glDeleteVertexArrays(1, &app->vao);
     if (app->vbo) glDeleteBuffers(1, &app->vbo);
     if (app->ibo) glDeleteBuffers(1, &app->ibo);
     if (app->program) glDeleteProgram(app->program);
-    app->vao = app->vbo = app->ibo = app->program = 0;
+    app->fbo = app->vao = app->vbo = app->ibo = app->program = 0;
 }
 
 // ---------------------------------------------------------------------------
-// Render loop
+// Event handling
 // ---------------------------------------------------------------------------
 
 static void poll_events(AppState* app) {
     XrEventDataBuffer edb = {};
     edb.type = XR_TYPE_EVENT_DATA_BUFFER;
-    while (app->xr.pfnPollEvent(app->instance, &edb) == XR_SUCCESS) {
+    while (xrPollEvent(app->instance, &edb) == XR_SUCCESS) {
         switch (edb.type) {
         case XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED: {
             auto* evt = reinterpret_cast<XrEventDataSessionStateChanged*>(&edb);
@@ -836,16 +627,16 @@ static void poll_events(AppState* app) {
                 XrSessionBeginInfo bi = {};
                 bi.type = XR_TYPE_SESSION_BEGIN_INFO;
                 bi.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
-                XrResult r = app->xr.pfnBeginSession(app->session, &bi);
+                XrResult r = xrBeginSession(app->session, &bi);
                 if (r == XR_SUCCESS) {
-                    app->sessionActive = true;
+                    app->sessionRunning = true;
                     LOGI("Session begun");
                 } else {
                     LOGE("xrBeginSession failed: %d", r);
                 }
             } else if (evt->state == XR_SESSION_STATE_STOPPING) {
-                app->sessionActive = false;
-                app->xr.pfnEndSession(app->session);
+                app->sessionRunning = false;
+                xrEndSession(app->session);
                 LOGI("Session ended");
             } else if (evt->state == XR_SESSION_STATE_EXITING) {
                 app->shouldExit = true;
@@ -860,28 +651,29 @@ static void poll_events(AppState* app) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Render frame
+// ---------------------------------------------------------------------------
+
 static void render_frame(AppState* app) {
-    // Wait frame
     XrFrameWaitInfo fw = {};
     fw.type = XR_TYPE_FRAME_WAIT_INFO;
     XrFrameState fs = {};
     fs.type = XR_TYPE_FRAME_STATE;
-    XrResult r = app->xr.pfnWaitFrame(app->session, &fw, &fs);
+    XrResult r = xrWaitFrame(app->session, &fw, &fs);
     if (r != XR_SUCCESS) {
         LOGE("xrWaitFrame failed: %d", r);
         return;
     }
 
-    // Begin frame
     XrFrameBeginInfo fb = {};
     fb.type = XR_TYPE_FRAME_BEGIN_INFO;
-    r = app->xr.pfnBeginFrame(app->session, &fb);
+    r = xrBeginFrame(app->session, &fb);
     if (r != XR_SUCCESS) {
         LOGE("xrBeginFrame failed: %d", r);
         return;
     }
 
-    // Locate views
     XrViewState vstate = {};
     vstate.type = XR_TYPE_VIEW_STATE;
 
@@ -895,25 +687,23 @@ static void render_frame(AppState* app) {
     for (auto& v : views) v.type = XR_TYPE_VIEW;
 
     uint32_t viewCount = 0;
-    r = app->xr.pfnLocateViews(app->session, &vli, &vstate, NUM_EYES, &viewCount, views);
+    r = xrLocateViews(app->session, &vli, &vstate, NUM_EYES, &viewCount, views);
     if (r != XR_SUCCESS || viewCount != NUM_EYES) {
         LOGE("xrLocateViews failed: %d (count=%u)", r, viewCount);
-        app->xr.pfnEndFrame(app->session, nullptr);
+        xrEndFrame(app->session, nullptr);
         return;
     }
 
-    // Build projection layers
     XrCompositionLayerProjection layers[1];
     XrCompositionLayerProjectionView layerViews[NUM_EYES];
 
     float time = (float)((double)fs.predictedDisplayTime / 1e9) - app->startTime;
 
     for (uint32_t eye = 0; eye < NUM_EYES; eye++) {
-        // Acquire swapchain image
         uint32_t imgIndex = 0;
         XrSwapchainImageAcquireInfo ai = {};
         ai.type = XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO;
-        r = app->xr.pfnAcquireSwapchainImage(app->swapchains[eye].handle, &ai, &imgIndex);
+        r = xrAcquireSwapchainImage(app->swapchains[eye].handle, &ai, &imgIndex);
         if (r != XR_SUCCESS) {
             LOGE("xrAcquireSwapchainImage eye %u failed: %d", eye, r);
             continue;
@@ -922,7 +712,7 @@ static void render_frame(AppState* app) {
         XrSwapchainImageWaitInfo wi = {};
         wi.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
         wi.timeout = XR_INFINITE_DURATION;
-        r = app->xr.pfnWaitSwapchainImage(app->swapchains[eye].handle, &wi);
+        r = xrWaitSwapchainImage(app->swapchains[eye].handle, &wi);
         if (r != XR_SUCCESS) {
             LOGE("xrWaitSwapchainImage eye %u failed: %d", eye, r);
             continue;
@@ -932,10 +722,7 @@ static void render_frame(AppState* app) {
         int32_t w = app->swapchains[eye].width;
         int32_t h = app->swapchains[eye].height;
 
-        // Render to swapchain image via FBO
-        GLuint fbo;
-        glGenFramebuffers(1, &fbo);
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, app->fbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, glImg, 0);
 
         glViewport(0, 0, w, h);
@@ -945,7 +732,6 @@ static void render_frame(AppState* app) {
 
         glUseProgram(app->program);
 
-        // Projection from FOV
         float proj[16];
         mat4_perspective(proj,
                          views[eye].fov.angleLeft,
@@ -954,12 +740,10 @@ static void render_frame(AppState* app) {
                          views[eye].fov.angleDown,
                          0.05f, 100.f);
 
-        // View from pose
         float viewMat[16], invView[16];
         pose_to_mat4(viewMat, views[eye].pose);
         mat4_invert_rigid(invView, viewMat);
 
-        // Model: spinning cube at z=-2
         float rotY[16], rotX[16], trans[16], model[16], mv[16], mvp[16];
         mat4_rotation_y(rotY, time * 0.8f);
         mat4_rotation_x(rotX, time * 0.5f);
@@ -976,14 +760,11 @@ static void render_frame(AppState* app) {
         glBindVertexArray(0);
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glDeleteFramebuffers(1, &fbo);
 
-        // Release swapchain image
         XrSwapchainImageReleaseInfo ri = {};
         ri.type = XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
-        app->xr.pfnReleaseSwapchainImage(app->swapchains[eye].handle, &ri);
+        xrReleaseSwapchainImage(app->swapchains[eye].handle, &ri);
 
-        // Fill layer view
         layerViews[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
         layerViews[eye].pose = views[eye].pose;
         layerViews[eye].fov = views[eye].fov;
@@ -993,7 +774,6 @@ static void render_frame(AppState* app) {
         layerViews[eye].subImage.imageArrayIndex = 0;
     }
 
-    // End frame with projection layer
     layers[0].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
     layers[0].layerFlags = 0;
     layers[0].space = app->localSpace;
@@ -1011,178 +791,124 @@ static void render_frame(AppState* app) {
     fe.layerCount = 1;
     fe.layers = layerHeaders;
 
-    r = app->xr.pfnEndFrame(app->session, &fe);
+    r = xrEndFrame(app->session, &fe);
     if (r != XR_SUCCESS) {
         LOGE("xrEndFrame failed: %d", r);
     }
 }
 
-static void* render_thread(void* arg) {
-    AppState* app = static_cast<AppState*>(arg);
+// ---------------------------------------------------------------------------
+// Android main
+// ---------------------------------------------------------------------------
+
+struct AndroidAppState {
+    ANativeWindow* nativeWindow = nullptr;
+    bool resumed = false;
+};
+
+static void app_handle_cmd(struct android_app* app, int32_t cmd) {
+    AndroidAppState* state = (AndroidAppState*)app->userData;
+    switch (cmd) {
+        case APP_CMD_RESUME:
+            state->resumed = true;
+            break;
+        case APP_CMD_PAUSE:
+            state->resumed = false;
+            break;
+        case APP_CMD_INIT_WINDOW:
+            state->nativeWindow = app->window;
+            break;
+        case APP_CMD_TERM_WINDOW:
+            state->nativeWindow = nullptr;
+            break;
+        case APP_CMD_DESTROY:
+            state->nativeWindow = nullptr;
+            break;
+    }
+}
+
+static int32_t on_input_event(struct android_app* app, AInputEvent* event) {
+    int type = AInputEvent_getType(event);
+    if (type == AINPUT_EVENT_TYPE_KEY) {
+        int32_t code = AKeyEvent_getKeyCode(event);
+        if (code == AKEYCODE_BACK) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+extern "C" void android_main(struct android_app* androidApp) {
+    AndroidAppState androidState = {};
+    androidApp->userData = &androidState;
+    androidApp->onAppCmd = app_handle_cmd;
+    androidApp->onInputEvent = on_input_event;
+
+    AppState app;
+
+    if (!egl_init(&app)) {
+        LOGE("EGL init failed");
+        return;
+    }
+
+    if (!openxr_init(androidApp, &app)) {
+        LOGE("OpenXR init failed");
+        egl_shutdown(&app);
+        return;
+    }
+
+    if (!openxr_create_session(&app)) {
+        LOGE("Session creation failed");
+        xrDestroyInstance(app.instance);
+        egl_shutdown(&app);
+        return;
+    }
+
+    if (!gl_init(&app)) {
+        LOGE("GL init failed");
+        openxr_destroy_session(&app);
+        xrDestroyInstance(app.instance);
+        egl_shutdown(&app);
+        return;
+    }
 
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    app->startTime = (float)ts.tv_sec + (float)ts.tv_nsec / 1e9f;
+    app.startTime = (float)ts.tv_sec + (float)ts.tv_nsec / 1e9f;
 
-    LOGI("Render thread started");
+    LOGI("Entering main loop");
 
-    while (app->running) {
-        poll_events(app);
-
-        if (app->shouldExit) {
-            app->running = false;
-            break;
+    while (androidApp->destroyRequested == 0) {
+        for (;;) {
+            int events;
+            struct android_poll_source* source;
+            int timeout = (!androidState.resumed && !app.sessionRunning) ? -1 : 0;
+            int ret = ALooper_pollOnce(timeout, nullptr, &events, (void**)&source);
+            if (ret == ALOOPER_POLL_TIMEOUT || ret == ALOOPER_POLL_ERROR)
+                break;
+            if (source)
+                source->process(androidApp, source);
+            if (androidApp->destroyRequested)
+                break;
         }
 
-        if (app->sessionActive && app->sessionState >= XR_SESSION_STATE_SYNCHRONIZED) {
-            render_frame(app);
+        poll_events(&app);
+
+        if (app.shouldExit)
+            break;
+
+        if (app.sessionRunning) {
+            render_frame(&app);
         } else {
             usleep(16000);
         }
     }
 
-    if (app->sessionActive) {
-        app->sessionActive = false;
-        app->xr.pfnEndSession(app->session);
-    }
+    gl_cleanup(&app);
+    openxr_destroy_session(&app);
+    if (app.instance)
+        xrDestroyInstance(app.instance);
+    egl_shutdown(&app);
 
-    LOGI("Render thread exiting");
-    return nullptr;
+    LOGI("Main loop exited");
 }
-
-// ---------------------------------------------------------------------------
-// JNI
-// ---------------------------------------------------------------------------
-
-extern "C" {
-
-JNIEXPORT jlong JNICALL
-Java_com_pico_openxrpoc_MainActivity_nativeInit(JNIEnv* env, jobject thiz, jobject surfaceView, jobject surface) {
-    AppState* app = new AppState();
-    g_app = app;
-
-    if (!egl_init(app)) {
-        delete app;
-        g_app = nullptr;
-        return 0;
-    }
-
-    JavaVM* vm = nullptr;
-    env->GetJavaVM(&vm);
-    app->javaVM = vm;
-    app->activity = env->NewGlobalRef(thiz);
-
-    if (surface) {
-        app->window = ANativeWindow_fromSurface(env, surface);
-        LOGI("ANativeWindow: %p", app->window);
-    }
-    if (surfaceView) {
-        app->surfaceView = env->NewGlobalRef(surfaceView);
-        LOGI("SurfaceView: %p", app->surfaceView);
-    }
-
-    if (!openxr_load_runtime(app, vm, app->activity)) {
-        egl_shutdown(app);
-        delete app;
-        g_app = nullptr;
-        return 0;
-    }
-
-    if (!openxr_create_instance(app)) {
-        if (app->instance) app->xr.pfnDestroyInstance(app->instance);
-        if (app->runtimeLib) dlclose(app->runtimeLib);
-        egl_shutdown(app);
-        delete app;
-        g_app = nullptr;
-        return 0;
-    }
-
-    if (!openxr_get_system(app)) {
-        app->xr.pfnDestroyInstance(app->instance);
-        if (app->runtimeLib) dlclose(app->runtimeLib);
-        egl_shutdown(app);
-        delete app;
-        g_app = nullptr;
-        return 0;
-    }
-
-    if (!openxr_create_session(app)) {
-        LOGE("Failed to create OpenXR session");
-        app->xr.pfnDestroyInstance(app->instance);
-        if (app->runtimeLib) dlclose(app->runtimeLib);
-        egl_shutdown(app);
-        delete app;
-        g_app = nullptr;
-        return 0;
-    }
-
-    if (!gl_init(app)) {
-        LOGE("Failed to init GL resources");
-        openxr_destroy_session(app);
-        app->xr.pfnDestroyInstance(app->instance);
-        if (app->runtimeLib) dlclose(app->runtimeLib);
-        egl_shutdown(app);
-        delete app;
-        g_app = nullptr;
-        return 0;
-    }
-
-    LOGI("nativeInit done");
-    return reinterpret_cast<jlong>(app);
-}
-
-JNIEXPORT void JNICALL
-Java_com_pico_openxrpoc_MainActivity_nativeResume(JNIEnv* env, jobject thiz, jlong handle) {
-    AppState* app = reinterpret_cast<AppState*>(handle);
-    if (!app || app->running) return;
-
-    app->running = true;
-    app->shouldExit = false;
-    pthread_create(&app->renderThread, nullptr, render_thread, app);
-    LOGI("Resumed");
-}
-
-JNIEXPORT void JNICALL
-Java_com_pico_openxrpoc_MainActivity_nativePause(JNIEnv* env, jobject thiz, jlong handle) {
-    AppState* app = reinterpret_cast<AppState*>(handle);
-    if (!app) return;
-
-    app->running = false;
-    if (app->renderThread) {
-        pthread_join(app->renderThread, nullptr);
-        app->renderThread = 0;
-    }
-    LOGI("Paused");
-}
-
-JNIEXPORT void JNICALL
-Java_com_pico_openxrpoc_MainActivity_nativeShutdown(JNIEnv* env, jobject thiz, jlong handle) {
-    AppState* app = reinterpret_cast<AppState*>(handle);
-    if (!app) return;
-
-    app->running = false;
-    if (app->renderThread) {
-        pthread_join(app->renderThread, nullptr);
-        app->renderThread = 0;
-    }
-
-    gl_cleanup(app);
-    openxr_destroy_session(app);
-    egl_destroy_surface(app);
-
-    if (app->instance) {
-        app->xr.pfnDestroyInstance(app->instance);
-        app->instance = XR_NULL_HANDLE;
-    }
-    if (app->runtimeLib) {
-        dlclose(app->runtimeLib);
-        app->runtimeLib = nullptr;
-    }
-    egl_shutdown(app);
-
-    delete app;
-    g_app = nullptr;
-    LOGI("Shutdown complete");
-}
-
-} // extern "C"
