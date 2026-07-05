@@ -56,6 +56,7 @@ static JavaVM* g_jvm = nullptr;
 static jobject g_activity = nullptr;
 static PFN_xrGetConfigPICO g_pfnXrGetConfigPICO = nullptr;
 static PFN_xrResetSensorPICO g_pfnXrResetSensorPICO = nullptr;
+static PFN_xrInvokeFunctionsPICO g_pfnXrInvokeFunctionsPICO = nullptr;
 static bool g_hasPicoSessionBegin = false;
 static jmethodID g_onLobbyTouchMethod = nullptr;
 static jclass g_activityClass = nullptr;
@@ -370,7 +371,7 @@ static bool openxr_init(struct android_app* androidApp, AppState* app) {
     xrEnumerateInstanceExtensionProperties(nullptr, extCount, &extCount, exts.data());
 
     bool hasGLES = false, hasAndroidCI = false;
-    bool hasPicoConfigs = false, hasPicoSessionBegin = false, hasPicoResetSensor = false;
+    bool hasPicoConfigs = false, hasPicoSessionBegin = false, hasPicoResetSensor = false, hasPicoBoundary = false;
     for (const auto& e : exts) {
         LOGI("Extension: %s", e.extensionName);
         if (strcmp(e.extensionName, XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME) == 0)
@@ -383,6 +384,8 @@ static bool openxr_init(struct android_app* androidApp, AppState* app) {
             hasPicoSessionBegin = true;
         if (strcmp(e.extensionName, XR_PICO_RESET_SENSOR_EXTENSION_NAME) == 0)
             hasPicoResetSensor = true;
+        if (strcmp(e.extensionName, XR_PICO_BOUNDARY_EXT_EXTENSION_NAME) == 0)
+            hasPicoBoundary = true;
     }
     if (!hasGLES) {
         LOGE("XR_KHR_opengl_es_enable not supported");
@@ -399,6 +402,8 @@ static bool openxr_init(struct android_app* androidApp, AppState* app) {
         enabledExtsVec.push_back(XR_PICO_SESSION_BEGIN_INFO_EXT_ENABLE_EXTENSION_NAME);
     if (hasPicoResetSensor)
         enabledExtsVec.push_back(XR_PICO_RESET_SENSOR_EXTENSION_NAME);
+    if (hasPicoBoundary)
+        enabledExtsVec.push_back(XR_PICO_BOUNDARY_EXT_EXTENSION_NAME);
 
     XrInstanceCreateInfoAndroidKHR androidCI = {};
     androidCI.type = XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR;
@@ -433,6 +438,11 @@ static bool openxr_init(struct android_app* androidApp, AppState* app) {
         xrGetInstanceProcAddr(app->instance, "xrResetSensorPICO",
                               reinterpret_cast<PFN_xrVoidFunction*>(&g_pfnXrResetSensorPICO));
         LOGI("xrResetSensorPICO %s", g_pfnXrResetSensorPICO ? "loaded" : "failed to load");
+    }
+    if (hasPicoBoundary) {
+        xrGetInstanceProcAddr(app->instance, "xrInvokeFunctionsPICO",
+                              reinterpret_cast<PFN_xrVoidFunction*>(&g_pfnXrInvokeFunctionsPICO));
+        LOGI("xrInvokeFunctionsPICO %s", g_pfnXrInvokeFunctionsPICO ? "loaded" : "failed to load");
     }
     g_hasPicoSessionBegin = hasPicoSessionBegin;
 
@@ -503,6 +513,20 @@ static bool openxr_create_session(AppState* app) {
         return false;
     }
     LOGI("Session created");
+
+    if (g_pfnXrInvokeFunctionsPICO) {
+        void* dummy_in = nullptr;
+        void* dummy_out = nullptr;
+        XrResult br;
+        br = g_pfnXrInvokeFunctionsPICO(app->session, XR_DISABLE_BOUNDARY, dummy_in, 0, &dummy_out, 0);
+        LOGI("XR_DISABLE_BOUNDARY result: %d", br);
+        br = g_pfnXrInvokeFunctionsPICO(app->session, XR_SHUTDOWN_SDK_GUARDIANSYSTEM, dummy_in, 0, &dummy_out, 0);
+        LOGI("XR_SHUTDOWN_SDK_GUARDIANSYSTEM result: %d", br);
+        if (br == XR_SUCCESS) {
+            app->stream.tracker.floor_relative.store(true);
+            LOGI("Boundary disabled - LOCAL origin is now floor-relative");
+        }
+    }
 
     if (g_pfnXrGetConfigPICO) {
         float targetFps = 0, refreshRate = 0;

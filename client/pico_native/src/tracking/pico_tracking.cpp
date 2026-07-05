@@ -84,6 +84,7 @@ void pico_native_tracker::start()
 	if (running.load())
 		return;
 	running = true;
+	height_calibrated = false;
 	thread = std::thread([this] { run(); });
 	spdlog::info("Native tracker started");
 }
@@ -105,6 +106,15 @@ void pico_native_tracker::set_head_pose(const float orient[4], const float pos[3
 	std::memcpy(head_orient, orient, sizeof(head_orient));
 	std::memcpy(head_pos, pos, sizeof(head_pos));
 	head_valid = true;
+
+	if (!height_calibrated && !floor_relative.load())
+	{
+		constexpr float k_standing_eye_height = 1.5f;
+		float offset = k_standing_eye_height - pos[1];
+		height_offset.store(offset);
+		height_calibrated = true;
+		spdlog::info("Height calibrated: initial_Y={:.3f} offset={:.3f}", pos[1], offset);
+	}
 
 	step_head_filter(pos, hq, ts);
 }
@@ -458,10 +468,8 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 
 	XrPosef head_pose;
 	head_pose.orientation = neo2::to_xr_quat(hq);
-	// LOCAL space origin is at initial head position (standing eye height).
-	// WiVRn server expects floor-relative coordinates, so add standing height.
-	constexpr float k_standing_eye_height = 1.5f;
-	head_pose.position = {h_pos[0], h_pos[1] + k_standing_eye_height, h_pos[2]};
+	float h_offset = floor_relative.load() ? 0.0f : height_offset.load();
+	head_pose.position = {h_pos[0], h_pos[1] + h_offset, h_pos[2]};
 
 	// Pico Neo 2 has a square ~101 degree per-eye FOV (same H and V).
 	// The OpenXR runtime may report incorrect/wider FOV values that make
@@ -507,7 +515,7 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 
 		float pos_m[3] = {
 			cs[h].position[0] * 0.001f + grip_world[0],
-			cs[h].position[1] * 0.001f + grip_world[1] + k_standing_eye_height,
+			cs[h].position[1] * 0.001f + grip_world[1] + h_offset,
 			cs[h].position[2] * 0.001f + grip_world[2],
 		};
 
@@ -567,7 +575,7 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 				grip_world[0], grip_world[1], grip_world[2],
 				cq.x, cq.y, cq.z, cq.w,
 				cs[h].position[0] * 0.001f + grip_world[0],
-				cs[h].position[1] * 0.001f + grip_world[1] + k_standing_eye_height,
+				cs[h].position[1] * 0.001f + grip_world[1] + h_offset,
 				cs[h].position[2] * 0.001f + grip_world[2]);
 		}
 	}
