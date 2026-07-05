@@ -77,7 +77,7 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeGetHeadData(JNIEnv * env, jobject t
     std::lock_guard lock(g_state_mutex);
     float buf[7] = {
         g_head_orient[0], g_head_orient[1], g_head_orient[2], g_head_orient[3],
-        g_head_pos[0], g_head_pos[1], g_head_pos[2]};
+        g_head_pos[0] * 1000.0f, g_head_pos[1] * 1000.0f, g_head_pos[2] * 1000.0f};
     env->SetFloatArrayRegion(out, 0, 7, buf);
 }
 
@@ -137,6 +137,16 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeControllerState(
                 c.thumbstick_click = keys_buf[4] != 0;
                 c.menu = keys_buf[5] != 0;
                 c.home = keys_buf[11] != 0;
+            }
+
+            static int jni_log_count = 0;
+            if (has_sensor && jni_log_count++ % 120 == 0)
+            {
+                LOGI("JNI controller %d: raw q=(%.4f,%.4f,%.4f,%.4f) pos_mm=(%.1f,%.1f,%.1f) trigger=%d",
+                     hand,
+                     sensor_buf[0], sensor_buf[1], sensor_buf[2], sensor_buf[3],
+                     sensor_buf[4], sensor_buf[5], sensor_buf[6],
+                     keys_buf[2]);
             }
         }
     }
@@ -537,8 +547,8 @@ static bool openxr_create_session(AppState* app) {
         swci.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
         swci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
         swci.format = GL_RGBA8;
-        swci.width = 1480;
-        swci.height = 1600;
+        swci.width = 1664;
+        swci.height = 1664;
         swci.sampleCount = app->viewConfigs[eye].recommendedSwapchainSampleCount;
         swci.faceCount = 1;
         swci.arraySize = 1;
@@ -724,6 +734,22 @@ static void render_frame(AppState* app) {
     app->stream.eye_fov[0] = views[0].fov;
     app->stream.eye_fov[1] = views[1].fov;
 
+    static int hmd_log_count = 0;
+    if (hmd_log_count++ % 120 == 0)
+    {
+        LOGI("RENDER HMD: q=(%.4f,%.4f,%.4f,%.4f) pos_m=(%.4f,%.4f,%.4f) ipd=%.4f",
+             head_orient[0], head_orient[1], head_orient[2], head_orient[3],
+             head_pos[0], head_pos[1], head_pos[2], ipd);
+    }
+
+    static int fov_log_count = 0;
+    if (fov_log_count++ < 5)
+        LOGI("OpenXR FOV: L=[%.4f,%.4f] U=[%.4f,%.4f] | R: L=[%.4f,%.4f] U=[%.4f,%.4f]",
+             views[0].fov.angleLeft, views[0].fov.angleRight,
+             views[0].fov.angleUp, views[0].fov.angleDown,
+             views[1].fov.angleLeft, views[1].fov.angleRight,
+             views[1].fov.angleUp, views[1].fov.angleDown);
+
     struct timespec tm1;
     clock_gettime(CLOCK_MONOTONIC, &tm1);
 
@@ -749,6 +775,16 @@ static void render_frame(AppState* app) {
                 cs[h].trigger, cs[h].touch, cs[h].battery,
                 cs[h].button_a, cs[h].button_b, cs[h].grip,
                 cs[h].thumbstick_click, cs[h].menu);
+
+            static int fwd_log_count = 0;
+            if (fwd_log_count++ % 120 == 0)
+            {
+                LOGI("RENDER fwd controller %d: q=(%.4f,%.4f,%.4f,%.4f) pos_mm=(%.1f,%.1f,%.1f)",
+                     h,
+                     cs[h].orientation[0], cs[h].orientation[1],
+                     cs[h].orientation[2], cs[h].orientation[3],
+                     cs[h].position[0], cs[h].position[1], cs[h].position[2]);
+            }
         }
         else
         {
@@ -823,7 +859,9 @@ static void render_frame(AppState* app) {
         } else {
             static int lobby_log_count = 0;
             if (eye == 0 && (lobby_log_count++ % 300 == 0)) LOGI("LOBBY: streaming=%d", (int)app->stream.streaming.load());
-            app->lobby.draw(eye, head_orient, head_pos, cs, views[eye].fov, ipd);
+            constexpr float k_lobby_fov_half = 101.0f * 0.5f * 0.01745329252f;
+            XrFovf lobby_fov = {-k_lobby_fov_half, k_lobby_fov_half, k_lobby_fov_half, -k_lobby_fov_half};
+            app->lobby.draw(eye, head_orient, head_pos, cs, lobby_fov, ipd);
         }
         clock_gettime(CLOCK_MONOTONIC, &te);
         gl_draw_ms += ts_diff(te, td) * 1000.0f;

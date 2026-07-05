@@ -507,7 +507,7 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 
 		float pos_m[3] = {
 			cs[h].position[0] * 0.001f + grip_world[0],
-			cs[h].position[1] * 0.001f + grip_world[1],
+			cs[h].position[1] * 0.001f + grip_world[1] + k_standing_eye_height,
 			cs[h].position[2] * 0.001f + grip_world[2],
 		};
 
@@ -546,18 +546,29 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 		for (int h = 0; h < 2; h++)
 		{
 			if (!cs[h].connected)
-				continue;
-			for (auto & dp : pkt.device_poses)
 			{
-				if (dp.device == (h == 0 ? device_id::LEFT_GRIP : device_id::RIGHT_GRIP))
-				{
-					spdlog::warn("TRACKING {} grip: q=({:.3f},{:.3f},{:.3f},{:.3f}) p=({:.3f},{:.3f},{:.3f})",
-						h == 0 ? "LEFT" : "RIGHT",
-						dp.pose.orientation.x, dp.pose.orientation.y,
-						dp.pose.orientation.z, dp.pose.orientation.w,
-						dp.pose.position.x, dp.pose.position.y, dp.pose.position.z);
-				}
+				spdlog::warn("TRACKING {} controller: DISCONNECTED", h == 0 ? "LEFT" : "RIGHT");
+				continue;
 			}
+
+			neo2::quat cq = apply_controller_orientation(cs[h].orientation, h);
+			float grip_world[3];
+			compute_grip_offset(cq, h, grip_world);
+
+			spdlog::warn("TRACKING {} controller:\n"
+			             "  raw:    q=({:.4f},{:.4f},{:.4f},{:.4f}) pos_mm=({:.1f},{:.1f},{:.1f})\n"
+			             "  orient: q=({:.4f},{:.4f},{:.4f},{:.4f})\n"
+			             "  grip_off: ({:.4f},{:.4f},{:.4f})\n"
+			             "  final:  q=({:.4f},{:.4f},{:.4f},{:.4f}) pos_m=({:.4f},{:.4f},{:.4f})",
+				h == 0 ? "LEFT" : "RIGHT",
+				cs[h].orientation[0], cs[h].orientation[1], cs[h].orientation[2], cs[h].orientation[3],
+				cs[h].position[0], cs[h].position[1], cs[h].position[2],
+				cq.x, cq.y, cq.z, cq.w,
+				grip_world[0], grip_world[1], grip_world[2],
+				cq.x, cq.y, cq.z, cq.w,
+				cs[h].position[0] * 0.001f + grip_world[0],
+				cs[h].position[1] * 0.001f + grip_world[1] + k_standing_eye_height,
+				cs[h].position[2] * 0.001f + grip_world[2]);
 		}
 	}
 
