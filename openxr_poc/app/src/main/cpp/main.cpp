@@ -21,6 +21,7 @@
 #define XR_USE_GRAPHICS_API_OPENGL_ES 1
 #include "openxr/openxr.h"
 #include "openxr/openxr_platform.h"
+#include "openxr/openxr_loader_negotiation.h"
 
 #define LOG_TAG "OpenXRPoc"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
@@ -294,7 +295,7 @@ struct OpenXRFns {
 
 #define LOAD_FN(name) \
     do { \
-        XrResult _r = app->xr.pfnGetInstanceProcAddr(app->instance, #name, \
+        XrResult _r = app->xr.pfnGetInstanceProcAddr(app->instance, "xr" #name, \
             reinterpret_cast<PFN_xrVoidFunction*>(&app->xr.pfn##name)); \
         if (_r != XR_SUCCESS) { \
             LOGE("Failed to load %s: %d", #name, _r); \
@@ -320,6 +321,11 @@ struct AppState {
     EGLContext context = EGL_NO_CONTEXT;
     EGLSurface surface = EGL_NO_SURFACE;
     ANativeWindow* window = nullptr;
+
+    // Android
+    JavaVM* javaVM = nullptr;
+    jobject activity = nullptr;
+    jobject surfaceView = nullptr;
 
     // OpenXR
     void* runtimeLib = nullptr;
@@ -401,20 +407,12 @@ static bool egl_init(AppState* app) {
 
 static bool egl_create_surface(AppState* app, ANativeWindow* win) {
     app->window = win;
-
-    const EGLint surfAttribs[] = { EGL_NONE };
-    app->surface = eglCreateWindowSurface(app->display, app->config, win, surfAttribs);
-    if (app->surface == EGL_NO_SURFACE) {
-        LOGE("eglCreateWindowSurface failed: 0x%x", eglGetError());
-        return false;
-    }
-
-    if (!eglMakeCurrent(app->display, app->surface, app->surface, app->context)) {
-        LOGE("eglMakeCurrent failed: 0x%x", eglGetError());
-        return false;
-    }
-
-    LOGI("EGL surface created");
+    // Don't create an EGL window surface — the OpenXR runtime creates its own
+    // surface on the ANativeWindow for the compositor. If we create one first,
+    // the runtime gets EGL_BAD_NATIVE_WINDOW.
+    // We just need the EGL context current with no surface for rendering to FBOs.
+    eglMakeCurrent(app->display, EGL_NO_SURFACE, EGL_NO_SURFACE, app->context);
+    LOGI("ANativeWindow stored (no EGL surface — runtime handles it)");
     return true;
 }
 
@@ -448,26 +446,94 @@ static void egl_shutdown(AppState* app) {
 // OpenXR init
 // ---------------------------------------------------------------------------
 
-static bool openxr_load_runtime(AppState* app) {
-    app->runtimeLib = dlopen("libruntime.pxr.so", RTLD_NOW | RTLD_LOCAL);
+static bool openxr_load_runtime(AppState* app, JavaVM* vm, jobject context) {
+    app->runtimeLib = dlopen("libruntime.pxr.so", RTLD_NOW | RTLD_GLOBAL);
     if (!app->runtimeLib) {
         LOGE("dlopen libruntime.pxr.so failed: %s", dlerror());
         return false;
     }
 
-    app->xr.pfnGetInstanceProcAddr = reinterpret_cast<PFN_xrGetInstanceProcAddr>(
-        dlsym(app->runtimeLib, "xrGetInstanceProcAddr"));
-    if (!app->xr.pfnGetInstanceProcAddr) {
-        LOGE("xrGetInstanceProcAddr not found: %s", dlerror());
+    auto negotiate = reinterpret_cast<PFN_xrNegotiateLoaderRuntimeInterface>(
+        dlsym(app->runtimeLib, "xrNegotiateLoaderRuntimeInterface"));
+    if (!negotiate) {
+        LOGE("xrNegotiateLoaderRuntimeInterface not found: %s", dlerror());
         return false;
     }
 
-    LOGI("OpenXR runtime loaded");
+    XrNegotiateLoaderInfo loaderInfo = {};
+    loaderInfo.structType = XR_LOADER_INTERFACE_STRUCT_LOADER_INFO;
+    loaderInfo.structVersion = XR_LOADER_INFO_STRUCT_VERSION;
+    loaderInfo.structSize = sizeof(XrNegotiateLoaderInfo);
+    loaderInfo.minInterfaceVersion = 1;
+    loaderInfo.maxInterfaceVersion = XR_CURRENT_LOADER_RUNTIME_VERSION;
+    loaderInfo.minApiVersion = XR_MAKE_VERSION(1, 0, 0);
+    loaderInfo.maxApiVersion = XR_MAKE_VERSION(1, 1, 0);
+
+    XrNegotiateRuntimeRequest runtimeReq = {};
+    runtimeReq.structType = XR_LOADER_INTERFACE_STRUCT_RUNTIME_REQUEST;
+    runtimeReq.structVersion = XR_RUNTIME_INFO_STRUCT_VERSION;
+    runtimeReq.structSize = sizeof(XrNegotiateRuntimeRequest);
+
+    XrResult r = negotiate(&loaderInfo, &runtimeReq);
+    if (r != XR_SUCCESS) {
+        LOGE("xrNegotiateLoaderRuntimeInterface failed: %d", r);
+        return false;
+    }
+
+    app->xr.pfnGetInstanceProcAddr = runtimeReq.getInstanceProcAddr;
+    if (!app->xr.pfnGetInstanceProcAddr) {
+        LOGE("negotiate returned null getInstanceProcAddr");
+        return false;
+    }
+
+    LOGI("OpenXR runtime loaded (API %d.%d.%d, iface v%u)",
+         XR_VERSION_MAJOR(runtimeReq.runtimeApiVersion),
+         XR_VERSION_MINOR(runtimeReq.runtimeApiVersion),
+         XR_VERSION_PATCH(runtimeReq.runtimeApiVersion),
+         runtimeReq.runtimeInterfaceVersion);
+
+    // Initialize loader with Android context
+    auto initLoader = reinterpret_cast<PFN_xrInitializeLoaderKHR>(
+        dlsym(app->runtimeLib, "xrInitializeLoaderKHR"));
+    if (initLoader) {
+        XrLoaderInitInfoAndroidKHR initInfo = {};
+        initInfo.type = XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR;
+        initInfo.next = nullptr;
+        initInfo.applicationVM = vm;
+        initInfo.applicationContext = context;
+        r = initLoader(reinterpret_cast<XrLoaderInitInfoBaseHeaderKHR*>(&initInfo));
+        if (r == XR_SUCCESS) {
+            LOGI("xrInitializeLoaderKHR succeeded");
+        } else {
+            LOGW("xrInitializeLoaderKHR failed: %d (continuing)", r);
+        }
+    } else {
+        LOGW("xrInitializeLoaderKHR not found (continuing)");
+    }
+
     return true;
 }
 
 static bool openxr_create_instance(AppState* app) {
-    // First, enumerate extensions to see if GLES is supported
+    // Try loading bootstrap functions via negotiated getInstanceProcAddr
+    // The Pico runtime doesn't export xr* symbols in its dynamic table,
+    // but xrGetInstanceProcAddr may work for some functions even with null instance
+    XrResult r;
+
+    r = app->xr.pfnGetInstanceProcAddr(XR_NULL_HANDLE, "xrEnumerateInstanceExtensionProperties",
+        reinterpret_cast<PFN_xrVoidFunction*>(&app->xr.pfnEnumerateInstanceExtensionProperties));
+    LOGI("Load EnumerateInstanceExtensionProperties via GPA: %d, ptr=%p", r, (void*)app->xr.pfnEnumerateInstanceExtensionProperties);
+
+    r = app->xr.pfnGetInstanceProcAddr(XR_NULL_HANDLE, "xrCreateInstance",
+        reinterpret_cast<PFN_xrVoidFunction*>(&app->xr.pfnCreateInstance));
+    LOGI("Load CreateInstance via GPA: %d, ptr=%p", r, (void*)app->xr.pfnCreateInstance);
+
+    if (!app->xr.pfnEnumerateInstanceExtensionProperties || !app->xr.pfnCreateInstance) {
+        LOGE("Failed to load bootstrap functions");
+        return false;
+    }
+
+    // Enumerate extensions to see if GLES is supported
     uint32_t extCount = 0;
     app->xr.pfnEnumerateInstanceExtensionProperties(nullptr, 0, &extCount, nullptr);
     std::vector<XrExtensionProperties> exts(extCount);
@@ -485,11 +551,35 @@ static bool openxr_create_instance(AppState* app) {
         return false;
     }
 
-    const char* enabledExts[] = { XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME };
+    const char* enabledExts[] = {
+        XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME,
+        XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME,
+        "XR_PICO_android_create_instance_ext_enable",
+        "XR_PICO_session_begin_info_ext_enable",
+    };
+
+    // PICO-specific struct chained after androidCI to pass ANativeWindow
+    struct XrInstanceCreateInfoPICOAndroid {
+        XrStructureType type;
+        const void* next;
+        void* nativeWindow;
+        void* surfaceView;
+    } picoCI = {};
+    picoCI.type = XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR;
+    picoCI.next = nullptr;
+    picoCI.nativeWindow = app->window;
+    picoCI.surfaceView = nullptr;
+
+    XrInstanceCreateInfoAndroidKHR androidCI = {};
+    androidCI.type = XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR;
+    androidCI.next = &picoCI;
+    androidCI.applicationVM = app->javaVM;
+    androidCI.applicationActivity = app->activity;
 
     XrInstanceCreateInfo ci = {};
     ci.type = XR_TYPE_INSTANCE_CREATE_INFO;
-    ci.enabledExtensionCount = 1;
+    ci.next = &androidCI;
+    ci.enabledExtensionCount = 4;
     ci.enabledExtensionNames = enabledExts;
     strcpy(ci.applicationInfo.applicationName, "OpenXR POC");
     ci.applicationInfo.applicationVersion = 1;
@@ -497,11 +587,14 @@ static bool openxr_create_instance(AppState* app) {
     ci.applicationInfo.engineVersion = 0;
     ci.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
 
-    XrResult r = app->xr.pfnCreateInstance(&ci, &app->instance);
+    r = app->xr.pfnCreateInstance(&ci, &app->instance);
     if (r != XR_SUCCESS) {
         LOGE("xrCreateInstance failed: %d", r);
         return false;
     }
+
+    // Load instance-level functions via getInstanceProcAddr (now that we have an instance)
+    LOAD_FN(GetInstanceProperties);
 
     XrInstanceProperties ip = {};
     ip.type = XR_TYPE_INSTANCE_PROPERTIES;
@@ -511,9 +604,6 @@ static bool openxr_create_instance(AppState* app) {
          XR_VERSION_MINOR(ip.runtimeVersion),
          XR_VERSION_PATCH(ip.runtimeVersion));
 
-    // Load remaining functions
-    LOAD_FN(EnumerateInstanceExtensionProperties);
-    LOAD_FN(GetInstanceProperties);
     LOAD_FN(GetSystem);
     LOAD_FN(GetSystemProperties);
     LOAD_FN(CreateSession);
@@ -944,7 +1034,7 @@ static void* render_thread(void* arg) {
             break;
         }
 
-        if (app->sessionActive && app->sessionState == XR_SESSION_STATE_FOCUSED) {
+        if (app->sessionActive && app->sessionState >= XR_SESSION_STATE_SYNCHRONIZED) {
             render_frame(app);
         } else {
             usleep(16000);
@@ -967,7 +1057,7 @@ static void* render_thread(void* arg) {
 extern "C" {
 
 JNIEXPORT jlong JNICALL
-Java_com_pico_openxrpoc_MainActivity_nativeInit(JNIEnv* env, jobject thiz) {
+Java_com_pico_openxrpoc_MainActivity_nativeInit(JNIEnv* env, jobject thiz, jobject surfaceView, jobject surface) {
     AppState* app = new AppState();
     g_app = app;
 
@@ -977,7 +1067,21 @@ Java_com_pico_openxrpoc_MainActivity_nativeInit(JNIEnv* env, jobject thiz) {
         return 0;
     }
 
-    if (!openxr_load_runtime(app)) {
+    JavaVM* vm = nullptr;
+    env->GetJavaVM(&vm);
+    app->javaVM = vm;
+    app->activity = env->NewGlobalRef(thiz);
+
+    if (surface) {
+        app->window = ANativeWindow_fromSurface(env, surface);
+        LOGI("ANativeWindow: %p", app->window);
+    }
+    if (surfaceView) {
+        app->surfaceView = env->NewGlobalRef(surfaceView);
+        LOGI("SurfaceView: %p", app->surfaceView);
+    }
+
+    if (!openxr_load_runtime(app, vm, app->activity)) {
         egl_shutdown(app);
         delete app;
         g_app = nullptr;
@@ -1002,54 +1106,29 @@ Java_com_pico_openxrpoc_MainActivity_nativeInit(JNIEnv* env, jobject thiz) {
         return 0;
     }
 
-    LOGI("nativeInit done");
-    return reinterpret_cast<jlong>(app);
-}
-
-JNIEXPORT void JNICALL
-Java_com_pico_openxrpoc_MainActivity_nativeOnSurfaceCreated(JNIEnv* env, jobject thiz, jlong handle, jobject surface) {
-    AppState* app = reinterpret_cast<AppState*>(handle);
-    if (!app) return;
-
-    ANativeWindow* win = ANativeWindow_fromSurface(env, surface);
-    if (!egl_create_surface(app, win)) {
-        LOGE("Failed to create EGL surface");
-        return;
-    }
-
     if (!openxr_create_session(app)) {
         LOGE("Failed to create OpenXR session");
-        return;
+        app->xr.pfnDestroyInstance(app->instance);
+        if (app->runtimeLib) dlclose(app->runtimeLib);
+        egl_shutdown(app);
+        delete app;
+        g_app = nullptr;
+        return 0;
     }
 
     if (!gl_init(app)) {
         LOGE("Failed to init GL resources");
-        return;
+        openxr_destroy_session(app);
+        app->xr.pfnDestroyInstance(app->instance);
+        if (app->runtimeLib) dlclose(app->runtimeLib);
+        egl_shutdown(app);
+        delete app;
+        g_app = nullptr;
+        return 0;
     }
 
-    LOGI("Surface created, session + GL ready");
-}
-
-JNIEXPORT void JNICALL
-Java_com_pico_openxrpoc_MainActivity_nativeOnSurfaceChanged(JNIEnv* env, jobject thiz, jlong handle, jint width, jint height) {
-    // OpenXR handles swapchain sizing; nothing to do here
-}
-
-JNIEXPORT void JNICALL
-Java_com_pico_openxrpoc_MainActivity_nativeOnSurfaceDestroyed(JNIEnv* env, jobject thiz, jlong handle) {
-    AppState* app = reinterpret_cast<AppState*>(handle);
-    if (!app) return;
-
-    app->running = false;
-    if (app->renderThread) {
-        pthread_join(app->renderThread, nullptr);
-        app->renderThread = 0;
-    }
-
-    gl_cleanup(app);
-    openxr_destroy_session(app);
-    egl_destroy_surface(app);
-    LOGI("Surface destroyed");
+    LOGI("nativeInit done");
+    return reinterpret_cast<jlong>(app);
 }
 
 JNIEXPORT void JNICALL

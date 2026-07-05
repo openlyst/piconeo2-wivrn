@@ -6,6 +6,7 @@
     <application
         android:label="OpenXR POC"
         android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+        <meta-data android:name="pvr.app.type" android:value="vr" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
