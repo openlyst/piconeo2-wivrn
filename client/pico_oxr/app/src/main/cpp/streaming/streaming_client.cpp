@@ -1,4 +1,5 @@
 #include "streaming_client.h"
+#include "pico_stutter.h"
 
 #include <spdlog/spdlog.h>
 
@@ -12,6 +13,8 @@
 
 using namespace std::chrono_literals;
 using namespace wivrn;
+
+stutter_detector g_stutter;
 
 streaming_client * g_stream = nullptr;
 
@@ -120,6 +123,7 @@ void streaming_client::setup_decoders()
 		decoders[i] = std::make_unique<pico_video_decoder>(
 			*video_desc, i,
 			[this, i](std::shared_ptr<pico_decoded_frame> frame) {
+				g_stutter.on_frame_decoded(frame->frame_index, i);
 				std::lock_guard lock(decoded_frame_mutex);
 				latest_decoded_frames[i] = std::move(frame);
 				latest_decoded_frame_index.store(latest_decoded_frames[i]->frame_index);
@@ -196,7 +200,10 @@ void streaming_client::handle_video_shard(to_headset::video_stream_data_shard &&
 		target->shards.resize(shard.shard_idx + 1);
 
 	bool is_last_shard = shard.timing_info.has_value();
+	bool is_first_shard = (shard.shard_idx == 0);
 	target->shards[shard.shard_idx] = std::move(shard);
+
+	g_stutter.on_shard_arrived(frame_idx, idx, is_first_shard, is_last_shard);
 
 	if (!is_last_shard)
 		return;
@@ -232,6 +239,7 @@ void streaming_client::handle_video_shard(to_headset::video_stream_data_shard &&
 	feedback.sent_to_decoder = to_xr_time(now);
 
 	decoders[idx]->push_data(data, frame_idx, false);
+	g_stutter.on_pushed_to_decoder(frame_idx, idx);
 
 	feedback.received_from_decoder = to_xr_time(get_timestamp_ns());
 

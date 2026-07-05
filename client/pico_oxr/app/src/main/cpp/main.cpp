@@ -25,6 +25,7 @@
 #include "lobby.h"
 #include "streaming/streaming_client.h"
 #include "streaming/oxr_blit.h"
+#include "pico_stutter.h"
 
 #define LOG_TAG "WiVRn-OXR"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
@@ -854,6 +855,26 @@ static void render_frame(AppState* app) {
         } else if (app->stream.streaming.load()) {
             static int blit_log_count = 0;
             if (eye == 0 && (blit_log_count++ % 300 == 0)) LOGI("STREAMING: blit path active");
+
+            if (eye == 0) {
+                std::shared_ptr<pico_decoded_frame> decoded[3];
+                {
+                    std::lock_guard lock(app->stream.decoded_frame_mutex);
+                    decoded[0] = app->stream.latest_decoded_frames[0];
+                    decoded[1] = app->stream.latest_decoded_frames[1];
+                }
+                for (int e = 0; e < 2; e++) {
+                    if (decoded[e] && decoded[e]->valid) {
+                        g_stutter.on_pose_update(e, decoded[e]->frame_index, decoded[e]->server_pose[e]);
+                    }
+                }
+                g_stutter.on_frame_begin(
+                    decoded[0] ? decoded[0]->frame_index : 0,
+                    decoded[1] ? decoded[1]->frame_index : 0);
+                g_stutter.on_frame_end();
+                g_stutter.log_summary();
+            }
+
             GLuint swap_tex[2] = { glImg, glImg };
             app->blit.blit(&app->stream, swap_tex, w, h);
         } else {
