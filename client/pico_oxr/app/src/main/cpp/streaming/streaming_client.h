@@ -37,8 +37,8 @@ struct streaming_client
 	std::unique_ptr<wivrn_session_pico> session;
 
 	pico_blit_pipeline blit_pipeline;
-	int eye_width = 1480;
-	int eye_height = 1600;
+	int eye_width = 1664;
+	int eye_height = 1664;
 	std::atomic<bool> streaming{false};
 	std::atomic<bool> stream_ui_visible{false};
 

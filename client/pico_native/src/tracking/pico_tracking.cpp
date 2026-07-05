@@ -458,19 +458,22 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 
 	XrPosef head_pose;
 	head_pose.orientation = neo2::to_xr_quat(hq);
-	head_pose.position = {h_pos[0], h_pos[1], h_pos[2]};
+	// LOCAL space origin is at initial head position (standing eye height).
+	// WiVRn server expects floor-relative coordinates, so add standing height.
+	constexpr float k_standing_eye_height = 1.5f;
+	head_pose.position = {h_pos[0], h_pos[1] + k_standing_eye_height, h_pos[2]};
 
+	// Pico Neo 2 has a square ~101 degree per-eye FOV (same H and V).
+	// The OpenXR runtime may report incorrect/wider FOV values that make
+	// everything look too small. Use the known-correct value from the Pico SDK.
+	constexpr float k_fov_half = 101.0f * 0.5f * 0.01745329252f;
 	constexpr float k_ipd = 0.064f;
 	for (int eye = 0; eye < 2; eye++)
 	{
-		// View poses are relative to the head (XR_REFERENCE_SPACE_TYPE_VIEW),
-		// not absolute world positions. The server composes head_pose * view_pose
-		// to get eye world positions. Sending absolute positions here caused
-		// the "super tall" feeling (eyes ended up at ~2x head height).
 		float eye_offset = (eye == 0 ? -k_ipd * 0.5f : k_ipd * 0.5f);
 		pkt.views[eye].pose.orientation = {0, 0, 0, 1};
 		pkt.views[eye].pose.position = {eye_offset, 0, 0};
-		pkt.views[eye].fov = eye_fov[eye];
+		pkt.views[eye].fov = {-k_fov_half, k_fov_half, k_fov_half, -k_fov_half};
 	}
 
 	from_headset::tracking::pose head_tp{};

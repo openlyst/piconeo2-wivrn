@@ -502,15 +502,11 @@ static bool openxr_create_session(AppState* app) {
 
     XrReferenceSpaceCreateInfo rsci = {};
     rsci.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
-    rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;
+    rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
     rsci.poseInReferenceSpace.orientation.w = 1.f;
+    rsci.poseInReferenceSpace.position.y = 0.f;
 
     r = xrCreateReferenceSpace(app->session, &rsci, &app->localSpace);
-    if (r != XR_SUCCESS) {
-        LOGW("STAGE space failed (%d), falling back to LOCAL", r);
-        rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
-        r = xrCreateReferenceSpace(app->session, &rsci, &app->localSpace);
-    }
     if (r != XR_SUCCESS) {
         LOGE("xrCreateReferenceSpace failed: %d", r);
         return false;
