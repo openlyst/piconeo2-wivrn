@@ -89,43 +89,56 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeControllerState(
     if (hand < 0 || hand > 1)
         return;
 
-    std::lock_guard lock(g_state_mutex);
-    auto & c = g_controllers[hand];
-
-    if (conn != 1)
-    {
-        c.connected = false;
-        return;
-    }
-    c.connected = true;
+    float sensor_buf[7] = {0};
+    int keys_buf[12] = {0};
+    bool has_sensor = false, has_keys = false;
 
     if (sensor && env->GetArrayLength(sensor) >= 7)
     {
-        float s[7] = {0};
-        env->GetFloatArrayRegion(sensor, 0, 7, s);
-        c.orientation[0] = s[0];
-        c.orientation[1] = s[1];
-        c.orientation[2] = s[2];
-        c.orientation[3] = s[3];
-        c.position[0] = s[4];
-        c.position[1] = s[5];
-        c.position[2] = s[6];
+        env->GetFloatArrayRegion(sensor, 0, 7, sensor_buf);
+        has_sensor = true;
     }
-
     if (keys && env->GetArrayLength(keys) >= 12)
     {
-        int k[12] = {0};
-        env->GetIntArrayRegion(keys, 0, 12, k);
-        c.trigger = k[2];
-        c.touch[0] = k[0];
-        c.touch[1] = k[1];
-        c.battery = k[10];
-        c.button_a = k[6] != 0;
-        c.button_b = k[7] != 0;
-        c.grip = k[3] != 0;
-        c.thumbstick_click = k[4] != 0;
-        c.menu = k[5] != 0;
-        c.home = k[11] != 0;
+        env->GetIntArrayRegion(keys, 0, 12, keys_buf);
+        has_keys = true;
+    }
+
+    {
+        std::lock_guard lock(g_state_mutex);
+        auto & c = g_controllers[hand];
+
+        if (conn != 1)
+        {
+            c.connected = false;
+        }
+        else
+        {
+            c.connected = true;
+            if (has_sensor)
+            {
+                c.orientation[0] = sensor_buf[0];
+                c.orientation[1] = sensor_buf[1];
+                c.orientation[2] = sensor_buf[2];
+                c.orientation[3] = sensor_buf[3];
+                c.position[0] = sensor_buf[4];
+                c.position[1] = sensor_buf[5];
+                c.position[2] = sensor_buf[6];
+            }
+            if (has_keys)
+            {
+                c.trigger = keys_buf[2];
+                c.touch[0] = keys_buf[0];
+                c.touch[1] = keys_buf[1];
+                c.battery = keys_buf[10];
+                c.button_a = keys_buf[6] != 0;
+                c.button_b = keys_buf[7] != 0;
+                c.grip = keys_buf[3] != 0;
+                c.thumbstick_click = keys_buf[4] != 0;
+                c.menu = keys_buf[5] != 0;
+                c.home = keys_buf[11] != 0;
+            }
+        }
     }
 }
 
@@ -489,10 +502,15 @@ static bool openxr_create_session(AppState* app) {
 
     XrReferenceSpaceCreateInfo rsci = {};
     rsci.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
-    rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+    rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;
     rsci.poseInReferenceSpace.orientation.w = 1.f;
 
     r = xrCreateReferenceSpace(app->session, &rsci, &app->localSpace);
+    if (r != XR_SUCCESS) {
+        LOGW("STAGE space failed (%d), falling back to LOCAL", r);
+        rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+        r = xrCreateReferenceSpace(app->session, &rsci, &app->localSpace);
+    }
     if (r != XR_SUCCESS) {
         LOGE("xrCreateReferenceSpace failed: %d", r);
         return false;
@@ -724,6 +742,22 @@ static void render_frame(AppState* app) {
         std::lock_guard lock(g_state_mutex);
         cs[0] = g_controllers[0];
         cs[1] = g_controllers[1];
+    }
+
+    for (int h = 0; h < 2; h++)
+    {
+        if (cs[h].connected)
+        {
+            app->stream.tracker.update_controller(
+                h, cs[h].orientation, cs[h].position,
+                cs[h].trigger, cs[h].touch, cs[h].battery,
+                cs[h].button_a, cs[h].button_b, cs[h].grip,
+                cs[h].thumbstick_click, cs[h].menu);
+        }
+        else
+        {
+            app->stream.tracker.clear_controller(h);
+        }
     }
 
     struct timespec tm2;
