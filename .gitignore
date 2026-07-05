@@ -27,3 +27,12 @@ compile_commands.json
 .wivrn-ref/
 tools/keyframe_tool.html
 *.log
+
+# OpenXR POC
+openxr_poc/.gradle/
+openxr_poc/build/
+openxr_poc/app/build/
+openxr_poc/.cxx/
+openxr_poc/local.properties
+openxr_poc/gradle.properties
+openxr_poc/app/src/main/jniLibs/arm64-v8a/libopenxr_loader.so
