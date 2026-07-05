@@ -15,7 +15,7 @@ android {
     compileSdk 34
 
     defaultConfig {
-        applicationId "org.meumeu.wivrn.oxr"
+        applicationId "org.meumeu.wivrn.neo2.local"
         minSdk 27
         targetSdk 33
         versionCode 1

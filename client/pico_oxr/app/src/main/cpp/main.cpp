@@ -11,6 +11,9 @@
 #include <mutex>
 #include <atomic>
 
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/android_sink.h>
+
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 
@@ -203,8 +206,12 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeOnFrameAvailable(JNIEnv * env, jobj
 JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_oxr_MainActivity_nativeConnectServer(JNIEnv * env, jobject thiz, jstring host, jint port, jboolean tcpOnly)
 {
-    if (!g_app) return;
+    if (!g_app) {
+        LOGE("nativeConnectServer: g_app not ready");
+        return;
+    }
     const char * h = env->GetStringUTFChars(host, nullptr);
+    LOGI("nativeConnectServer: %s:%d tcp=%d", h, port, tcpOnly);
     g_app->stream.server_host = h;
     g_app->stream.server_port = port;
     g_app->stream.tcp_only = tcpOnly;
@@ -228,6 +235,12 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetPin(JNIEnv * env, jobject thiz, 
     const char * p = env->GetStringUTFChars(pin, nullptr);
     g_app->stream.pairing_pin = p;
     env->ReleaseStringUTFChars(pin, p);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeReady(JNIEnv * env, jobject thiz)
+{
+    return g_app != nullptr ? JNI_TRUE : JNI_FALSE;
 }
 
 } // extern "C"
@@ -952,6 +965,10 @@ static int32_t on_input_event(struct android_app* app, AInputEvent* event) {
 }
 
 extern "C" void android_main(struct android_app* androidApp) {
+    auto logger = spdlog::android_logger_mt("WiVRn-Pico", "WiVRn-Pico");
+    spdlog::set_default_logger(logger);
+    spdlog::set_level(spdlog::level::debug);
+
     AndroidAppState androidState = {};
     androidApp->userData = &androidState;
     androidApp->onAppCmd = app_handle_cmd;

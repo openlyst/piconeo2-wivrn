@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Rect;
+import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.util.Log;
@@ -37,6 +38,12 @@ public class MainActivity extends NativeActivity {
 
     private WivrnLobbyView lobbyView;
     private WifiManager.MulticastLock multicastLock;
+
+    private String pendingHost;
+    private int pendingPort;
+    private boolean pendingTcpOnly;
+    private String pendingPin;
+    private boolean hasPendingConnection = false;
 
     private static final int EXT_JOY_X      = 0;
     private static final int EXT_JOY_Y      = 5;
@@ -71,6 +78,72 @@ public class MainActivity extends NativeActivity {
         } catch (Exception e) {
             Log.e(TAG, "Failed to acquire multicast lock", e);
         }
+
+        handleWivrnIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleWivrnIntent(intent);
+    }
+
+    private void handleWivrnIntent(Intent intent) {
+        if (intent == null || intent.getData() == null) return;
+        Uri uri = intent.getData();
+        String scheme = uri.getScheme();
+        if (scheme == null) return;
+        if (!scheme.equals("wivrn") && !scheme.equals("wivrn+tcp")) return;
+
+        String host = uri.getHost();
+        int port = uri.getPort();
+        if (port <= 0) port = 9757;
+        boolean tcpOnly = scheme.equals("wivrn+tcp");
+
+        String pin = null;
+        String userInfo = uri.getUserInfo();
+        if (userInfo != null) {
+            int colon = userInfo.indexOf(':');
+            if (colon >= 0 && colon + 1 < userInfo.length()) {
+                pin = userInfo.substring(colon + 1);
+            }
+        }
+        if (pin == null || pin.isEmpty()) {
+            String query = uri.getQueryParameter("pin");
+            if (query != null && !query.isEmpty()) pin = query;
+        }
+
+        Log.i(TAG, "wivrn intent: host=" + host + " port=" + port + " tcp=" + tcpOnly + " pin=" + (pin != null ? "yes" : "no"));
+
+        if (host != null && !host.isEmpty()) {
+            pendingHost = host;
+            pendingPort = port;
+            pendingTcpOnly = tcpOnly;
+            pendingPin = pin;
+            hasPendingConnection = true;
+            flushPendingConnection();
+        }
+    }
+
+    private void flushPendingConnection() {
+        if (!hasPendingConnection) return;
+        if (!nativeReady()) {
+            Log.d(TAG, "native not ready, waiting to flush pending connection");
+            new Thread(() -> {
+                for (int i = 0; i < 50 && !nativeReady(); i++) {
+                    try { Thread.sleep(100); } catch (InterruptedException e) { return; }
+                }
+                runOnUiThread(() -> flushPendingConnection());
+            }, "pending-conn").start();
+            return;
+        }
+        Log.i(TAG, "flushing pending connection: " + pendingHost + ":" + pendingPort + " tcp=" + pendingTcpOnly);
+        nativeConnectServer(pendingHost, pendingPort, pendingTcpOnly);
+        if (pendingPin != null && !pendingPin.isEmpty()) {
+            nativeSetPin(pendingPin);
+        }
+        hasPendingConnection = false;
     }
 
     @Override
@@ -82,6 +155,7 @@ public class MainActivity extends NativeActivity {
             lobbyView.startDiscovery();
         }
         setupControllers();
+        flushPendingConnection();
     }
 
     @Override
@@ -368,4 +442,5 @@ public class MainActivity extends NativeActivity {
     public native void nativeConnectServer(String host, int port, boolean tcpOnly);
     public native void nativeDisconnectServer();
     public native void nativeSetPin(String pin);
+    public native boolean nativeReady();
 }

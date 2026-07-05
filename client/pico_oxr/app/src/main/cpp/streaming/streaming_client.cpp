@@ -396,8 +396,8 @@ bool streaming_client::connect_to_server()
 
 	try
 	{
-		const char * key_dir = "/data/data/org.meumeu.wivrn.oxr/files";
-		const char * key_path = "/data/data/org.meumeu.wivrn.oxr/files/private_key.pem";
+		const char * key_dir = "/data/data/org.meumeu.wivrn.neo2.local/files";
+		const char * key_path = "/data/data/org.meumeu.wivrn.neo2.local/files/private_key.pem";
 		spdlog::info("connect: loading keypair from {}", key_path);
 		try
 		{
