@@ -39,9 +39,10 @@ void main()
 )";
 
 static const char * tex_frag_src = R"(
+#extension GL_OES_EGL_image_external : require
 precision mediump float;
 varying vec2 v_uv;
-uniform sampler2D u_tex;
+uniform samplerExternalOES u_tex;
 void main()
 {
     gl_FragColor = texture2D(u_tex, v_uv);
@@ -179,7 +180,6 @@ pico_lobby::~pico_lobby()
 	if (controller_vbo) glDeleteBuffers(1, &controller_vbo);
 	if (quad_vbo) glDeleteBuffers(1, &quad_vbo);
 	if (ui_texture) glDeleteTextures(1, &ui_texture);
-	if (pbo[0]) glDeleteBuffers(2, pbo);
 }
 
 static void generate_placeholder_texture(GLuint tex, int w, int h)
@@ -334,14 +334,12 @@ void pico_lobby::init(int w, int h)
 	tex_sampler_uniform = glGetUniformLocation(tex_program, "u_tex");
 
 	glGenTextures(1, &ui_texture);
-	glBindTexture(GL_TEXTURE_2D, ui_texture);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glBindTexture(GL_TEXTURE_2D, 0);
-
-	generate_placeholder_texture(ui_texture, 1400, 900);
+	glBindTexture(GL_TEXTURE_EXTERNAL_OES, ui_texture);
+	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
 
 	float quad[] = {
 		-1.0f, -1.0f, 0.0f,  0.0f, 1.0f,
@@ -477,39 +475,29 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	draw_quad(head_orient, head_pos, fov, ipd, eye);
 }
 
-void pico_lobby::update_texture(int width, int height, const void * pixels)
+GLuint pico_lobby::get_external_texture()
 {
-	if (!pixels)
-		return;
-
-	std::lock_guard lock(tex_mutex);
-	pending_tex_data.resize(width * height * 4);
-	memcpy(pending_tex_data.data(), pixels, width * height * 4);
-	pending_tex_w = width;
-	pending_tex_h = height;
-	tex_pending.store(true, std::memory_order_relaxed);
+	return ui_texture;
 }
 
-void pico_lobby::flush_pending_texture()
+void pico_lobby::set_surface_texture(jobject st, jmethodID update_method)
 {
-	if (!tex_pending.load(std::memory_order_relaxed) || !ui_texture)
+	surface_texture = st;
+	update_tex_image_method = update_method;
+}
+
+void pico_lobby::on_frame_available()
+{
+	frame_available.store(true, std::memory_order_relaxed);
+}
+
+void pico_lobby::update_tex_image(JNIEnv* env)
+{
+	if (!frame_available.load(std::memory_order_relaxed) || !surface_texture || !update_tex_image_method)
 		return;
 
-	std::vector<uint8_t> data;
-	int w, h;
-	{
-		std::lock_guard lock(tex_mutex);
-		if (!tex_pending.load(std::memory_order_relaxed))
-			return;
-		data = std::move(pending_tex_data);
-		w = pending_tex_w;
-		h = pending_tex_h;
-		tex_pending.store(false, std::memory_order_relaxed);
-	}
-
-	glBindTexture(GL_TEXTURE_2D, ui_texture);
-	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, data.data());
-	glBindTexture(GL_TEXTURE_2D, 0);
+	env->CallVoidMethod(surface_texture, update_tex_image_method);
+	frame_available.store(false, std::memory_order_relaxed);
 }
 
 void pico_lobby::draw_quad(const float head_orient[4], const float head_pos[3],
@@ -539,7 +527,7 @@ void pico_lobby::draw_quad(const float head_orient[4], const float head_pos[3],
 	glUniform1i(tex_sampler_uniform, 0);
 
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, ui_texture);
+	glBindTexture(GL_TEXTURE_EXTERNAL_OES, ui_texture);
 
 	glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
 	glEnableVertexAttribArray(tex_pos_attrib);
@@ -552,7 +540,7 @@ void pico_lobby::draw_quad(const float head_orient[4], const float head_pos[3],
 	glDisableVertexAttribArray(tex_pos_attrib);
 	glDisableVertexAttribArray(tex_uv_attrib);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
-	glBindTexture(GL_TEXTURE_2D, 0);
+	glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
 	glUseProgram(0);
 }
 

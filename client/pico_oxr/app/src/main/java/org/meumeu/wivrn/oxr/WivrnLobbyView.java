@@ -80,8 +80,8 @@ public class WivrnLobbyView {
     private final Context context;
     private final Bitmap bitmap;
     private final Canvas canvas;
-    private final int width = 400;
-    private final int height = 258;
+    private final int width = 1400;
+    private final int height = 900;
 
     private int currentTab = TAB_SERVER_LIST;
     private int connectionState = STATE_IDLE;

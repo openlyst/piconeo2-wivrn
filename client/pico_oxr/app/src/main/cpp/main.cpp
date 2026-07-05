@@ -1,6 +1,5 @@
 #include <jni.h>
 #include <android/log.h>
-#include <android/bitmap.h>
 #include <android_native_app_glue.h>
 #include <android/input.h>
 #include <android/keycodes.h>
@@ -161,40 +160,38 @@ struct AppState {
 };
 
 // ---------------------------------------------------------------------------
-// JNI: nativeUpdateLobbyTexture (called from Java UI render thread)
+// JNI: SurfaceTexture bridge
 // ---------------------------------------------------------------------------
 
 extern "C" {
 
-JNIEXPORT void JNICALL
-Java_org_meumeu_wivrn_oxr_MainActivity_nativeUpdateLobbyTexture(JNIEnv * env, jobject thiz, jobject bitmap)
+JNIEXPORT jint JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeGetTextureId(JNIEnv * env, jobject thiz)
 {
-    if (!g_app || !bitmap)
+    if (!g_app)
+        return 0;
+    return (jint)g_app->lobby.get_external_texture();
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetSurfaceTexture(JNIEnv * env, jobject thiz, jobject surfaceTexture)
+{
+    if (!g_app || !surfaceTexture)
         return;
 
-    AndroidBitmapInfo info;
-    if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS)
-    {
-        LOGE("AndroidBitmap_getInfo failed");
-        return;
-    }
+    jclass stClass = env->GetObjectClass(surfaceTexture);
+    jmethodID updateMethod = env->GetMethodID(stClass, "updateTexImage", "()V");
+    env->DeleteLocalRef(stClass);
 
-    if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888)
-    {
-        LOGE("Lobby bitmap format is not RGBA_8888 (got %d)", info.format);
-        return;
-    }
+    jobject globalST = env->NewGlobalRef(surfaceTexture);
+    g_app->lobby.set_surface_texture(globalST, updateMethod);
+}
 
-    void * pixels = nullptr;
-    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS)
-    {
-        LOGE("AndroidBitmap_lockPixels failed");
-        return;
-    }
-
-    g_app->lobby.update_texture(info.width, info.height, pixels);
-
-    AndroidBitmap_unlockPixels(env, bitmap);
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeOnFrameAvailable(JNIEnv * env, jobject thiz)
+{
+    if (g_app)
+        g_app->lobby.on_frame_available();
 }
 
 } // extern "C"
@@ -660,7 +657,18 @@ static void render_frame(AppState* app) {
 
     struct timespec tfl0, tfl1;
     clock_gettime(CLOCK_MONOTONIC, &tfl0);
-    app->lobby.flush_pending_texture();
+    {
+        JNIEnv * env = nullptr;
+        bool attached = false;
+        if (g_jvm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
+            if (g_jvm->AttachCurrentThread(&env, nullptr) == JNI_OK)
+                attached = true;
+        }
+        if (env)
+            app->lobby.update_tex_image(env);
+        if (attached)
+            g_jvm->DetachCurrentThread();
+    }
     clock_gettime(CLOCK_MONOTONIC, &tfl1);
 
     struct timespec tf;

@@ -4,9 +4,13 @@ import android.app.NativeActivity;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Rect;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.Surface;
+import android.graphics.SurfaceTexture;
 
 import com.picovr.picovrlib.cvcontrollerclient.ControllerClient;
 import com.picovr.picovrlib.cvcontrollerclient.BindControllerCallback;
@@ -28,6 +32,8 @@ public class MainActivity extends NativeActivity {
 
     private volatile boolean mUiRenderRunning = false;
     private Thread mUiRenderThread;
+    private SurfaceTexture lobbySurfaceTexture;
+    private Surface lobbySurface;
 
     private WivrnLobbyView lobbyView;
     private WifiManager.MulticastLock multicastLock;
@@ -222,23 +228,40 @@ public class MainActivity extends NativeActivity {
     private void startUiRenderThread() {
         if (mUiRenderRunning) return;
         mUiRenderRunning = true;
+
         mUiRenderThread = new Thread(() -> {
-            long lastUpload = 0;
+            int texId = 0;
+            for (int i = 0; i < 50 && texId == 0; i++) {
+                texId = nativeGetTextureId();
+                if (texId == 0) {
+                    try { Thread.sleep(100); } catch (InterruptedException e) { mUiRenderRunning = false; return; }
+                }
+            }
+            if (texId == 0) {
+                Log.e(TAG, "nativeGetTextureId returned 0 after retries");
+                mUiRenderRunning = false;
+                return;
+            }
+
+            lobbySurfaceTexture = new SurfaceTexture(texId);
+            lobbySurfaceTexture.setOnFrameAvailableListener(st -> nativeOnFrameAvailable());
+            nativeSetSurfaceTexture(lobbySurfaceTexture);
+            lobbySurface = new Surface(lobbySurfaceTexture);
+            Log.i(TAG, "SurfaceTexture created for texId=" + texId);
+
             while (mUiRenderRunning) {
                 try {
                     if (lobbyView != null && lobbyView.isDirty()) {
-                        long now = System.currentTimeMillis();
-                        if (now - lastUpload >= 100) {
-                            lobbyView.render();
-                            nativeUpdateLobbyTexture(lobbyView.getBitmap());
-                            lobbyView.markClean();
-                            lastUpload = now;
-                        }
+                        lobbyView.render();
+                        Canvas canvas = lobbySurface.lockHardwareCanvas();
+                        canvas.drawBitmap(lobbyView.getBitmap(), null, new Rect(0, 0, canvas.getWidth(), canvas.getHeight()), null);
+                        lobbySurface.unlockCanvasAndPost(canvas);
+                        lobbyView.markClean();
                     }
                 } catch (Throwable t) {
                     Log.e(TAG, "ui render thread error", t);
                 }
-                try { Thread.sleep(33); } catch (InterruptedException e) { break; }
+                try { Thread.sleep(16); } catch (InterruptedException e) { break; }
             }
         }, "ui-render");
         mUiRenderThread.start();
@@ -248,6 +271,8 @@ public class MainActivity extends NativeActivity {
     private void stopUiRenderThread() {
         mUiRenderRunning = false;
         if (mUiRenderThread != null) { mUiRenderThread.interrupt(); mUiRenderThread = null; }
+        if (lobbySurface != null) { lobbySurface.release(); lobbySurface = null; }
+        if (lobbySurfaceTexture != null) { lobbySurfaceTexture.release(); lobbySurfaceTexture = null; }
     }
 
     public void onLobbyTouch(float x, float y, boolean down, boolean pressed, float thumbstickY) {
@@ -329,5 +354,7 @@ public class MainActivity extends NativeActivity {
 
     public native void nativeGetHeadData(float[] out);
     public native void nativeControllerState(int hand, int conn, float[] sensor, float[] angVel, int[] keys);
-    public native void nativeUpdateLobbyTexture(Bitmap bitmap);
+    public native int nativeGetTextureId();
+    public native void nativeSetSurfaceTexture(SurfaceTexture surfaceTexture);
+    public native void nativeOnFrameAvailable();
 }
