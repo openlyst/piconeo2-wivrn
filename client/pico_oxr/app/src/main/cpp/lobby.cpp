@@ -498,6 +498,10 @@ void pico_lobby::update_tex_image(JNIEnv* env)
 
 	env->CallVoidMethod(surface_texture, update_tex_image_method);
 	frame_available.store(false, std::memory_order_relaxed);
+
+	static int update_count = 0;
+	if (++update_count % 100 == 0)
+		LOGI("update_tex_image called #%d", update_count);
 }
 
 void pico_lobby::draw_quad(const float head_orient[4], const float head_pos[3],

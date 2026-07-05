@@ -244,19 +244,24 @@ public class MainActivity extends NativeActivity {
             }
 
             lobbySurfaceTexture = new SurfaceTexture(texId);
+            lobbySurfaceTexture.setDefaultBufferSize(1400, 900);
             lobbySurfaceTexture.setOnFrameAvailableListener(st -> nativeOnFrameAvailable());
             nativeSetSurfaceTexture(lobbySurfaceTexture);
             lobbySurface = new Surface(lobbySurfaceTexture);
-            Log.i(TAG, "SurfaceTexture created for texId=" + texId);
+            Log.i(TAG, "SurfaceTexture created for texId=" + texId + " bufSize=1400x900");
 
+            int frameCount = 0;
             while (mUiRenderRunning) {
                 try {
                     if (lobbyView != null && lobbyView.isDirty()) {
                         lobbyView.render();
-                        Canvas canvas = lobbySurface.lockHardwareCanvas();
-                        canvas.drawBitmap(lobbyView.getBitmap(), null, new Rect(0, 0, canvas.getWidth(), canvas.getHeight()), null);
+                        Canvas canvas = lobbySurface.lockCanvas(new Rect(0, 0, 1400, 900));
+                        canvas.drawBitmap(lobbyView.getBitmap(), null, new Rect(0, 0, 1400, 900), null);
                         lobbySurface.unlockCanvasAndPost(canvas);
                         lobbyView.markClean();
+                        frameCount++;
+                        if (frameCount % 100 == 0)
+                            Log.i(TAG, "UI frame " + frameCount + " posted");
                     }
                 } catch (Throwable t) {
                     Log.e(TAG, "ui render thread error", t);
