@@ -84,6 +84,7 @@ void pico_native_tracker::start()
 	if (running.load())
 		return;
 	running = true;
+	height_calibrated = false;
 	thread = std::thread([this] { run(); });
 	spdlog::info("Native tracker started");
 }
@@ -105,6 +106,15 @@ void pico_native_tracker::set_head_pose(const float orient[4], const float pos[3
 	std::memcpy(head_orient, orient, sizeof(head_orient));
 	std::memcpy(head_pos, pos, sizeof(head_pos));
 	head_valid = true;
+
+	if (!height_calibrated && !floor_relative.load())
+	{
+		constexpr float k_standing_eye_height = 1.5f;
+		float offset = k_standing_eye_height - pos[1];
+		height_offset.store(offset);
+		height_calibrated = true;
+		spdlog::info("Height calibrated: initial_Y={:.3f} offset={:.3f}", pos[1], offset);
+	}
 
 	step_head_filter(pos, hq, ts);
 }
@@ -300,23 +310,38 @@ void pico_native_tracker::run()
 		int viewNum;
 		int rc = Pvr_GetMainSensorState(&qx, &qy, &qz, &qw, &px, &py, &pz, &vfov, &hfov, &viewNum);
 		h_valid = (rc >= 0);
+		if (!h_valid)
+		{
+			std::lock_guard lock(state_mutex);
+			h_valid = head_valid;
+			if (h_valid)
+			{
+				std::memcpy(h_orient, head_orient, sizeof(h_orient));
+				std::memcpy(h_pos, head_pos, sizeof(h_pos));
+			}
+		}
 		static int sensor_log_count = 0;
 		if (sensor_log_count < 5 || (sensor_log_count % 300) == 0) {
-			spdlog::info("Pvr_GetMainSensorState rc={} q=({:.3f},{:.3f},{:.3f},{:.3f}) p=({:.3f},{:.3f},{:.3f})",
-				rc, qx, qy, qz, qw, px, py, pz);
+			spdlog::info("sensor rc={} valid={} q=({:.3f},{:.3f},{:.3f},{:.3f}) p=({:.3f},{:.3f},{:.3f})",
+				rc, h_valid, h_orient[0], h_orient[1], h_orient[2], h_orient[3], h_pos[0], h_pos[1], h_pos[2]);
 			sensor_log_count++;
 		}
-		if (h_valid)
+		if (h_valid && rc >= 0)
 		{
 			h_orient[0] = qx; h_orient[1] = qy; h_orient[2] = qz; h_orient[3] = qw;
 			h_pos[0] = px; h_pos[1] = py; h_pos[2] = pz;
 
 			std::lock_guard lock(state_mutex);
 			std::memcpy(head_orient, h_orient, sizeof(head_orient));
-			std::memcpy(head_pos, h_pos, sizeof(head_pos));
+			std::memcpy(head_pos, h_pos, sizeof(h_pos));
 			head_valid = true;
 
 			neo2::quat hq = neo2::normalize_quat({qx, qy, qz, qw});
+			step_head_filter(h_pos, hq, ts);
+		}
+		else if (h_valid)
+		{
+			neo2::quat hq = neo2::normalize_quat({h_orient[0], h_orient[1], h_orient[2], h_orient[3]});
 			step_head_filter(h_pos, hq, ts);
 		}
 
@@ -443,19 +468,20 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 
 	XrPosef head_pose;
 	head_pose.orientation = neo2::to_xr_quat(hq);
-	head_pose.position = {h_pos[0], h_pos[1], h_pos[2]};
+	float h_offset = floor_relative.load() ? 0.0f : height_offset.load();
+	head_pose.position = {h_pos[0], h_pos[1] + h_offset, h_pos[2]};
 
+	// Pico Neo 2 has a square ~101 degree per-eye FOV (same H and V).
+	// The OpenXR runtime may report incorrect/wider FOV values that make
+	// everything look too small. Use the known-correct value from the Pico SDK.
+	constexpr float k_fov_half = 101.0f * 0.5f * 0.01745329252f;
 	constexpr float k_ipd = 0.064f;
 	for (int eye = 0; eye < 2; eye++)
 	{
-		// View poses are relative to the head (XR_REFERENCE_SPACE_TYPE_VIEW),
-		// not absolute world positions. The server composes head_pose * view_pose
-		// to get eye world positions. Sending absolute positions here caused
-		// the "super tall" feeling (eyes ended up at ~2x head height).
 		float eye_offset = (eye == 0 ? -k_ipd * 0.5f : k_ipd * 0.5f);
 		pkt.views[eye].pose.orientation = {0, 0, 0, 1};
 		pkt.views[eye].pose.position = {eye_offset, 0, 0};
-		pkt.views[eye].fov = eye_fov[eye];
+		pkt.views[eye].fov = {-k_fov_half, k_fov_half, k_fov_half, -k_fov_half};
 	}
 
 	from_headset::tracking::pose head_tp{};
@@ -489,7 +515,7 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 
 		float pos_m[3] = {
 			cs[h].position[0] * 0.001f + grip_world[0],
-			cs[h].position[1] * 0.001f + grip_world[1],
+			cs[h].position[1] * 0.001f + grip_world[1] + h_offset,
 			cs[h].position[2] * 0.001f + grip_world[2],
 		};
 
@@ -528,18 +554,29 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 		for (int h = 0; h < 2; h++)
 		{
 			if (!cs[h].connected)
-				continue;
-			for (auto & dp : pkt.device_poses)
 			{
-				if (dp.device == (h == 0 ? device_id::LEFT_GRIP : device_id::RIGHT_GRIP))
-				{
-					spdlog::warn("TRACKING {} grip: q=({:.3f},{:.3f},{:.3f},{:.3f}) p=({:.3f},{:.3f},{:.3f})",
-						h == 0 ? "LEFT" : "RIGHT",
-						dp.pose.orientation.x, dp.pose.orientation.y,
-						dp.pose.orientation.z, dp.pose.orientation.w,
-						dp.pose.position.x, dp.pose.position.y, dp.pose.position.z);
-				}
+				spdlog::warn("TRACKING {} controller: DISCONNECTED", h == 0 ? "LEFT" : "RIGHT");
+				continue;
 			}
+
+			neo2::quat cq = apply_controller_orientation(cs[h].orientation, h);
+			float grip_world[3];
+			compute_grip_offset(cq, h, grip_world);
+
+			spdlog::warn("TRACKING {} controller:\n"
+			             "  raw:    q=({:.4f},{:.4f},{:.4f},{:.4f}) pos_mm=({:.1f},{:.1f},{:.1f})\n"
+			             "  orient: q=({:.4f},{:.4f},{:.4f},{:.4f})\n"
+			             "  grip_off: ({:.4f},{:.4f},{:.4f})\n"
+			             "  final:  q=({:.4f},{:.4f},{:.4f},{:.4f}) pos_m=({:.4f},{:.4f},{:.4f})",
+				h == 0 ? "LEFT" : "RIGHT",
+				cs[h].orientation[0], cs[h].orientation[1], cs[h].orientation[2], cs[h].orientation[3],
+				cs[h].position[0], cs[h].position[1], cs[h].position[2],
+				cq.x, cq.y, cq.z, cq.w,
+				grip_world[0], grip_world[1], grip_world[2],
+				cq.x, cq.y, cq.z, cq.w,
+				cs[h].position[0] * 0.001f + grip_world[0],
+				cs[h].position[1] * 0.001f + grip_world[1] + h_offset,
+				cs[h].position[2] * 0.001f + grip_world[2]);
 		}
 	}
 
