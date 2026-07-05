@@ -189,6 +189,13 @@ void release_hardware_buffer(AHardwareBuffer * hb)
 	if (hb)
 		AHardwareBuffer_release(hb);
 }
+
+static int64_t now_ns()
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+}
 } // namespace
 
 pico_video_decoder::pico_video_decoder(
@@ -312,6 +319,7 @@ void pico_video_decoder::input_loop()
 		memcpy(buf, frame_data.data(), copy_size);
 
 		uint64_t timestamp = frame.frame_index * 10'000;
+		int64_t queue_time = now_ns();
 		auto status = AMediaCodec_queueInputBuffer(
 			media_codec, in_idx, 0, copy_size, timestamp, 0);
 		if (status != AMEDIA_OK)
@@ -337,10 +345,24 @@ void pico_video_decoder::output_loop()
 		ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(media_codec, &info, 1000);
 		if (out_idx >= 0)
 		{
+			int64_t dequeue_time = now_ns();
 			static int out_count = 0;
 			if (++out_count % 100 == 1)
 				spdlog::warn("Decoder stream {} output buffer {} flags={} size={} ts={}",
 					stream_index, out_count, info.flags, info.size, info.presentationTimeUs);
+
+			uint64_t ts_frame = (info.presentationTimeUs + 5'000) / 10'000;
+			{
+				std::lock_guard lock(frame_info_mutex);
+				for (auto & fi : pending_frame_infos)
+				{
+					if (fi.frame_index == ts_frame)
+					{
+						fi.t_dequeued_output_ns = dequeue_time;
+						break;
+					}
+				}
+			}
 
 			auto status = AMediaCodec_releaseOutputBuffer(media_codec, out_idx, true);
 			if (status != AMEDIA_OK)
@@ -387,7 +409,9 @@ void pico_video_decoder::push_data(std::span<std::span<const uint8_t>> data, uin
 	}
 
 	if (!partial)
+	{
 		pending_cv.notify_one();
+	}
 }
 
 void pico_video_decoder::flush()
@@ -420,6 +444,7 @@ void pico_video_decoder::frame_completed(
 		.frame_index = feedback.frame_index,
 		.feedback = feedback,
 		.view_info = view_info,
+		.t_pushed_to_decoder_ns = now_ns(),
 	});
 }
 
@@ -438,6 +463,7 @@ void pico_video_decoder::on_image_available_cb(void * ctx, AImageReader * reader
 
 void pico_video_decoder::on_image_available(AImageReader * reader)
 {
+	int64_t image_cb_time = now_ns();
 	AImage * tmp;
 	check(AImageReader_acquireNextImage(image_reader.get(), &tmp), "AImageReader_acquireNextImage");
 	std::shared_ptr<AImage> image(tmp, [](AImage * img) { AImage_delete(img); });
@@ -489,6 +515,9 @@ void pico_video_decoder::on_image_available(AImageReader * reader)
 	frame->height = desc.height;
 	frame->frame_index = frame_index;
 	frame->valid = true;
+	frame->t_pushed_to_decoder_ns = info.t_pushed_to_decoder_ns;
+	frame->t_dequeued_output_ns = info.t_dequeued_output_ns;
+	frame->t_image_available_ns = image_cb_time;
 
 	for (int i = 0; i < 2; i++)
 	{
@@ -498,8 +527,14 @@ void pico_video_decoder::on_image_available(AImageReader * reader)
 	}
 
 	static int decoded_count = 0;
-	if (++decoded_count % 300 == 1)
-		spdlog::warn("Decoded frame {} available ({}x{})", frame_index, desc.width, desc.height);
+	if (++decoded_count % 100 == 1)
+	{
+		int64_t decode_latency = info.t_dequeued_output_ns - info.t_pushed_to_decoder_ns;
+		int64_t image_latency = image_cb_time - info.t_dequeued_output_ns;
+		spdlog::warn("Decoded frame {} available ({}x{}) stream {} decode={:.1f}ms image_cb={:.1f}ms",
+			frame_index, desc.width, desc.height, stream_index,
+			decode_latency / 1e6f, image_latency / 1e6f);
+	}
 
 	if (on_frame_decoded)
 		on_frame_decoded(frame);

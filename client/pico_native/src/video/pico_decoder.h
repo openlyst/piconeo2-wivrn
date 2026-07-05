@@ -24,6 +24,10 @@ struct pico_decoded_frame
 	uint64_t frame_index = 0;
 	bool valid = false;
 
+	int64_t t_pushed_to_decoder_ns = 0;
+	int64_t t_dequeued_output_ns = 0;
+	int64_t t_image_available_ns = 0;
+
 	XrPosef server_pose[2]{};
 	XrFovf server_fov[2]{};
 	std::array<wivrn::to_headset::foveation_parameter, 2> foveation;
@@ -65,6 +69,8 @@ private:
 		uint64_t frame_index;
 		wivrn::from_headset::feedback feedback;
 		wivrn::to_headset::video_stream_data_shard::view_info_t view_info;
+		int64_t t_pushed_to_decoder_ns = 0;
+		int64_t t_dequeued_output_ns = 0;
 	};
 	std::mutex frame_info_mutex;
 	std::vector<frame_info> pending_frame_infos;
