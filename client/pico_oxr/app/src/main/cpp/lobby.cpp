@@ -585,6 +585,13 @@ static bool ray_plane_intersect(
 	return (out_u >= -1.0f && out_u <= 1.0f && out_v >= -1.0f && out_v <= 1.0f);
 }
 
+void pico_lobby::recenter()
+{
+	panel_placed = false;
+	recentering_controller = -1;
+	LOGI("Lobby recentered");
+}
+
 void pico_lobby::update_interaction(const float head_orient[4], const float head_pos[3],
                                     const controller_sample controllers[2])
 {
