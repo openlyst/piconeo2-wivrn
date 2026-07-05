@@ -1,0 +1,65 @@
+plugins {
+    id 'com.android.application'
+}
+
+def pvrAar = file('../../../external/pvrsdk-native/PvrSDK-Native-release.aar')
+if (!pvrAar.exists()) {
+    throw new GradleException(
+        "\n\nPvrSDK-Native AAR not found at external/pvrsdk-native/\n" +
+        "Required for ControllerClient Java classes.\n"
+    )
+}
+
+android {
+    namespace 'org.meumeu.wivrn.oxr'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "org.meumeu.wivrn.neo2.local"
+        minSdk 27
+        targetSdk 33
+        versionCode 1
+        versionName "1.0"
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+        externalNativeBuild {
+            cmake {
+                cppFlags '-std=c++20'
+                arguments '-DANDROID_STL=c++_shared'
+            }
+        }
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path 'src/main/cpp/CMakeLists.txt'
+        }
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+    }
+
+    packagingOptions {
+        exclude 'lib/armeabi-v7a/**'
+        pickFirst 'lib/arm64-v8a/libPvr_NativeSDK.so'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    implementation name: 'PvrSDK-Native-release', ext: 'aar'
+}

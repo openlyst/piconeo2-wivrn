@@ -92,6 +92,8 @@ public:
 	void get_head_pose(float out_orient[4], float out_pos[3]);
 	void get_controllers(controller_sample out[2]);
 	void set_prediction_ns(int64_t ns);
+	std::atomic<bool> floor_relative{false};
+	std::atomic<float> height_offset{1.5f};
 	void update_controller(int hand, const float orient[4], const float pos[3],
 	                       int trigger, const int touch[2], int battery,
 	                       bool a, bool b, bool grip, bool click, bool menu);
@@ -118,6 +120,7 @@ private:
 	neo2::quat head_prev_orient{0, 0, 0, 1};
 	uint64_t head_prev_ts = 0;
 	bool head_filter_init = false;
+	bool height_calibrated = false;
 
 	// Prediction offset from server's tracking_control
 	std::atomic<int64_t> prediction_ns{0};
