@@ -25,8 +25,8 @@ This project is really early and still has issues with the code. But it should s
 
 - [ ] Killing a applcation doesn't apply a visual indiactor.
 - [ ] Laucning a applcation doesnt apply a visual indiactor.
-- [ ] Right eye is slightly jittery compared to the left eye
 - [ ] Cursor on the UI doesn't work
+- [X] Right eye is slightly jittery compared to the left eye
 - [X] Stream will crash while streaming and andriod will say the app is not responing even when it is witch breaks controller input and sends the user to a 2d view
 - [X] Reprojection is broken causing some people to get sick 
 - [X] UI gets super laggy when active (32bit)
