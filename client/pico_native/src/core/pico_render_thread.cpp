@@ -651,10 +651,46 @@ void pico_render_thread::run()
 					new_count++;
 			}
 
-			bool has_new_frame = (new_count == 2);
+			bool has_new_frame = (new_count >= 1);
+
+			if (!has_new_frame && prev_swap_valid)
+			{
+				static int skip_count = 0;
+				if (++skip_count % 100 == 1)
+				{
+					uint64_t li = frames[0] ? frames[0]->frame_index : 0;
+					uint64_t ri = frames[1] ? frames[1]->frame_index : 0;
+					spdlog::warn("RENDER SKIP: new_count={} L.frame={} R.frame={} L.last={} R.last={}",
+						new_count, li, ri, last_frame_idx[0], last_frame_idx[1]);
+				}
+			}
 
 			if (has_new_frame || !prev_swap_valid)
 			{
+				static int render_log_count = 0;
+				if (++render_log_count % 100 == 1)
+				{
+					uint64_t li = frames[0] ? frames[0]->frame_index : 0;
+					uint64_t ri = frames[1] ? frames[1]->frame_index : 0;
+					int64_t gap = (int64_t)li - (int64_t)ri;
+					int64_t l_decode = 0, r_decode = 0, l_image = 0, r_image = 0;
+					if (frames[0] && frames[0]->t_pushed_to_decoder_ns > 0)
+					{
+						l_decode = frames[0]->t_dequeued_output_ns - frames[0]->t_pushed_to_decoder_ns;
+						l_image = frames[0]->t_image_available_ns - frames[0]->t_dequeued_output_ns;
+					}
+					if (frames[1] && frames[1]->t_pushed_to_decoder_ns > 0)
+					{
+						r_decode = frames[1]->t_dequeued_output_ns - frames[1]->t_pushed_to_decoder_ns;
+						r_image = frames[1]->t_image_available_ns - frames[1]->t_dequeued_output_ns;
+					}
+					spdlog::warn("RENDER: L.frame={} R.frame={} gap={} L.decode={:.1f}ms R.decode={:.1f}ms L.img_cb={:.1f}ms R.img_cb={:.1f}ms new_count={}",
+						li, ri, gap,
+						l_decode / 1e6f, r_decode / 1e6f,
+						l_image / 1e6f, r_image / 1e6f,
+						new_count);
+				}
+
 				bool first_frame = !prev_swap_valid;
 				if (!first_frame)
 					submit_to_warp(prev_swap_idx, 5000000ULL);
