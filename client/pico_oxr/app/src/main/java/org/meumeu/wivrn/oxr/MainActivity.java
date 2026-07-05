@@ -324,10 +324,12 @@ public class MainActivity extends NativeActivity {
 
     public void onServerConnect(String hostname, int port, boolean tcpOnly) {
         Log.d(TAG, "Connect requested: " + hostname + ":" + port + " tcp=" + tcpOnly);
+        nativeConnectServer(hostname, port, tcpOnly);
     }
 
     public void onPinEntered(String pin) {
         Log.d(TAG, "PIN entered: " + pin);
+        nativeSetPin(pin);
     }
 
     public void onPinCancelled() {
@@ -336,6 +338,7 @@ public class MainActivity extends NativeActivity {
 
     public void onDisconnectRequested() {
         Log.d(TAG, "Disconnect requested");
+        nativeDisconnectServer();
     }
 
     public void onRequestAppList() {
@@ -362,4 +365,7 @@ public class MainActivity extends NativeActivity {
     public native int nativeGetTextureId();
     public native void nativeSetSurfaceTexture(SurfaceTexture surfaceTexture);
     public native void nativeOnFrameAvailable();
+    public native void nativeConnectServer(String host, int port, boolean tcpOnly);
+    public native void nativeDisconnectServer();
+    public native void nativeSetPin(String pin);
 }

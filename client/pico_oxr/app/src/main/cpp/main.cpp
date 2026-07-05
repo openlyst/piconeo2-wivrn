@@ -20,6 +20,8 @@
 #include "openxr/openxr_platform.h"
 
 #include "lobby.h"
+#include "streaming/streaming_client.h"
+#include "streaming/oxr_blit.h"
 
 #define LOG_TAG "WiVRn-OXR"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
@@ -157,6 +159,9 @@ struct AppState {
 
     pico_lobby lobby;
 
+    streaming_client stream;
+    oxr_blit blit;
+
     bool shouldExit = false;
 };
 
@@ -193,6 +198,36 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeOnFrameAvailable(JNIEnv * env, jobj
 {
     if (g_app)
         g_app->lobby.on_frame_available();
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeConnectServer(JNIEnv * env, jobject thiz, jstring host, jint port, jboolean tcpOnly)
+{
+    if (!g_app) return;
+    const char * h = env->GetStringUTFChars(host, nullptr);
+    g_app->stream.server_host = h;
+    g_app->stream.server_port = port;
+    g_app->stream.tcp_only = tcpOnly;
+    env->ReleaseStringUTFChars(host, h);
+    g_app->stream.try_connect();
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeDisconnectServer(JNIEnv * env, jobject thiz)
+{
+    if (!g_app) return;
+    g_app->stream.shutdown = true;
+    if (g_app->stream.session)
+        g_app->stream.session.reset();
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetPin(JNIEnv * env, jobject thiz, jstring pin)
+{
+    if (!g_app) return;
+    const char * p = env->GetStringUTFChars(pin, nullptr);
+    g_app->stream.pairing_pin = p;
+    env->ReleaseStringUTFChars(pin, p);
 }
 
 } // extern "C"
@@ -658,6 +693,13 @@ static void render_frame(AppState* app) {
     float dz = views[0].pose.position.z - views[1].pose.position.z;
     float ipd = sqrtf(dx*dx + dy*dy + dz*dz);
 
+    if (app->stream.streaming.load())
+    {
+        app->stream.tracker.set_head_pose(head_orient, head_pos);
+        app->stream.eye_fov[0] = views[0].fov;
+        app->stream.eye_fov[1] = views[1].fov;
+    }
+
     struct timespec tm1;
     clock_gettime(CLOCK_MONOTONIC, &tm1);
 
@@ -733,6 +775,9 @@ static void render_frame(AppState* app) {
         GLenum fbStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
         if (fbStatus != GL_FRAMEBUFFER_COMPLETE) {
             LOGE("Framebuffer incomplete: 0x%x (eye %u)", fbStatus, eye);
+        } else if (app->stream.streaming.load()) {
+            GLuint swap_tex[2] = { glImg, glImg };
+            app->blit.blit(&app->stream, swap_tex, w, h);
         } else {
             app->lobby.draw(eye, head_orient, head_pos, cs, views[eye].fov, ipd);
         }
@@ -948,6 +993,13 @@ extern "C" void android_main(struct android_app* androidApp) {
     int eye_w = app.swapchains[0].width;
     int eye_h = app.swapchains[0].height;
     app.lobby.init(eye_w, eye_h);
+    app.blit.init(app.display, eye_w, eye_h);
+    app.stream.blit_pipeline.init(eye_w, eye_h);
+    app.stream.eye_width = eye_w;
+    app.stream.eye_height = eye_h;
+    app.stream.vm = g_jvm;
+    app.stream.activity = g_activity;
+    g_stream = &app.stream;
 
     LOGI("Entering main loop");
 
@@ -977,6 +1029,7 @@ extern "C" void android_main(struct android_app* androidApp) {
         }
     }
 
+    g_stream = nullptr;
     if (app.fbo) glDeleteFramebuffers(1, &app.fbo);
     openxr_destroy_session(&app);
     if (app.instance)
