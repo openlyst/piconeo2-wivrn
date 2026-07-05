@@ -1,5 +1,6 @@
 #include <jni.h>
 #include <android/log.h>
+#include <android/bitmap.h>
 #include <android_native_app_glue.h>
 #include <android/input.h>
 #include <android/keycodes.h>
@@ -43,6 +44,15 @@ static std::mutex g_state_mutex;
 static float g_head_orient[4] = {0, 0, 0, 1};
 static float g_head_pos[3] = {0, 0, 0};
 static controller_sample g_controllers[2];
+
+struct AppState;
+static AppState* g_app = nullptr;
+static JavaVM* g_jvm = nullptr;
+static jobject g_activity = nullptr;
+
+static int prev_touch_hand = -1;
+static bool prev_touch_down = false;
+static float prev_touch_x = -1, prev_touch_y = -1;
 
 // ---------------------------------------------------------------------------
 // JNI: called from Java controller poll thread
@@ -145,6 +155,45 @@ struct AppState {
 
     bool shouldExit = false;
 };
+
+// ---------------------------------------------------------------------------
+// JNI: nativeUpdateLobbyTexture (called from Java UI render thread)
+// ---------------------------------------------------------------------------
+
+extern "C" {
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeUpdateLobbyTexture(JNIEnv * env, jobject thiz, jobject bitmap)
+{
+    if (!g_app || !bitmap)
+        return;
+
+    AndroidBitmapInfo info;
+    if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS)
+    {
+        LOGE("AndroidBitmap_getInfo failed");
+        return;
+    }
+
+    if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888)
+    {
+        LOGE("Lobby bitmap format is not RGBA_8888 (got %d)", info.format);
+        return;
+    }
+
+    void * pixels = nullptr;
+    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS)
+    {
+        LOGE("AndroidBitmap_lockPixels failed");
+        return;
+    }
+
+    g_app->lobby.update_texture(info.width, info.height, pixels);
+
+    AndroidBitmap_unlockPixels(env, bitmap);
+}
+
+} // extern "C"
 
 // ---------------------------------------------------------------------------
 // EGL: windowless context (pbuffer surface) for OpenXR rendering
@@ -581,7 +630,12 @@ static void render_frame(AppState* app) {
         glBindFramebuffer(GL_FRAMEBUFFER, app->fbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, glImg, 0);
 
-        app->lobby.draw(eye, head_orient, head_pos, cs, views[eye].fov, ipd);
+        GLenum fbStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (fbStatus != GL_FRAMEBUFFER_COMPLETE) {
+            LOGE("Framebuffer incomplete: 0x%x (eye %u)", fbStatus, eye);
+        } else {
+            app->lobby.draw(eye, head_orient, head_pos, cs, views[eye].fov, ipd);
+        }
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
@@ -603,6 +657,57 @@ static void render_frame(AppState* app) {
     layers[0].space = app->localSpace;
     layers[0].viewCount = NUM_EYES;
     layers[0].views = layerViews;
+
+    // Check lobby touch state and call back to Java
+    int hit_hand = -1;
+    for (int h = 0; h < 2; h++) {
+        if (app->lobby.lobby_touch_x[h] >= 0 || app->lobby.lobby_touch_down[h]) {
+            hit_hand = h;
+            break;
+        }
+    }
+
+    float tx = -1, ty = -1;
+    bool tdown = false, tpressed = false;
+    float tthumb = 0;
+
+    if (hit_hand >= 0) {
+        tx = app->lobby.lobby_touch_x[hit_hand];
+        ty = app->lobby.lobby_touch_y[hit_hand];
+        tdown = app->lobby.lobby_touch_down[hit_hand];
+        tpressed = app->lobby.lobby_touch_pressed[hit_hand];
+        tthumb = app->lobby.lobby_thumbstick_y[hit_hand];
+    }
+
+    bool state_changed = (hit_hand != prev_touch_hand) ||
+                         (tdown != prev_touch_down) ||
+                         (tx != prev_touch_x) ||
+                         (ty != prev_touch_y);
+
+    if (state_changed || (hit_hand >= 0 && (tdown || tpressed))) {
+        if (g_jvm && g_activity) {
+            JNIEnv * env = nullptr;
+            bool attached = false;
+            if (g_jvm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
+                if (g_jvm->AttachCurrentThread(&env, nullptr) == JNI_OK)
+                    attached = true;
+            }
+            if (env) {
+                jclass clazz = env->GetObjectClass(g_activity);
+                jmethodID method = env->GetMethodID(clazz, "onLobbyTouch", "(FFZZF)V");
+                if (method)
+                    env->CallVoidMethod(g_activity, method, tx, ty, tdown, tpressed, tthumb);
+                env->DeleteLocalRef(clazz);
+            }
+            if (attached)
+                g_jvm->DetachCurrentThread();
+        }
+    }
+
+    prev_touch_hand = hit_hand;
+    prev_touch_down = tdown;
+    prev_touch_x = tx;
+    prev_touch_y = ty;
 
     const XrCompositionLayerBaseHeader* layerHeaders[1] = {
         reinterpret_cast<XrCompositionLayerBaseHeader*>(&layers[0])
@@ -669,6 +774,13 @@ extern "C" void android_main(struct android_app* androidApp) {
     androidApp->onInputEvent = on_input_event;
 
     AppState app;
+    g_app = &app;
+
+    g_jvm = androidApp->activity->vm;
+    JNIEnv * env = nullptr;
+    if (g_jvm->GetEnv((void**)&env, JNI_VERSION_1_6) == JNI_OK) {
+        g_activity = env->NewGlobalRef(androidApp->activity->clazz);
+    }
 
     if (!egl_init(&app)) {
         LOGE("EGL init failed");
@@ -727,6 +839,16 @@ extern "C" void android_main(struct android_app* androidApp) {
     if (app.instance)
         xrDestroyInstance(app.instance);
     egl_shutdown(&app);
+
+    g_app = nullptr;
+    if (g_activity && g_jvm) {
+        JNIEnv * env = nullptr;
+        if (g_jvm->GetEnv((void**)&env, JNI_VERSION_1_6) == JNI_OK) {
+            env->DeleteGlobalRef(g_activity);
+        }
+        g_activity = nullptr;
+    }
+    g_jvm = nullptr;
 
     LOGI("Main loop exited");
 }

@@ -7,6 +7,7 @@ find_library(log-lib log)
 find_library(egl-lib EGL)
 find_library(gles-lib GLESv3)
 find_library(android-lib android)
+find_library(jnigraphics-lib jnigraphics)
 
 add_library(openxr_loader SHARED IMPORTED)
 set_target_properties(openxr_loader PROPERTIES
@@ -37,5 +38,6 @@ target_link_libraries(pico_oxr
     ${egl-lib}
     ${gles-lib}
     ${android-lib}
+    ${jnigraphics-lib}
     openxr_loader
 )
