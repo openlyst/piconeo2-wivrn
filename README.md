@@ -14,14 +14,15 @@ This project is really early and still has issues with the code. But it should s
 ## Features
 - 6/3 DOF Tracking
 - Controller inputs
-- Native client and UI (pvr)
-- Vibrataion 
+- Native client and UI (OpenXR)
+- Controller models with pointer rays in lobby
+- Vibration
 - Audio
 
 ### Todo before a 1.0
 
 #### Known bugs
-- [ ] Client will crash if you pair from the clint rather then server (tested on usb)
+- [ ] Client will crash if you pair from the client rather then server (tested on usb)
 
 - [ ] Killing a applcation doesn't apply a visual indiactor.
 - [ ] Laucning a applcation doesnt apply a visual indiactor.
@@ -37,15 +38,14 @@ This project is really early and still has issues with the code. But it should s
 - [X] Implement Audio; Dekstop -> Client
 - [X] Implement controller haptics
 
-### Getting the Pico SDK
+### Getting the Pico OpenXR SDK
 
-You need the Pico Neo 2 native SDK — it's not bundled here because of licensing.
+You need the Pico Neo 2 OpenXR SDK — it's not bundled here because of licensing.
 
 1. Sign up at [https://developer.picoxr.com/](https://developer.picoxr.com/) or download from [https://archive.org/details/pico-neo-2-sdks-exes.-7z](https://archive.org/details/pico-neo-2-sdks-exes.-7z)
-2. Download the Android Native SDK (PvrSDK-Native 2.8.5.4 or newer)
-3. Drop `PvrSDK-Native-release.aar` into `external/pvrsdk-native/`
-4. Extract the `jni/` folder so you end up with:
-   `external/pvrsdk-native/jni/arm64-v8a/libPvr_NativeSDK.so`
+2. Download the OpenXR SDK (v1.0.13 or newer)
+3. Copy `libopenxr_loader.so` from `OpenXR/v1.0.13/OpenXR/Libs/Android/arm64-v8a/` to `client/pico_oxr/app/src/main/cpp/lib/arm64-v8a/`
+4. Copy the OpenXR headers from `OpenXR/v1.0.13/OpenXR/Include/openxr/` to `client/pico_oxr/app/src/main/cpp/openxr/` (or use the bundled headers)
 
 If you forget this step, the build will yell at you with a message telling you exactly what to do.
 
@@ -58,10 +58,10 @@ export ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/28.2.13676358
 export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
 export PATH="$JAVA_HOME/bin:$PATH"
 
-cd client/pico_native
+cd client/pico_oxr
 ./gradlew assembleDebug
 ```
-The APK ends up in `build/outputs/apk/debug/` (or `release/`).
+The APK ends up in `app/build/outputs/apk/debug/` (or `release/`).
 
 ### Acknowledgments
 - [WiVRn](https://github.com/Vrixyz/WiVRn) - The main project that this is based on
