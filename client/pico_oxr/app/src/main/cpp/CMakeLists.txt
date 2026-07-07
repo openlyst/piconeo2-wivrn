@@ -115,6 +115,7 @@ set(STREAMING_SOURCES
 
 add_library(pico_oxr SHARED
     main.cpp
+    lobby.cpp
     ${STREAMING_SOURCES}
     $<TARGET_OBJECTS:native_app_glue>
 )

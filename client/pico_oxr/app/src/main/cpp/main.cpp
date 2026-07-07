@@ -23,6 +23,7 @@
 #include "openxr/openxr.h"
 #include "openxr/openxr_platform.h"
 
+#include "lobby.h"
 #include "streaming/streaming_client.h"
 #include "streaming/oxr_blit.h"
 #include "pico_stutter.h"
@@ -58,7 +59,12 @@ static PFN_xrGetConfigPICO g_pfnXrGetConfigPICO = nullptr;
 static PFN_xrResetSensorPICO g_pfnXrResetSensorPICO = nullptr;
 static PFN_xrInvokeFunctionsPICO g_pfnXrInvokeFunctionsPICO = nullptr;
 static bool g_hasPicoSessionBegin = false;
+static jmethodID g_onLobbyTouchMethod = nullptr;
 static jclass g_activityClass = nullptr;
+
+static int prev_touch_hand = -1;
+static bool prev_touch_down = false;
+static float prev_touch_x = -1, prev_touch_y = -1;
 
 // ---------------------------------------------------------------------------
 // JNI: called from Java controller poll thread
@@ -67,7 +73,7 @@ static jclass g_activityClass = nullptr;
 extern "C" {
 
 JNIEXPORT void JNICALL
-Java_org_meumeu_wivrn_oxr_StreamingActivity_nativeGetHeadData(JNIEnv * env, jobject thiz, jfloatArray out)
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeGetHeadData(JNIEnv * env, jobject thiz, jfloatArray out)
 {
     if (!out || env->GetArrayLength(out) < 7)
         return;
@@ -79,7 +85,7 @@ Java_org_meumeu_wivrn_oxr_StreamingActivity_nativeGetHeadData(JNIEnv * env, jobj
 }
 
 JNIEXPORT void JNICALL
-Java_org_meumeu_wivrn_oxr_StreamingActivity_nativeControllerState(
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeControllerState(
     JNIEnv * env, jobject thiz, jint hand, jint conn,
     jfloatArray sensor, jfloatArray angVel, jintArray keys)
 {
@@ -194,6 +200,8 @@ struct AppState {
     int depth_rbo_w[NUM_EYES] = {};
     int depth_rbo_h[NUM_EYES] = {};
 
+    pico_lobby lobby;
+
     streaming_client stream;
     oxr_blit blit;
 
@@ -201,13 +209,42 @@ struct AppState {
 };
 
 // ---------------------------------------------------------------------------
-// JNI: streaming connection
+// JNI: SurfaceTexture bridge
 // ---------------------------------------------------------------------------
 
 extern "C" {
 
+JNIEXPORT jint JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeGetTextureId(JNIEnv * env, jobject thiz)
+{
+    if (!g_app)
+        return 0;
+    return (jint)g_app->lobby.get_external_texture();
+}
+
 JNIEXPORT void JNICALL
-Java_org_meumeu_wivrn_oxr_StreamingActivity_nativeConnectServer(JNIEnv * env, jobject thiz, jstring host, jint port, jboolean tcpOnly)
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetSurfaceTexture(JNIEnv * env, jobject thiz, jobject surfaceTexture)
+{
+    if (!g_app || !surfaceTexture)
+        return;
+
+    jclass stClass = env->GetObjectClass(surfaceTexture);
+    jmethodID updateMethod = env->GetMethodID(stClass, "updateTexImage", "()V");
+    env->DeleteLocalRef(stClass);
+
+    jobject globalST = env->NewGlobalRef(surfaceTexture);
+    g_app->lobby.set_surface_texture(globalST, updateMethod);
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeOnFrameAvailable(JNIEnv * env, jobject thiz)
+{
+    if (g_app)
+        g_app->lobby.on_frame_available();
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeConnectServer(JNIEnv * env, jobject thiz, jstring host, jint port, jboolean tcpOnly)
 {
     if (!g_app) {
         LOGE("nativeConnectServer: g_app not ready");
@@ -223,7 +260,7 @@ Java_org_meumeu_wivrn_oxr_StreamingActivity_nativeConnectServer(JNIEnv * env, jo
 }
 
 JNIEXPORT void JNICALL
-Java_org_meumeu_wivrn_oxr_StreamingActivity_nativeDisconnectServer(JNIEnv * env, jobject thiz)
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeDisconnectServer(JNIEnv * env, jobject thiz)
 {
     if (!g_app) return;
     g_app->stream.shutdown = true;
@@ -232,7 +269,7 @@ Java_org_meumeu_wivrn_oxr_StreamingActivity_nativeDisconnectServer(JNIEnv * env,
 }
 
 JNIEXPORT void JNICALL
-Java_org_meumeu_wivrn_oxr_StreamingActivity_nativeSetPin(JNIEnv * env, jobject thiz, jstring pin)
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetPin(JNIEnv * env, jobject thiz, jstring pin)
 {
     if (!g_app) return;
     const char * p = env->GetStringUTFChars(pin, nullptr);
@@ -259,7 +296,7 @@ Java_org_meumeu_wivrn_oxr_StreamingActivity_nativeSetStreamResolution(JNIEnv * e
 }
 
 JNIEXPORT jboolean JNICALL
-Java_org_meumeu_wivrn_oxr_StreamingActivity_nativeReady(JNIEnv * env, jobject thiz)
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeReady(JNIEnv * env, jobject thiz)
 {
     return g_app != nullptr ? JNI_TRUE : JNI_FALSE;
 }
@@ -670,6 +707,7 @@ static void poll_events(AppState* app) {
                 LOGE("xrCreateReferenceSpace after recenter failed: %d", rr);
             else
                 LOGI("Reference space recreated after recenter");
+            app->lobby.recenter();
             break;
         }
         default:
@@ -848,6 +886,7 @@ static void render_frame(AppState* app) {
                     LOGE("xrCreateReferenceSpace after recenter failed: %d", rr);
                 else
                     LOGI("Reference space recreated after recenter");
+                app->lobby.recenter();
             }
             else if (home_press_ts[h] > 0)
             {
@@ -889,6 +928,18 @@ static void render_frame(AppState* app) {
 
     struct timespec tfl0, tfl1;
     clock_gettime(CLOCK_MONOTONIC, &tfl0);
+    {
+        JNIEnv * env = nullptr;
+        bool attached = false;
+        if (g_jvm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
+            if (g_jvm->AttachCurrentThread(&env, nullptr) == JNI_OK)
+                attached = true;
+        }
+        if (env)
+            app->lobby.update_tex_image(env);
+        if (attached)
+            g_jvm->DetachCurrentThread();
+    }
     clock_gettime(CLOCK_MONOTONIC, &tfl1);
 
     struct timespec tf;
@@ -1069,8 +1120,11 @@ static void render_frame(AppState* app) {
 
             app->blit.blit(&app->stream.blit_pipeline, render_frames[eye], eye, glImg, w, h);
         } else {
-            glClearColor(0, 0, 0, 1);
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            static int lobby_log_count = 0;
+            if (eye == 0 && (lobby_log_count++ % 300 == 0)) LOGI("LOBBY: streaming=%d", (int)app->stream.streaming.load());
+            constexpr float k_lobby_fov_half = 101.0f * 0.5f * 0.01745329252f;
+            XrFovf lobby_fov = {-k_lobby_fov_half, k_lobby_fov_half, k_lobby_fov_half, -k_lobby_fov_half};
+            app->lobby.draw(eye, head_orient, head_pos, cs, lobby_fov, ipd);
         }
         clock_gettime(CLOCK_MONOTONIC, &te);
         gl_draw_ms += ts_diff(te, td) * 1000.0f;
@@ -1105,6 +1159,53 @@ static void render_frame(AppState* app) {
     layers[0].space = app->localSpace;
     layers[0].viewCount = NUM_EYES;
     layers[0].views = layerViews;
+
+    // Check lobby touch state and call back to Java
+    int hit_hand = -1;
+    for (int h = 0; h < 2; h++) {
+        if (app->lobby.lobby_touch_x[h] >= 0 || app->lobby.lobby_touch_down[h]) {
+            hit_hand = h;
+            break;
+        }
+    }
+
+    float tx = -1, ty = -1;
+    bool tdown = false, tpressed = false;
+    float tthumb = 0;
+
+    if (hit_hand >= 0) {
+        tx = app->lobby.lobby_touch_x[hit_hand];
+        ty = app->lobby.lobby_touch_y[hit_hand];
+        tdown = app->lobby.lobby_touch_down[hit_hand];
+        tpressed = app->lobby.lobby_touch_pressed[hit_hand];
+        tthumb = app->lobby.lobby_thumbstick_y[hit_hand];
+    }
+
+    bool state_changed = (hit_hand != prev_touch_hand) ||
+                         (tdown != prev_touch_down) ||
+                         (tx != prev_touch_x) ||
+                         (ty != prev_touch_y);
+
+    if (state_changed || (hit_hand >= 0 && (tdown || tpressed))) {
+        if (g_jvm && g_activity && g_onLobbyTouchMethod) {
+            JNIEnv * env = nullptr;
+            bool attached = false;
+            if (g_jvm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
+                if (g_jvm->AttachCurrentThread(&env, nullptr) == JNI_OK)
+                    attached = true;
+            }
+            if (env) {
+                env->CallVoidMethod(g_activity, g_onLobbyTouchMethod, tx, ty, tdown, tpressed, tthumb);
+            }
+            if (attached)
+                g_jvm->DetachCurrentThread();
+        }
+    }
+
+    prev_touch_hand = hit_hand;
+    prev_touch_down = tdown;
+    prev_touch_x = tx;
+    prev_touch_y = ty;
 
     const XrCompositionLayerBaseHeader* layerHeaders[1] = {
         reinterpret_cast<XrCompositionLayerBaseHeader*>(&layers[0])
@@ -1214,6 +1315,7 @@ static void trigger_recenter(AppState* app) {
         LOGE("xrCreateReferenceSpace after recenter failed: %d", rr);
     else
         LOGI("Reference space recreated after recenter");
+    app->lobby.recenter();
 }
 
 static int32_t on_input_event(struct android_app* app, AInputEvent* event) {
@@ -1265,6 +1367,7 @@ extern "C" void android_main(struct android_app* androidApp) {
         g_activity = env->NewGlobalRef(androidApp->activity->clazz);
         jclass clazz = env->GetObjectClass(g_activity);
         g_activityClass = (jclass)env->NewGlobalRef(clazz);
+        g_onLobbyTouchMethod = env->GetMethodID(clazz, "onLobbyTouch", "(FFZZF)V");
         env->DeleteLocalRef(clazz);
     }
 
@@ -1291,6 +1394,7 @@ extern "C" void android_main(struct android_app* androidApp) {
 
     int eye_w = app.swapchains[0].width;
     int eye_h = app.swapchains[0].height;
+    app.lobby.init(eye_w, eye_h);
     app.blit.init(app.display, eye_w, eye_h);
     app.stream.blit_pipeline.init(eye_w, eye_h);
     app.stream.eye_width = eye_w;
@@ -1345,6 +1449,7 @@ extern "C" void android_main(struct android_app* androidApp) {
         }
         g_activity = nullptr;
         g_activityClass = nullptr;
+        g_onLobbyTouchMethod = nullptr;
     }
     g_jvm = nullptr;
 
