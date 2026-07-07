@@ -149,6 +149,8 @@ void streaming_client::setup_audio()
 
 void streaming_client::handle_video_shard(to_headset::video_stream_data_shard && shard)
 {
+	last_shard_ns.store(get_timestamp_ns());
+
 	if (!streaming.load())
 	{
 		streaming = true;
@@ -369,8 +371,33 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 	}, packet);
 }
 
+void streaming_client::reset_stream_state()
+{
+	streaming = false;
+	stream_ui_visible = false;
+	video_ready = false;
+	video_desc.reset();
+	audio_desc.reset();
+	audio_handle.reset();
+	for (int i = 0; i < 3; i++)
+	{
+		decoders[i].reset();
+		current_shards[i].reset(0);
+		next_shards[i].reset(1);
+		{
+			std::lock_guard lock(decoded_frame_mutex);
+			latest_decoded_frames[i].reset();
+		}
+	}
+	latest_decoded_frame_index.store(0);
+	last_shard_ns.store(0);
+}
+
 void streaming_client::network_loop()
 {
+	constexpr int64_t video_timeout_ns = 10'000'000'000LL;
+	constexpr int64_t initial_timeout_ns = 15'000'000'000LL;
+
 	while (!shutdown && session)
 	{
 		try
@@ -378,6 +405,24 @@ void streaming_client::network_loop()
 			session->poll([this](to_headset::packets && packet) {
 				handle_packet(packet);
 			}, 500ms);
+
+			int64_t now = get_timestamp_ns();
+			int64_t last = last_shard_ns.load();
+			int64_t conn = connected_ns.load();
+
+			if (last == 0 && conn > 0 && (now - conn) > initial_timeout_ns)
+			{
+				spdlog::warn("No video received within {}s of connection, reconnecting",
+					initial_timeout_ns / 1'000'000'000);
+				break;
+			}
+
+			if (last > 0 && (now - last) > video_timeout_ns)
+			{
+				spdlog::warn("No video shards for {}s, reconnecting",
+					video_timeout_ns / 1'000'000'000);
+				break;
+			}
 		}
 		catch (std::exception & e)
 		{
@@ -395,7 +440,7 @@ void streaming_client::network_loop()
 	tracker.stop();
 	tracker.session = nullptr;
 	session.reset();
-	streaming = false;
+	reset_stream_state();
 }
 
 bool streaming_client::connect_to_server()
@@ -650,6 +695,8 @@ void streaming_client::try_connect()
 					setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
 
 					send_headset_info();
+					connected_ns.store(get_timestamp_ns());
+					last_shard_ns.store(0);
 					network_thread = std::thread([this] { network_loop(); });
 					tracker.session = session.get();
 					tracker.start();
