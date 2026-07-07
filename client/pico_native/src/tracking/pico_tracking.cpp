@@ -604,9 +604,18 @@ void pico_native_tracker::transmit_inputs(int64_t headset_ns)
 			continue;
 
 		bool is_left = (c == 0);
+		int idx = 0;
 
 		auto add = [&](device_id id, float value) {
-			pkt.values.push_back({.id = id, .value = value, .last_change_time = now});
+			auto & prev = prev_inputs[c][idx++];
+			bool changed = prev.first || std::abs(value - prev.value) > 0.001f;
+			if (changed)
+			{
+				prev.last_change = now;
+				prev.value = value;
+				prev.first = false;
+			}
+			pkt.values.push_back({.id = id, .value = value, .last_change_time = prev.last_change});
 		};
 
 		float trigger_val = cs[c].trigger / 255.0f;
@@ -616,7 +625,7 @@ void pico_native_tracker::transmit_inputs(int64_t headset_ns)
 		if (is_left)
 		{
 			add(device_id::LEFT_TRIGGER_VALUE, trigger_val);
-			add(device_id::LEFT_TRIGGER_CLICK, trigger_val > 0.9f ? 1.0f : 0.0f);
+			add(device_id::LEFT_TRIGGER_CLICK, trigger_val > 0.5f ? 1.0f : 0.0f);
 			add(device_id::LEFT_THUMBSTICK_X, touch_x);
 			add(device_id::LEFT_THUMBSTICK_Y, touch_y);
 			add(device_id::LEFT_THUMBSTICK_CLICK, cs[c].thumbstick_click ? 1.0f : 0.0f);
@@ -629,7 +638,7 @@ void pico_native_tracker::transmit_inputs(int64_t headset_ns)
 		else
 		{
 			add(device_id::RIGHT_TRIGGER_VALUE, trigger_val);
-			add(device_id::RIGHT_TRIGGER_CLICK, trigger_val > 0.9f ? 1.0f : 0.0f);
+			add(device_id::RIGHT_TRIGGER_CLICK, trigger_val > 0.5f ? 1.0f : 0.0f);
 			add(device_id::RIGHT_THUMBSTICK_X, touch_x);
 			add(device_id::RIGHT_THUMBSTICK_Y, touch_y);
 			add(device_id::RIGHT_THUMBSTICK_CLICK, cs[c].thumbstick_click ? 1.0f : 0.0f);
