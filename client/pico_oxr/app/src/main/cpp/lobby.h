@@ -40,15 +40,9 @@ class pico_lobby
 	float tex_matrix[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
 	bool tex_matrix_valid = false;
 
-	float panel_pos[3] = {0, 1.5f, -2.0f};
+	float panel_pos[3] = {0, 0.5f, -2.5f};
 	float panel_yaw = 0.0f;
-	bool panel_placed = false;
 	bool prev_trigger[2] = {false, false};
-	bool prev_grip[2] = {false, false};
-
-	int recentering_controller = -1;
-	float recenter_offset_pos[3] = {0, 0, 0};
-	float recenter_offset_yaw = 0.0f;
 
 	struct ray_hit
 	{
