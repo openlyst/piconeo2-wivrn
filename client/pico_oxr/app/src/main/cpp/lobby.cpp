@@ -331,10 +331,7 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	glDepthFunc(GL_LEQUAL);
 	glDisable(GL_CULL_FACE);
 
-	if (debug_laser_hit)
-		glClearColor(0.3f, 0.0f, 0.5f, 1.0f);
-	else
-		glClearColor(0.05f, 0.06f, 0.09f, 1.0f);
+	glClearColor(0.05f, 0.06f, 0.09f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	debug_frame_count++;
