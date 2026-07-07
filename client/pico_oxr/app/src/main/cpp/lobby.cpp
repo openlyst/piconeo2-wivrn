@@ -493,7 +493,11 @@ static bool ray_plane_intersect(
 
 void pico_lobby::recenter()
 {
-	LOGI("Lobby recentered");
+	panel_pos[0] = 0;
+	panel_pos[1] = 0;
+	panel_pos[2] = -2.5f;
+	panel_yaw = 0;
+	LOGI("Lobby recentered, panel reset to eye level");
 }
 
 void pico_lobby::update_interaction(const float head_orient[4], const float head_pos[3],
