@@ -536,8 +536,15 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 		grip_p.flags = pose_flags;
 		pkt.device_poses.push_back(grip_p);
 
-		from_headset::tracking::pose aim_p = grip_p;
+		from_headset::tracking::pose aim_p{};
+		aim_p.pose.orientation = ctrl_pose.orientation;
+		aim_p.pose.position = {
+			cs[h].position[0] * 0.001f,
+			cs[h].position[1] * 0.001f + h_offset,
+			cs[h].position[2] * 0.001f,
+		};
 		aim_p.device = is_left ? device_id::LEFT_AIM : device_id::RIGHT_AIM;
+		aim_p.flags = pose_flags;
 		pkt.device_poses.push_back(aim_p);
 	}
 
