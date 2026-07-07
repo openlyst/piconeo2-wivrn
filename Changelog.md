@@ -1,6 +1,6 @@
 # RC4 (Unreleased)
 
- - Harden rendering
+ - Harden rendering pipeline
  - Fix controller face buttons
  - Fix controller trigger buttons
  - Fix foveation causing apps to render upside down (sorry aus)
@@ -11,7 +11,8 @@
  - Streams at native 2048x2160 resolution
  - Resualtion slider is now based on res's not %'s
  - Adds WiVRn icon
-
+ - Fix close button not working in the lobby for pairing 
+ 
 # RC3
 
 - Fixes all stuttering and jitters 
