@@ -140,6 +140,17 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeControllerState(
                 c.thumbstick_click = keys_buf[4] != 0;
                 c.menu = keys_buf[5] != 0;
                 c.home = keys_buf[11] != 0;
+
+                static bool prev_a[2] = {false, false};
+                static bool prev_b[2] = {false, false};
+                if (c.button_a != prev_a[hand] || c.button_b != prev_b[hand])
+                {
+                    LOGI("BTNCHG hand=%d A=%d->%d B=%d->%d keys[6]=%d keys[7]=%d",
+                         hand, prev_a[hand], c.button_a, prev_b[hand], c.button_b,
+                         keys_buf[6], keys_buf[7]);
+                    prev_a[hand] = c.button_a;
+                    prev_b[hand] = c.button_b;
+                }
             }
 
             static int jni_log_count = 0;

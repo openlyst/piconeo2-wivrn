@@ -602,10 +602,13 @@ void pico_native_tracker::transmit_inputs(int64_t headset_ns)
 	// 4=stick_click, 5=button_a/x, 6=button_b/y, 7=menu/system, 8=squeeze_value, 9=squeeze_click
 	auto add = [&](int c, int idx, device_id id, float value) {
 		auto & prev = prev_inputs[c][idx];
-		if (prev.last_change_time == 0 || prev.value != value)
+		bool changed = (prev.last_change_time == 0 || prev.value != value);
+		if (changed)
 			prev.last_change_time = now;
 		prev.value = value;
 		pkt.values.push_back({.id = id, .value = value, .last_change_time = prev.last_change_time});
+		if (changed && idx >= 5 && idx <= 7)
+			spdlog::warn("INPUT_CHG c={} idx={} id={} val={:.1f} t={}", c, idx, (int)id, value, prev.last_change_time);
 	};
 
 	for (int c = 0; c < 2; c++)
