@@ -158,6 +158,9 @@ struct streaming_client
 
 	void notify_connection_state(int state, const std::string & msg);
 	void notify_stream_stats(int fps, int latency_ms, float bandwidth_rx, float bandwidth_tx, int bitrate_mbps);
+	void notify_application_list(const std::vector<std::pair<std::string, std::string>> & apps);
+	void notify_application_icon(const std::string & app_id, const std::vector<std::byte> & png_data);
+	void notify_running_applications(const std::vector<to_headset::running_applications::application> & apps);
 
 	void handle_packet(wivrn::to_headset::packets & packet);
 	void handle_video_shard(wivrn::to_headset::video_stream_data_shard && shard);
