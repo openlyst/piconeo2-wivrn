@@ -3,11 +3,13 @@ package org.meumeu.wivrn.oxr;
 import android.app.NativeActivity;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
+import android.os.BatteryManager;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Surface;
@@ -246,6 +248,9 @@ public class MainActivity extends NativeActivity {
                         maybeStartControllerThread();
                     } catch (Throwable t) {}
                 }
+                int leftBatt = -1, rightBatt = -1;
+                boolean leftConn = false, rightConn = false;
+
                 for (int h = 0; h < 2; h++) {
                     try {
                         int conn = ControllerClient.getControllerConnectionState(h);
@@ -276,15 +281,22 @@ public class MainActivity extends NativeActivity {
                         int sendConn = mForeground ? conn : 0;
                         nativeControllerState(h, sendConn, sensor, angVel, keys);
 
-                        if (mForeground && conn == 1 && lobbyView != null) {
+                        if (conn == 1) {
                             int batt = pick(ext, EXT_BATTERY);
                             if (h == 0) {
-                                lobbyView.updateBatteryStatus(-1, batt, true, -1, false);
+                                leftBatt = batt;
+                                leftConn = true;
                             } else {
-                                lobbyView.updateBatteryStatus(-1, -1, false, batt, true);
+                                rightBatt = batt;
+                                rightConn = true;
                             }
                         }
                     } catch (Throwable t) {}
+                }
+
+                if (mForeground && lobbyView != null) {
+                    int hmdBatt = getHmdBatteryLevel();
+                    lobbyView.updateBatteryStatus(hmdBatt, leftBatt, leftConn, rightBatt, rightConn);
                 }
 
                 try { Thread.sleep(8); } catch (InterruptedException e) { break; }
@@ -325,17 +337,23 @@ public class MainActivity extends NativeActivity {
             Log.i(TAG, "SurfaceTexture created for texId=" + texId + " bufSize=1400x900");
 
             int frameCount = 0;
+            int wifiPollCount = 0;
             while (mUiRenderRunning) {
                 try {
-                    if (lobbyView != null && lobbyView.isDirty()) {
-                        lobbyView.render();
-                        Canvas canvas = lobbySurface.lockCanvas(new Rect(0, 0, 1400, 900));
-                        canvas.drawBitmap(lobbyView.getBitmap(), null, new Rect(0, 0, 1400, 900), null);
-                        lobbySurface.unlockCanvasAndPost(canvas);
-                        lobbyView.markClean();
-                        frameCount++;
-                        if (frameCount % 100 == 0)
-                            Log.i(TAG, "UI frame " + frameCount + " posted");
+                    if (lobbyView != null) {
+                        if (wifiPollCount++ % 200 == 0) {
+                            lobbyView.updateWifiStatus();
+                        }
+                        if (lobbyView.isDirty()) {
+                            lobbyView.render();
+                            Canvas canvas = lobbySurface.lockCanvas(new Rect(0, 0, 1400, 900));
+                            canvas.drawBitmap(lobbyView.getBitmap(), null, new Rect(0, 0, 1400, 900), null);
+                            lobbySurface.unlockCanvasAndPost(canvas);
+                            lobbyView.markClean();
+                            frameCount++;
+                            if (frameCount % 100 == 0)
+                                Log.i(TAG, "UI frame " + frameCount + " posted");
+                        }
                     }
                 } catch (Throwable t) {
                     Log.e(TAG, "ui render thread error", t);
@@ -432,6 +450,23 @@ public class MainActivity extends NativeActivity {
 
     public void onStopApp(int appId) {
         Log.d(TAG, "Stopping app: " + appId);
+    }
+
+    private int getHmdBatteryLevel() {
+        try {
+            IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
+            Intent battery = registerReceiver(null, filter);
+            if (battery != null) {
+                int level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                int scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
+                if (level >= 0 && scale > 0) {
+                    return (level * 100) / scale;
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to read HMD battery", e);
+        }
+        return -1;
     }
 
     public native void nativeGetHeadData(float[] out);
