@@ -127,7 +127,7 @@ public class WivrnLobbyView {
     private static final int SLIDER_STREAM_BITRATE = 4;
     private static final int SLIDER_STREAM_RESOLUTION = 5;
 
-    private int resolutionScale = 100;
+    private int resWidth = 2048;
     private int foveationScale = 30;
     private String codec = "auto";
     private int bitrate = 50;
@@ -598,7 +598,7 @@ public class WivrnLobbyView {
 
     private void loadSettings() {
         SharedPreferences sp = context.getSharedPreferences("wivrn_settings", Context.MODE_PRIVATE);
-        resolutionScale = sp.getInt("resolution_scale", 100);
+        resWidth = sp.getInt("res_width", 2048);
         foveationScale = sp.getInt("foveation_scale", 30);
         codec = sp.getString("codec", "auto");
         bitrate = sp.getInt("bitrate", 50);
@@ -611,7 +611,7 @@ public class WivrnLobbyView {
     private void saveSettings() {
         SharedPreferences sp = context.getSharedPreferences("wivrn_settings", Context.MODE_PRIVATE);
         sp.edit()
-            .putInt("resolution_scale", resolutionScale)
+            .putInt("res_width", resWidth)
             .putInt("foveation_scale", foveationScale)
             .putString("codec", codec)
             .putInt("bitrate", bitrate)
@@ -700,7 +700,7 @@ public class WivrnLobbyView {
         }
     }
 
-    public int getResolutionScale() { return resolutionScale; }
+    public int getResWidth() { return resWidth; }
     public int getFoveationScale() { return foveationScale; }
     public String getCodec() { return codec; }
     public int getBitrate() { return bitrate; }
@@ -886,7 +886,7 @@ public class WivrnLobbyView {
         canvas.drawText("Settings", x, y + 30, textLargePaint);
         y += 70;
 
-        y = drawSlider(x, y, w, "Resolution Scale", resolutionScale, 50, 150, "%");
+        y = drawResolutionSlider(x, y, w, "Resolution", resWidth, 1024, 2048);
         y = drawSlider(x, y, w, "Foveated Encoding", foveationScale, 0, 80, "%");
         y = drawSlider(x, y, w, "Bitrate", bitrate, 5, 100, "Mbit/s");
         y = drawSlider(x, y, w, "IPD", ipdMm, 58, 72, "mm");
@@ -947,6 +947,28 @@ public class WivrnLobbyView {
         canvas.drawCircle(handleX, y + 4, 14, sliderHandlePaint);
 
         canvas.drawText(value + unit, x + sliderW + 15, y + 12, textSmallPaint);
+
+        y += 30;
+        return y + 20;
+    }
+
+    private float drawResolutionSlider(float x, float y, float w, String label, int resW, int minW, int maxW) {
+        int resH = resW * 2160 / 2048;
+        canvas.drawText(label, x, y + 20, textPaint);
+        y += 35;
+
+        float sliderW = w - 130;
+        RectF track = new RectF(x, y, x + sliderW, y + 8);
+        canvas.drawRoundRect(track, 4, 4, sliderTrackPaint);
+
+        float pct = (float)(resW - minW) / (maxW - minW);
+        RectF fill = new RectF(x, y, x + sliderW * pct, y + 8);
+        canvas.drawRoundRect(fill, 4, 4, sliderFillPaint);
+
+        float handleX = x + sliderW * pct;
+        canvas.drawCircle(handleX, y + 4, 14, sliderHandlePaint);
+
+        canvas.drawText(resW + "x" + resH, x + sliderW + 15, y + 12, textSmallPaint);
 
         y += 30;
         return y + 20;
@@ -1624,13 +1646,16 @@ public class WivrnLobbyView {
 
         contentX = SIDEBAR_WIDTH + 20;
         sliderW = (width - contentX - 20) - 100;
+        float resSliderW = (width - contentX - 20) - 130;
         float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
         switch (activeSlider) {
-            case SLIDER_RESOLUTION:
-                resolutionScale = Math.max(50, Math.min(150, (int)(50 + pct * 100)));
+            case SLIDER_RESOLUTION: {
+                float resPct = Math.max(0, Math.min(1, (x - contentX) / resSliderW));
+                resWidth = Math.max(1024, Math.min(2048, (int)(1024 + resPct * 1024)));
                 saveSettings();
                 markDirty();
                 break;
+            }
             case SLIDER_FOVEATION:
                 foveationScale = Math.max(0, Math.min(80, (int)(pct * 80)));
                 saveSettings();
@@ -1952,11 +1977,12 @@ public class WivrnLobbyView {
         float sy = 100;
 
         float sliderW = contentW - 100;
+        float resSliderW = contentW - 130;
         sy += 35;
-        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
+        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + resSliderW) {
             activeSlider = SLIDER_RESOLUTION;
-            float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
-            resolutionScale = Math.max(50, Math.min(150, (int)(50 + pct * 100)));
+            float pct = Math.max(0, Math.min(1, (x - contentX) / resSliderW));
+            resWidth = Math.max(1024, Math.min(2048, (int)(1024 + pct * 1024)));
             saveSettings();
             markDirty();
             return;
@@ -2060,7 +2086,7 @@ public class WivrnLobbyView {
 
         RectF yesBtn = new RectF(px + 30, py + panelH - 70, px + 30 + 180, py + panelH - 20);
         if (yesBtn.contains(x, y)) {
-            resolutionScale = 100;
+            resWidth = 2048;
             foveationScale = 30;
             codec = "auto";
             bitrate = 50;

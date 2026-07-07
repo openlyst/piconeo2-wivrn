@@ -249,6 +249,15 @@ Java_org_meumeu_wivrn_oxr_StreamingActivity_nativeSetIpd(JNIEnv * env, jobject t
     LOGI("Software IPD set to %d mm (%.4f m)", ipdMm, ipd_m);
 }
 
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_oxr_StreamingActivity_nativeSetStreamResolution(JNIEnv * env, jobject thiz, jint width, jint height)
+{
+    if (!g_app) return;
+    g_app->stream.stream_eye_width.store(width);
+    g_app->stream.stream_eye_height.store(height);
+    LOGI("Stream resolution set to %dx%d", width, height);
+}
+
 JNIEXPORT jboolean JNICALL
 Java_org_meumeu_wivrn_oxr_StreamingActivity_nativeReady(JNIEnv * env, jobject thiz)
 {
@@ -558,8 +567,8 @@ static bool openxr_create_session(AppState* app) {
         swci.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
         swci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
         swci.format = GL_RGBA8;
-        swci.width = 1664;
-        swci.height = 1664;
+        swci.width = 2048;
+        swci.height = 2160;
         swci.sampleCount = app->viewConfigs[eye].recommendedSwapchainSampleCount;
         swci.faceCount = 1;
         swci.arraySize = 1;
