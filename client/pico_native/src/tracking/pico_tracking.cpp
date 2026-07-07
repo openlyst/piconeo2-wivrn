@@ -13,7 +13,7 @@ namespace
 {
 
 constexpr long k_period_ns = 1000000000L / 300;
-constexpr int k_uplink_div = 4;
+constexpr int k_uplink_div = 2;
 
 constexpr float k_yaw_offset_deg = 35.0f;
 constexpr float k_rot_offset_x_deg = 10.0f;
