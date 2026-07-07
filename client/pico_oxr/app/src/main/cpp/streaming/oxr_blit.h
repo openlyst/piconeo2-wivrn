@@ -24,6 +24,6 @@ public:
 	~oxr_blit();
 
 	void init(EGLDisplay display, int eye_w, int eye_h);
-	void blit(streaming_client * client, int eye, GLuint swapchain_tex, int eye_w, int eye_h);
+	void blit(pico_blit_pipeline * pipeline, std::shared_ptr<pico_decoded_frame> frame, int eye, GLuint swapchain_tex, int eye_w, int eye_h);
 	bool is_initialized() const { return initialized; }
 };
