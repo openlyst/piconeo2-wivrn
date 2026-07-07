@@ -1373,13 +1373,23 @@ extern "C" void android_main(struct android_app* androidApp) {
 
     g_jvm = androidApp->activity->vm;
     JNIEnv * env = nullptr;
-    if (g_jvm->GetEnv((void**)&env, JNI_VERSION_1_6) == JNI_OK) {
+    bool attached = false;
+    if (g_jvm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (g_jvm->AttachCurrentThread(&env, nullptr) == JNI_OK)
+            attached = true;
+    }
+    if (env) {
         g_activity = env->NewGlobalRef(androidApp->activity->clazz);
         jclass clazz = env->GetObjectClass(g_activity);
         g_activityClass = (jclass)env->NewGlobalRef(clazz);
         g_onLobbyTouchMethod = env->GetMethodID(clazz, "onLobbyTouch", "(FFZZF)V");
+        LOGI("JNI refs: g_activity=%p g_onLobbyTouchMethod=%p", g_activity, g_onLobbyTouchMethod);
         env->DeleteLocalRef(clazz);
+    } else {
+        LOGE("Failed to get JNIEnv for JNI ref setup");
     }
+    if (attached)
+        g_jvm->DetachCurrentThread();
 
     if (!egl_init(&app)) {
         LOGE("EGL init failed");
