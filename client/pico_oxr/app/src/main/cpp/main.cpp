@@ -130,7 +130,7 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeControllerState(
             }
             if (has_keys)
             {
-                c.trigger = keys_buf[2];
+                c.trigger = keys_buf[8];
                 c.touch[0] = keys_buf[0];
                 c.touch[1] = keys_buf[1];
                 c.battery = keys_buf[10];
