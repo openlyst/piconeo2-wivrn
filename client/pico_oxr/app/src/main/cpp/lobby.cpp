@@ -177,6 +177,7 @@ pico_lobby::~pico_lobby()
 	if (program) glDeleteProgram(program);
 	if (tex_program) glDeleteProgram(tex_program);
 	if (controller_vbo) glDeleteBuffers(1, &controller_vbo);
+	if (ray_vbo) glDeleteBuffers(1, &ray_vbo);
 	if (quad_vbo) glDeleteBuffers(1, &quad_vbo);
 	if (ui_texture) glDeleteTextures(1, &ui_texture);
 }
@@ -257,6 +258,14 @@ void pico_lobby::init(int w, int h)
 	glGenBuffers(1, &controller_vbo);
 	glBindBuffer(GL_ARRAY_BUFFER, controller_vbo);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(box), box, GL_STATIC_DRAW);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+	float ray[] = {
+		0, 0, 0,  0, 0, -1.0f,
+	};
+	glGenBuffers(1, &ray_vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, ray_vbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(ray), ray, GL_STATIC_DRAW);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 
 	GLuint tvert = compile_shader(GL_VERTEX_SHADER, tex_vert_src);
@@ -345,10 +354,13 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	Mat4 vp = mat4_mul(proj, view);
 
 	glDepthMask(GL_TRUE);
+	static int ctrl_log_count = 0;
+	bool any_ctrl = false;
 	for (int h = 0; h < 2; h++)
 	{
 		if (!controllers[h].connected)
 			continue;
+		any_ctrl = true;
 
 		float pos_m[3] = {
 			controllers[h].position[0] * 0.001f,
@@ -364,11 +376,34 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 		else
 			glUniform4f(color_uniform, 1.0f, 0.3f, 0.2f, 1.0f);
 
+		glEnableVertexAttribArray(pos_attrib);
 		glBindBuffer(GL_ARRAY_BUFFER, controller_vbo);
 		glVertexAttribPointer(pos_attrib, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
 		glUniformMatrix4fv(mvp_uniform, 1, GL_FALSE, mvp.m);
 		glDrawArrays(GL_TRIANGLES, 0, 36);
+
+		float ray_len = 2.0f;
+		Mat4 ray_scale = mat4_scale(1.0f, 1.0f, ray_len);
+		Mat4 ray_model = mat4_mul(model, ray_scale);
+		Mat4 ray_mvp = mat4_mul(vp, ray_model);
+		glUniformMatrix4fv(mvp_uniform, 1, GL_FALSE, ray_mvp.m);
+		if (h == 0)
+			glUniform4f(color_uniform, 0.2f, 0.4f, 1.0f, 0.4f);
+		else
+			glUniform4f(color_uniform, 1.0f, 0.3f, 0.2f, 0.4f);
+		glBindBuffer(GL_ARRAY_BUFFER, ray_vbo);
+		glVertexAttribPointer(pos_attrib, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		glDrawArrays(GL_LINES, 0, 2);
+		glDisable(GL_BLEND);
 	}
+
+	if (eye == 0 && (ctrl_log_count++ % 300 == 0))
+		LOGI("LOBBY controllers: conn=%d/%d pos0=(%.1f,%.1f,%.1f) pos1=(%.1f,%.1f,%.1f)",
+		     (int)controllers[0].connected, (int)controllers[1].connected,
+		     controllers[0].position[0]*0.001f, controllers[0].position[1]*0.001f, controllers[0].position[2]*0.001f,
+		     controllers[1].position[0]*0.001f, controllers[1].position[1]*0.001f, controllers[1].position[2]*0.001f);
 
 	glDisableVertexAttribArray(pos_attrib);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
