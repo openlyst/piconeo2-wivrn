@@ -131,6 +131,14 @@ private:
 	uint64_t ctrl_prev_ts[2]{0, 0};
 	bool ctrl_filter_init[2]{false, false};
 
+	struct prev_input
+	{
+		float value = 0;
+		XrTime last_change = 0;
+		bool first = true;
+	};
+	prev_input prev_inputs[2][16];
+
 	void step_head_filter(const float pos[3], const neo2::quat & orient, uint64_t ts);
 	void step_ctrl_filter(int hand, const float pos_m[3], uint64_t ts);
 
