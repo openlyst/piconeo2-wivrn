@@ -94,6 +94,7 @@ public:
 	void set_prediction_ns(int64_t ns);
 	std::atomic<bool> floor_relative{false};
 	std::atomic<float> height_offset{1.5f};
+	std::atomic<float> soft_ipd{0.064f};
 	void update_controller(int hand, const float orient[4], const float pos[3],
 	                       int trigger, const int touch[2], int battery,
 	                       bool a, bool b, bool grip, bool click, bool menu);

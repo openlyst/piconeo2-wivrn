@@ -124,6 +124,7 @@ public class WivrnLobbyView {
     private int foveationScale = 30;
     private String codec = "auto";
     private int bitrate = 50;
+    private int ipdMm = 64;
     private boolean tcpOnly = false;
     private boolean microphoneEnabled = false;
     private boolean highPowerMode = false;
@@ -594,6 +595,7 @@ public class WivrnLobbyView {
         foveationScale = sp.getInt("foveation_scale", 30);
         codec = sp.getString("codec", "auto");
         bitrate = sp.getInt("bitrate", 50);
+        ipdMm = sp.getInt("ipd_mm", 64);
         tcpOnly = sp.getBoolean("tcp_only", false);
         microphoneEnabled = sp.getBoolean("microphone", false);
         highPowerMode = sp.getBoolean("high_power", false);
@@ -606,6 +608,7 @@ public class WivrnLobbyView {
             .putInt("foveation_scale", foveationScale)
             .putString("codec", codec)
             .putInt("bitrate", bitrate)
+            .putInt("ipd_mm", ipdMm)
             .putBoolean("tcp_only", tcpOnly)
             .putBoolean("microphone", microphoneEnabled)
             .putBoolean("high_power", highPowerMode)
@@ -694,6 +697,7 @@ public class WivrnLobbyView {
     public int getFoveationScale() { return foveationScale; }
     public String getCodec() { return codec; }
     public int getBitrate() { return bitrate; }
+    public int getIpdMm() { return ipdMm; }
     public boolean isTcpOnly() { return tcpOnly; }
     public boolean isMicrophoneEnabled() { return microphoneEnabled; }
     public boolean isHighPowerMode() { return highPowerMode; }
@@ -878,6 +882,7 @@ public class WivrnLobbyView {
         y = drawSlider(x, y, w, "Resolution Scale", resolutionScale, 50, 150, "%");
         y = drawSlider(x, y, w, "Foveated Encoding", foveationScale, 0, 80, "%");
         y = drawSlider(x, y, w, "Bitrate", bitrate, 5, 100, "Mbit/s");
+        y = drawSlider(x, y, w, "IPD", ipdMm, 58, 72, "mm");
 
         y = drawDropdown(x, y, w, "Codec", new String[]{"Automatic", "H.264", "H.265"},
             codec.equals("auto") ? 0 : codec.equals("h264") ? 1 : 2);
@@ -1915,6 +1920,17 @@ public class WivrnLobbyView {
         }
         sy += 50;
 
+        sy += 35;
+        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
+            float pct = (x - contentX) / sliderW;
+            ipdMm = (int)(58 + pct * 14);
+            ipdMm = Math.max(58, Math.min(72, ipdMm));
+            saveSettings();
+            markDirty();
+            return;
+        }
+        sy += 50;
+
         RectF codecBox = new RectF(contentX, sy, contentX + 300, sy + 40);
         if (codecBox.contains(x, y)) {
             String[] codecs = {"auto", "h264", "h265"};
@@ -1983,6 +1999,7 @@ public class WivrnLobbyView {
             foveationScale = 30;
             codec = "auto";
             bitrate = 50;
+            ipdMm = 64;
             tcpOnly = false;
             microphoneEnabled = false;
             highPowerMode = false;
