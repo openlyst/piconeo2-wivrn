@@ -1004,8 +1004,7 @@ static void render_frame(AppState* app) {
                 }
             }
 
-            GLuint swap_tex[2] = { glImg, glImg };
-            app->blit.blit(&app->stream, swap_tex, w, h);
+            app->blit.blit(&app->stream, eye, glImg, w, h);
         } else {
             static int lobby_log_count = 0;
             if (eye == 0 && (lobby_log_count++ % 300 == 0)) LOGI("LOBBY: streaming=%d", (int)app->stream.streaming.load());
