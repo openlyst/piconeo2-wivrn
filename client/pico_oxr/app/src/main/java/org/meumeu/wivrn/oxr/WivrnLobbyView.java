@@ -715,7 +715,6 @@ public class WivrnLobbyView {
             renderContent();
         }
 
-        renderTouchCursor();
         markClean();
     }
 
@@ -1532,14 +1531,6 @@ public class WivrnLobbyView {
         knobPaint2.setAntiAlias(true);
         knobPaint2.setColor(Color.WHITE);
         canvas.drawCircle(knobX2, powerToggle.centerY(), 16, knobPaint2);
-    }
-
-    private void renderTouchCursor() {
-        if (touchX >= 0 && touchY >= 0) {
-            Paint cursorPaint = new Paint();
-            cursorPaint.setColor(touchDown ? Color.argb(180, 80, 160, 240) : Color.argb(100, 200, 200, 200));
-            canvas.drawCircle(touchX, touchY, touchDown ? 20 : 15, cursorPaint);
-        }
     }
 
     private void drawCenteredText(String text, RectF rect, Paint paint) {
