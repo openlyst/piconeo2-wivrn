@@ -331,8 +331,13 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	glDepthFunc(GL_LEQUAL);
 	glDisable(GL_CULL_FACE);
 
-	glClearColor(0.05f, 0.06f, 0.09f, 1.0f);
+	if (debug_laser_hit)
+		glClearColor(0.3f, 0.0f, 0.5f, 1.0f);
+	else
+		glClearColor(0.05f, 0.06f, 0.09f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+	debug_frame_count++;
 
 	if (eye == 0)
 		update_interaction(head_orient, head_pos, controllers);
@@ -549,6 +554,8 @@ void pico_lobby::recenter()
 void pico_lobby::update_interaction(const float head_orient[4], const float head_pos[3],
                                     const controller_sample controllers[2])
 {
+	debug_laser_hit = false;
+
 	float cy = cosf(panel_yaw), sy = sinf(panel_yaw);
 	float normal[3] = {sy, 0, cy};
 	float u_axis[3] = {-cy, 0, sy};
@@ -586,18 +593,19 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 
 		float u, v;
 		bool hit = ray_plane_intersect(origin, ray_dir, panel_pos, normal, u_axis, v_axis, half_w, half_h, u, v);
-		
+
 		static int interact_log_count = 0;
-		if (interact_log_count++ % 60 == 0)
+		bool log_this = (interact_log_count++ % 30 == 0) || hit;
+		if (log_this)
 		{
 			float denom = ray_dir[0]*normal[0] + ray_dir[1]*normal[1] + ray_dir[2]*normal[2];
 			float to_center[3] = {panel_pos[0]-origin[0], panel_pos[1]-origin[1], panel_pos[2]-origin[2]};
-			float t = (to_center[0]*normal[0] + to_center[1]*normal[1] + to_center[2]*normal[2]) / denom;
-			float hitpt[3] = {origin[0]+ray_dir[0]*t, origin[1]+ray_dir[1]*t, origin[2]+ray_dir[2]*t};
-			LOGI("INTERACT h=%d origin=(%.2f,%.2f,%.2f) dir=(%.2f,%.2f,%.2f) t=%.2f hitpt=(%.2f,%.2f,%.2f) panel=(%.2f,%.2f,%.2f) half_w=%.2f half_h=%.2f hit=%d",
-			     h, origin[0], origin[1], origin[2], ray_dir[0], ray_dir[1], ray_dir[2],
-			     t, hitpt[0], hitpt[1], hitpt[2],
-			     panel_pos[0], panel_pos[1], panel_pos[2], half_w, half_h, (int)hit);
+			float t_val = (denom != 0) ? (to_center[0]*normal[0] + to_center[1]*normal[1] + to_center[2]*normal[2]) / denom : -1;
+			float hitpt[3] = {origin[0]+ray_dir[0]*t_val, origin[1]+ray_dir[1]*t_val, origin[2]+ray_dir[2]*t_val};
+			LOGI("INTERACT h=%d conn=%d origin=(%.2f,%.2f,%.2f) dir=(%.2f,%.2f,%.2f) t=%.2f hitpt=(%.2f,%.2f,%.2f) panel=(%.2f,%.2f,%.2f) half_w=%.2f half_h=%.2f hit=%d u=%.3f v=%.3f trigger=%d",
+			     h, (int)controllers[h].connected, origin[0], origin[1], origin[2], ray_dir[0], ray_dir[1], ray_dir[2],
+			     t_val, hitpt[0], hitpt[1], hitpt[2],
+			     panel_pos[0], panel_pos[1], panel_pos[2], half_w, half_h, (int)hit, u, v, (int)controllers[h].trigger);
 		}
 
 		if (hit)
@@ -605,6 +613,11 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 			last_hit[h].valid = true;
 			last_hit[h].u = u;
 			last_hit[h].v = v;
+			debug_laser_hit = true;
+			debug_hit_hand = h;
+			debug_hit_u = u;
+			debug_hit_v = v;
+			debug_trigger_down = controllers[h].trigger > 128;
 		}
 
 		bool trigger_pressed = controllers[h].trigger > 128;
@@ -621,6 +634,12 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 			lobby_touch_y[h] = py;
 			lobby_touch_down[h] = trigger_pressed;
 			lobby_touch_pressed[h] = trigger_down;
+
+			debug_touch_x = px;
+			debug_touch_y = py;
+
+			if (trigger_down)
+				LOGI("TRIGGER_DOWN h=%d px=%.1f py=%.1f u=%.3f v=%.3f", h, px, py, u, v);
 		}
 		else
 		{
@@ -632,4 +651,18 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 		prev_trigger[h] = trigger_pressed;
 	}
 
+	if (!debug_laser_hit)
+	{
+		debug_hit_hand = -1;
+		debug_touch_x = -1;
+		debug_touch_y = -1;
+		debug_trigger_down = false;
+	}
+
+	if (debug_frame_count % 60 == 0)
+	{
+		LOGI("LOBBY_DEBUG frame=%d laser_hit=%d hit_hand=%d u=%.3f v=%.3f touch=(%.1f,%.1f) trigger=%d",
+		     debug_frame_count, (int)debug_laser_hit, debug_hit_hand,
+		     debug_hit_u, debug_hit_v, debug_touch_x, debug_touch_y, (int)debug_trigger_down);
+	}
 }

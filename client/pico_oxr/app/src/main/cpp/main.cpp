@@ -1187,6 +1187,11 @@ static void render_frame(AppState* app) {
                          (ty != prev_touch_y);
 
     if (state_changed || (hit_hand >= 0 && (tdown || tpressed))) {
+        static int jni_log_count = 0;
+        if (jni_log_count++ % 30 == 0 || tpressed) {
+            LOGI("JNI_TOUCH hit_hand=%d tx=%.1f ty=%.1f tdown=%d tpressed=%d tthumb=%.2f state_changed=%d",
+                 hit_hand, tx, ty, (int)tdown, (int)tpressed, tthumb, (int)state_changed);
+        }
         if (g_jvm && g_activity && g_onLobbyTouchMethod) {
             JNIEnv * env = nullptr;
             bool attached = false;
@@ -1196,9 +1201,14 @@ static void render_frame(AppState* app) {
             }
             if (env) {
                 env->CallVoidMethod(g_activity, g_onLobbyTouchMethod, tx, ty, tdown, tpressed, tthumb);
+            } else {
+                LOGE("JNI_TOUCH failed to get JNIEnv for callback");
             }
             if (attached)
                 g_jvm->DetachCurrentThread();
+        } else {
+            LOGE("JNI_TOUCH missing callback g_jvm=%p g_activity=%p g_onLobbyTouchMethod=%p",
+                 g_jvm, g_activity, g_onLobbyTouchMethod);
         }
     }
 

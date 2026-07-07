@@ -1591,6 +1591,12 @@ public class WivrnLobbyView {
         touchDown = down;
         touchPressed = pressed;
 
+        android.util.Log.i("WiVRn-Lobby", "handleTouch x=" + x + " y=" + y + " down=" + down + " pressed=" + pressed + " state=" + connectionState);
+
+        if (pressed) {
+            android.util.Log.i("WiVRn-Lobby", "CLICK DISPATCH x=" + x + " y=" + y + " state=" + connectionState + " tab=" + currentTab);
+        }
+
         if (connectionState == STATE_CONNECTED && streamTab == STREAM_TAB_LAUNCH) {
             if (down && prevDown && y != prevY) {
                 if (dragStartY < 0) {
