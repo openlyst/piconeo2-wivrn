@@ -1688,6 +1688,10 @@ public class WivrnLobbyView {
         canvas.drawText(text, textX, textY, paint);
     }
 
+    private long lastClickProcessedMs = 0;
+    private static final long CLICK_DEBOUNCE_MS = 300;
+    private long disconnectGuardMs = 0;
+
     public void handleTouch(float x, float y, boolean down, boolean pressed, float thumbstickY) {
         float prevX = touchX, prevY = touchY;
         boolean prevDown = touchDown;
@@ -1699,7 +1703,14 @@ public class WivrnLobbyView {
         android.util.Log.i("WiVRn-Lobby", "handleTouch x=" + x + " y=" + y + " down=" + down + " pressed=" + pressed + " state=" + connectionState);
 
         if (pressed) {
-            android.util.Log.i("WiVRn-Lobby", "CLICK DISPATCH x=" + x + " y=" + y + " state=" + connectionState + " tab=" + currentTab);
+            long now = System.currentTimeMillis();
+            if (now - lastClickProcessedMs < CLICK_DEBOUNCE_MS) {
+                android.util.Log.i("WiVRn-Lobby", "CLICK DEBOUNCE ignored, delta=" + (now - lastClickProcessedMs) + "ms");
+                pressed = false;
+            } else {
+                lastClickProcessedMs = now;
+                android.util.Log.i("WiVRn-Lobby", "CLICK DISPATCH x=" + x + " y=" + y + " state=" + connectionState + " tab=" + currentTab);
+            }
         }
 
         if (connectionState == STATE_CONNECTED && streamTab == STREAM_TAB_LAUNCH) {
@@ -1876,6 +1887,8 @@ public class WivrnLobbyView {
             if (disconnectBtn.contains(x, y)) {
                 ((MainActivity) context).onDisconnectRequested();
                 connectionState = STATE_IDLE;
+                lastClickProcessedMs = System.currentTimeMillis();
+                disconnectGuardMs = lastClickProcessedMs;
                 markDirty();
                 return;
             }
@@ -1986,6 +1999,12 @@ public class WivrnLobbyView {
     }
 
     private void handleSidebarClick(float x, float y) {
+        if (disconnectGuardMs > 0 && System.currentTimeMillis() - disconnectGuardMs < 5000) {
+            Log.i(TAG, "Exit button blocked by disconnect guard");
+            return;
+        }
+        disconnectGuardMs = 0;
+
         String[] tabs = {"Server List", "Settings", "About", "Licenses", "Exit"};
         int[] tabIds = {TAB_SERVER_LIST, TAB_SETTINGS, TAB_ABOUT, TAB_LICENSES, TAB_EXIT};
         float ty = 30;
