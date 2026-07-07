@@ -8,10 +8,15 @@
  - Doubles tracking frequency to 300Hz
  - Removes lobby and replaces it with a 2d one.
  - Removes pointer from UI 
+<<<<<<< HEAD
  - Remove AV1 
  - Adds the abilty to change software IPD
  - Fixed sliders in settings
 
+=======
+ - Remove AV1
+ 
+>>>>>>> 99b8503 (Add line)
 # RC3
 
 - Fixes all stuttering and jitters 
