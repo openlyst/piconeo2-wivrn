@@ -6,6 +6,7 @@
  - Fix foveation causing apps to render upside down (sorry aus)
  - Fix overlay applications not being usable
  - Doubles tracking frequency to 300Hz
+ - Removes lobby and replaces it with a 2d one.
 
 # RC3
 
