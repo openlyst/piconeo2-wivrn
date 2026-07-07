@@ -9,13 +9,13 @@ void pico_audio::exit()
 	exiting = true;
 	if (speaker)
 	{
-		speaker_stop_ack.wait(false);
 		AAudioStream_requestStop(speaker);
+		speaker_stop_ack.wait(false);
 	}
 	if (microphone && mic_running)
 	{
-		microphone_stop_ack.wait(false);
 		AAudioStream_requestStop(microphone);
+		microphone_stop_ack.wait(false);
 	}
 }
 
@@ -185,6 +185,9 @@ void pico_audio::recreate_stream(AAudioStream * stream)
 		int32_t num_channels = AAudioStream_getChannelCount(stream);
 
 		AAudioStream_requestStop(stream);
+		aaudio_stream_state_t state = AAudioStream_getState(stream);
+		if (state == AAUDIO_STREAM_STATE_STOPPING || state == AAUDIO_STREAM_STATE_STARTED)
+			AAudioStream_waitForStateChange(stream, state, &state, 500000000);
 		AAudioStream_close(stream);
 
 		AAudioStreamBuilder * builder;
@@ -240,7 +243,12 @@ pico_audio::~pico_audio()
 	for (auto stream : {speaker, microphone})
 	{
 		if (stream)
+		{
+			aaudio_stream_state_t state = AAudioStream_getState(stream);
+			if (state == AAUDIO_STREAM_STATE_STOPPING || state == AAUDIO_STREAM_STATE_STARTED)
+				AAudioStream_waitForStateChange(stream, state, &state, 500000000);
 			AAudioStream_close(stream);
+		}
 	}
 
 	std::lock_guard lock(mutex);

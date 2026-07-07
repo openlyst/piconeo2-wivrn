@@ -107,6 +107,137 @@ void streaming_client::notify_stream_stats(int fps, int latency_ms, float bandwi
 		vm->DetachCurrentThread();
 }
 
+void streaming_client::notify_application_list(const std::vector<std::pair<std::string, std::string>> & apps)
+{
+	if (!vm || !activity)
+		return;
+
+	JNIEnv * env = nullptr;
+	bool attached = false;
+	if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
+	{
+		if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK)
+			attached = true;
+	}
+
+	if (env && activity)
+	{
+		jclass clazz = env->GetObjectClass(activity);
+		jclass string_class = env->FindClass("java/lang/String");
+		jmethodID method = env->GetMethodID(clazz, "onApplicationList", "([Ljava/lang/String;[Ljava/lang/String;)V");
+		if (method && string_class)
+		{
+			jobjectArray ids = env->NewObjectArray(apps.size(), string_class, nullptr);
+			jobjectArray names = env->NewObjectArray(apps.size(), string_class, nullptr);
+			for (size_t i = 0; i < apps.size(); i++)
+			{
+				jstring jid = env->NewStringUTF(apps[i].first.c_str());
+				jstring jname = env->NewStringUTF(apps[i].second.c_str());
+				env->SetObjectArrayElement(ids, i, jid);
+				env->SetObjectArrayElement(names, i, jname);
+				env->DeleteLocalRef(jid);
+				env->DeleteLocalRef(jname);
+			}
+			env->CallVoidMethod(activity, method, ids, names);
+			env->DeleteLocalRef(ids);
+			env->DeleteLocalRef(names);
+		}
+		env->DeleteLocalRef(clazz);
+		if (string_class)
+			env->DeleteLocalRef(string_class);
+	}
+
+	if (attached)
+		vm->DetachCurrentThread();
+}
+
+void streaming_client::notify_application_icon(const std::string & app_id, const std::vector<std::byte> & png_data)
+{
+	if (!vm || !activity)
+		return;
+
+	JNIEnv * env = nullptr;
+	bool attached = false;
+	if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
+	{
+		if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK)
+			attached = true;
+	}
+
+	if (env && activity)
+	{
+		jclass clazz = env->GetObjectClass(activity);
+		jmethodID method = env->GetMethodID(clazz, "onApplicationIcon", "(Ljava/lang/String;[B)V");
+		if (method)
+		{
+			jstring jid = env->NewStringUTF(app_id.c_str());
+			jbyteArray jdata = env->NewByteArray(png_data.size());
+			env->SetByteArrayRegion(jdata, 0, png_data.size(), reinterpret_cast<const jbyte *>(png_data.data()));
+			env->CallVoidMethod(activity, method, jid, jdata);
+			env->DeleteLocalRef(jid);
+			env->DeleteLocalRef(jdata);
+		}
+		env->DeleteLocalRef(clazz);
+	}
+
+	if (attached)
+		vm->DetachCurrentThread();
+}
+
+void streaming_client::notify_running_applications(const std::vector<to_headset::running_applications::application> & apps)
+{
+	if (!vm || !activity)
+		return;
+
+	JNIEnv * env = nullptr;
+	bool attached = false;
+	if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
+	{
+		if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK)
+			attached = true;
+	}
+
+	if (env && activity)
+	{
+		jclass clazz = env->GetObjectClass(activity);
+		jclass string_class = env->FindClass("java/lang/String");
+		jmethodID method = env->GetMethodID(clazz, "onRunningApplications", "([Ljava/lang/String;[I[Z[Z)V");
+		if (method && string_class)
+		{
+			jobjectArray jnames = env->NewObjectArray(apps.size(), string_class, nullptr);
+			jintArray jids = env->NewIntArray(apps.size());
+			jbooleanArray joverlays = env->NewBooleanArray(apps.size());
+			jbooleanArray jactives = env->NewBooleanArray(apps.size());
+			std::vector<jint> ids(apps.size());
+			std::vector<jboolean> overlays(apps.size());
+			std::vector<jboolean> actives(apps.size());
+			for (size_t i = 0; i < apps.size(); i++)
+			{
+				jstring jname = env->NewStringUTF(apps[i].name.c_str());
+				env->SetObjectArrayElement(jnames, i, jname);
+				env->DeleteLocalRef(jname);
+				ids[i] = apps[i].id;
+				overlays[i] = apps[i].overlay;
+				actives[i] = apps[i].active;
+			}
+			env->SetIntArrayRegion(jids, 0, apps.size(), ids.data());
+			env->SetBooleanArrayRegion(joverlays, 0, apps.size(), overlays.data());
+			env->SetBooleanArrayRegion(jactives, 0, apps.size(), actives.data());
+			env->CallVoidMethod(activity, method, jnames, jids, joverlays, jactives);
+			env->DeleteLocalRef(jnames);
+			env->DeleteLocalRef(jids);
+			env->DeleteLocalRef(joverlays);
+			env->DeleteLocalRef(jactives);
+		}
+		env->DeleteLocalRef(clazz);
+		if (string_class)
+			env->DeleteLocalRef(string_class);
+	}
+
+	if (attached)
+		vm->DetachCurrentThread();
+}
+
 void streaming_client::setup_decoders()
 {
 	if (!video_desc || decoders[0])
@@ -370,6 +501,25 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 			std::is_same_v<T, to_headset::pin_check_4> ||
 			std::is_same_v<T, to_headset::handshake>)
 		{
+		}
+		else if constexpr (std::is_same_v<T, to_headset::application_list>)
+		{
+			spdlog::info("Received application list: {} apps", p.applications.size());
+			std::vector<std::pair<std::string, std::string>> apps;
+			apps.reserve(p.applications.size());
+			for (auto & app : p.applications)
+				apps.emplace_back(app.id, app.name);
+			notify_application_list(apps);
+		}
+		else if constexpr (std::is_same_v<T, to_headset::application_icon>)
+		{
+			spdlog::info("Received application icon for id={} ({} bytes)", p.id, p.image.size());
+			notify_application_icon(p.id, p.image);
+		}
+		else if constexpr (std::is_same_v<T, to_headset::running_applications>)
+		{
+			spdlog::info("Received running applications: {} apps", p.applications.size());
+			notify_running_applications(p.applications);
 		}
 		else
 		{

@@ -452,22 +452,27 @@ public class MainActivity extends NativeActivity {
     }
 
     public void onRequestAppList() {
-        Log.d(TAG, "Requesting app list");
+        Log.i(TAG, "Requesting app list");
+        nativeRequestAppList();
     }
 
     public void onStartApp(String appId) {
-        Log.d(TAG, "Starting app: " + appId);
+        Log.i(TAG, "Starting app: " + appId);
+        nativeStartApp(appId);
     }
 
     public void onRequestRunningApps() {
+        nativeRequestRunningApps();
     }
 
     public void onSetActiveApp(int appId) {
-        Log.d(TAG, "Setting active app: " + appId);
+        Log.i(TAG, "Setting active app: " + appId);
+        nativeSetActiveApp(appId);
     }
 
     public void onStopApp(int appId) {
-        Log.d(TAG, "Stopping app: " + appId);
+        Log.i(TAG, "Stopping app: " + appId);
+        nativeStopApp(appId);
     }
 
     private int getHmdBatteryLevel() {
@@ -496,4 +501,9 @@ public class MainActivity extends NativeActivity {
     public native void nativeDisconnectServer();
     public native void nativeSetPin(String pin);
     public native boolean nativeReady();
+    public native void nativeRequestAppList();
+    public native void nativeStartApp(String appId);
+    public native void nativeRequestRunningApps();
+    public native void nativeSetActiveApp(int appId);
+    public native void nativeStopApp(int appId);
 }
