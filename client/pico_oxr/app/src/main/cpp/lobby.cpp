@@ -401,6 +401,7 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 		glVertexAttribPointer(pos_attrib, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		glLineWidth(5.0f);
 		glDrawArrays(GL_LINES, 0, 2);
 		glDisable(GL_BLEND);
 	}
