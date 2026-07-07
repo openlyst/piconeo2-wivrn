@@ -958,6 +958,14 @@ static void render_frame(AppState* app) {
         glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, app->depth_rbo[eye]);
 
         GLenum fbStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+
+        std::shared_ptr<pico_decoded_frame> decoded;
+        if (app->stream.streaming.load())
+        {
+            std::lock_guard lock(app->stream.decoded_frame_mutex);
+            decoded = app->stream.latest_decoded_frames[eye];
+        }
+
         if (fbStatus != GL_FRAMEBUFFER_COMPLETE) {
             LOGE("Framebuffer incomplete: 0x%x (eye %u)", fbStatus, eye);
         } else if (app->stream.streaming.load()) {
@@ -965,30 +973,30 @@ static void render_frame(AppState* app) {
             if (eye == 0 && (blit_log_count++ % 300 == 0)) LOGI("STREAMING: blit path active");
 
             if (eye == 0) {
-                std::shared_ptr<pico_decoded_frame> decoded[3];
+                std::shared_ptr<pico_decoded_frame> decoded_all[3];
                 {
                     std::lock_guard lock(app->stream.decoded_frame_mutex);
-                    decoded[0] = app->stream.latest_decoded_frames[0];
-                    decoded[1] = app->stream.latest_decoded_frames[1];
+                    decoded_all[0] = app->stream.latest_decoded_frames[0];
+                    decoded_all[1] = app->stream.latest_decoded_frames[1];
                 }
                 for (int e = 0; e < 2; e++) {
-                    if (decoded[e] && decoded[e]->valid) {
-                        g_stutter.on_pose_update(e, decoded[e]->frame_index, decoded[e]->server_pose[e]);
+                    if (decoded_all[e] && decoded_all[e]->valid) {
+                        g_stutter.on_pose_update(e, decoded_all[e]->frame_index, decoded_all[e]->server_pose[e]);
                     }
                 }
                 g_stutter.on_frame_begin(
-                    decoded[0] ? decoded[0]->frame_index : 0,
-                    decoded[1] ? decoded[1]->frame_index : 0);
+                    decoded_all[0] ? decoded_all[0]->frame_index : 0,
+                    decoded_all[1] ? decoded_all[1]->frame_index : 0);
                 g_stutter.on_frame_end();
                 g_stutter.log_summary();
 
                 static int fov_cmp_count = 0;
-                if (fov_cmp_count++ % 120 == 0 && decoded[0] && decoded[0]->valid)
+                if (fov_cmp_count++ % 120 == 0 && decoded_all[0] && decoded_all[0]->valid)
                 {
                     for (int e = 0; e < 2; e++)
                     {
                         const XrFovf &cf = app->stream.eye_fov[e];
-                        const XrFovf &sf = decoded[e] ? decoded[e]->server_fov[e] : XrFovf{};
+                        const XrFovf &sf = decoded_all[e] ? decoded_all[e]->server_fov[e] : XrFovf{};
                         constexpr float rad2deg = 180.0f / 3.14159265358979f;
                         float client_h_fov = (cf.angleRight - cf.angleLeft) * rad2deg;
                         float client_v_fov = (cf.angleUp - cf.angleDown) * rad2deg;
@@ -1024,7 +1032,10 @@ static void render_frame(AppState* app) {
         sc_rel_ms += ts_diff(tc, te) * 1000.0f;
 
         layerViews[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
-        layerViews[eye].pose = views[eye].pose;
+        if (app->stream.streaming.load() && decoded && decoded->valid)
+            layerViews[eye].pose = decoded->server_pose[eye];
+        else
+            layerViews[eye].pose = views[eye].pose;
         layerViews[eye].fov = app->stream.eye_fov[eye];
         layerViews[eye].subImage.swapchain = app->swapchains[eye].handle;
         layerViews[eye].subImage.imageRect.offset = {0, 0};
