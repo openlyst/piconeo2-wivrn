@@ -37,7 +37,7 @@ void oxr_blit::init(EGLDisplay display, int eye_w, int eye_h)
 	spdlog::info("oxr_blit initialized: {}x{}", eye_w, eye_h);
 }
 
-void oxr_blit::blit(streaming_client * client, GLuint swapchain_tex[2], int eye_w, int eye_h)
+void oxr_blit::blit(streaming_client * client, int eye, GLuint swapchain_tex, int eye_w, int eye_h)
 {
 	if (!initialized || !client)
 		return;
@@ -90,21 +90,19 @@ void oxr_blit::blit(streaming_client * client, GLuint swapchain_tex[2], int eye_
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_CULL_FACE);
 
-	for (int eye = 0; eye < 2; eye++)
+	int stream_idx = eye;
+	if (eye_textures[stream_idx] == 0 || !frames[stream_idx] || !frames[stream_idx]->valid)
 	{
-		int stream_idx = eye;
-		if (eye_textures[stream_idx] == 0 || !frames[stream_idx] || !frames[stream_idx]->valid)
-		{
-			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-				GL_TEXTURE_2D, swapchain_tex[eye], 0);
-			glViewport(0, 0, eye_w, eye_h);
-			glClearColor(0, 0, 0, 1);
-			glClear(GL_COLOR_BUFFER_BIT);
-			continue;
-		}
-
 		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-			GL_TEXTURE_2D, swapchain_tex[eye], 0);
+			GL_TEXTURE_2D, swapchain_tex, 0);
+		glViewport(0, 0, eye_w, eye_h);
+		glClearColor(0, 0, 0, 1);
+		glClear(GL_COLOR_BUFFER_BIT);
+	}
+	else
+	{
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+			GL_TEXTURE_2D, swapchain_tex, 0);
 
 		glViewport(0, 0, eye_w, eye_h);
 		glClearColor(0, 0, 0, 1);

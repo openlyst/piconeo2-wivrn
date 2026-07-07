@@ -131,6 +131,14 @@ void pico_blit_pipeline::draw(int eye, GLuint src_texture,
 
 	if (trivial)
 	{
+		static int trivial_log = 0;
+		if (trivial_log++ < 5 || trivial_log % 300 == 0)
+		{
+			spdlog::warn("blit eye={}: TRIVIAL path src={}x{} eye={}x{} foveation.x.size()={} foveation.y.size()={}",
+				eye, src_width, src_height, eye_width, eye_height,
+				foveation.x.size(), foveation.y.size());
+		}
+
 		float * v = vertex_data.data();
 		v[0] = -1.0f; v[1] = -1.0f; v[2] = 0.0f;          v[3] = (float)src_height;
 		v[4] =  1.0f; v[5] = -1.0f; v[6] = (float)src_width; v[7] = (float)src_height;
