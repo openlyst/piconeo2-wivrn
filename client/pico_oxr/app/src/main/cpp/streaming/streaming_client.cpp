@@ -614,8 +614,8 @@ void streaming_client::send_headset_info()
 
 	info.render_eye_width = eye_width;
 	info.render_eye_height = eye_height;
-	info.stream_eye_width = eye_width;
-	info.stream_eye_height = eye_height;
+	info.stream_eye_width = stream_eye_width.load();
+	info.stream_eye_height = stream_eye_height.load();
 
 	info.available_refresh_rates.push_back(72.0f);
 	info.settings.preferred_refresh_rate = 72.0f;

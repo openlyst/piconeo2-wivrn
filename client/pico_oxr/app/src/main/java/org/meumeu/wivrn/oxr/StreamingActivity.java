@@ -92,7 +92,10 @@ public class StreamingActivity extends NativeActivity {
         Log.i(TAG, "Connecting to " + mHost + ":" + mPort + " tcp=" + mTcpOnly);
         SharedPreferences sp = getSharedPreferences("wivrn_settings", MODE_PRIVATE);
         int ipdMm = sp.getInt("ipd_mm", 64);
+        int resWidth = sp.getInt("res_width", 2048);
+        int resHeight = sp.getInt("res_height", 2160);
         nativeSetIpd(ipdMm);
+        nativeSetStreamResolution(resWidth, resHeight);
         nativeConnectServer(mHost, mPort, mTcpOnly);
         if (mPin != null && !mPin.isEmpty()) {
             nativeSetPin(mPin);
@@ -249,5 +252,6 @@ public class StreamingActivity extends NativeActivity {
     public native void nativeDisconnectServer();
     public native void nativeSetPin(String pin);
     public native void nativeSetIpd(int ipdMm);
+    public native void nativeSetStreamResolution(int width, int height);
     public native boolean nativeReady();
 }
