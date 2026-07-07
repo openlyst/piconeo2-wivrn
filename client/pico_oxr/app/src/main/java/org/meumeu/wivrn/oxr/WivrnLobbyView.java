@@ -117,8 +117,15 @@ public class WivrnLobbyView {
     private boolean touchDown = false;
     private boolean touchPressed = false;
 
-    private float sliderValue = -1;
-    private boolean sliderDragging = false;
+    private int activeSlider = -1;
+
+    private static final int SLIDER_NONE = -1;
+    private static final int SLIDER_RESOLUTION = 0;
+    private static final int SLIDER_FOVEATION = 1;
+    private static final int SLIDER_BITRATE = 2;
+    private static final int SLIDER_IPD = 3;
+    private static final int SLIDER_STREAM_BITRATE = 4;
+    private static final int SLIDER_STREAM_RESOLUTION = 5;
 
     private int resolutionScale = 100;
     private int foveationScale = 30;
@@ -1581,9 +1588,65 @@ public class WivrnLobbyView {
         prevTouchY = touchY;
 
         if (pressed) {
+            activeSlider = SLIDER_NONE;
             handleClick(x, y);
+        } else if (down && activeSlider != SLIDER_NONE) {
+            handleSliderDrag(x, y);
+        } else if (!down) {
+            activeSlider = SLIDER_NONE;
         }
         markDirty();
+    }
+
+    private void handleSliderDrag(float x, float y) {
+        float contentX, sliderW;
+        float adjustedY = y - (TOPBAR_HEIGHT + 10);
+
+        if (connectionState == STATE_CONNECTED && streamTab == STREAM_TAB_SETTINGS) {
+            contentX = SIDEBAR_WIDTH + 30;
+            sliderW = width - contentX - 30 - 150;
+            switch (activeSlider) {
+                case SLIDER_STREAM_BITRATE:
+                    streamBitrateSetting = (int)Math.max(1, Math.min(100, ((x - contentX) / sliderW) * 100));
+                    markDirty();
+                    return;
+                case SLIDER_STREAM_RESOLUTION:
+                    streamResolutionScale = (int)Math.max(10, Math.min(200, ((x - contentX) / sliderW) * 200));
+                    markDirty();
+                    return;
+            }
+            return;
+        }
+
+        if (connectionState != STATE_IDLE && connectionState != STATE_DISCONNECTED) return;
+        if (currentTab != TAB_SETTINGS) return;
+        if (showAddServer) return;
+
+        contentX = SIDEBAR_WIDTH + 20;
+        sliderW = (width - contentX - 20) - 100;
+        float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
+        switch (activeSlider) {
+            case SLIDER_RESOLUTION:
+                resolutionScale = Math.max(50, Math.min(150, (int)(50 + pct * 100)));
+                saveSettings();
+                markDirty();
+                break;
+            case SLIDER_FOVEATION:
+                foveationScale = Math.max(0, Math.min(80, (int)(pct * 80)));
+                saveSettings();
+                markDirty();
+                break;
+            case SLIDER_BITRATE:
+                bitrate = Math.max(5, Math.min(100, (int)(5 + pct * 95)));
+                saveSettings();
+                markDirty();
+                break;
+            case SLIDER_IPD:
+                ipdMm = Math.max(58, Math.min(72, (int)(58 + pct * 14)));
+                saveSettings();
+                markDirty();
+                break;
+        }
     }
 
     private void handleClick(float x, float y) {
@@ -1742,7 +1805,8 @@ public class WivrnLobbyView {
             float sliderY = sy + 35;
             RectF bitrateTrack = new RectF(contentX, sliderY, contentX + contentW - 150, sliderY + 20);
             if (bitrateTrack.contains(x, y)) {
-                float pct = (x - contentX) / (contentW - 150);
+                activeSlider = SLIDER_STREAM_BITRATE;
+                float pct = Math.max(0, Math.min(1, (x - contentX) / (contentW - 150)));
                 streamBitrateSetting = (int)Math.max(1, Math.min(100, pct * 100));
                 markDirty();
                 return;
@@ -1751,7 +1815,8 @@ public class WivrnLobbyView {
             sliderY += 85;
             RectF resTrack = new RectF(contentX, sliderY, contentX + contentW - 150, sliderY + 20);
             if (resTrack.contains(x, y)) {
-                float pct = (x - contentX) / (contentW - 150);
+                activeSlider = SLIDER_STREAM_RESOLUTION;
+                float pct = Math.max(0, Math.min(1, (x - contentX) / (contentW - 150)));
                 streamResolutionScale = (int)Math.max(10, Math.min(200, pct * 200));
                 markDirty();
                 return;
@@ -1889,9 +1954,9 @@ public class WivrnLobbyView {
         float sliderW = contentW - 100;
         sy += 35;
         if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
-            float pct = (x - contentX) / sliderW;
-            resolutionScale = (int)(50 + pct * 100);
-            resolutionScale = Math.max(50, Math.min(150, resolutionScale));
+            activeSlider = SLIDER_RESOLUTION;
+            float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
+            resolutionScale = Math.max(50, Math.min(150, (int)(50 + pct * 100)));
             saveSettings();
             markDirty();
             return;
@@ -1900,9 +1965,9 @@ public class WivrnLobbyView {
 
         sy += 35;
         if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
-            float pct = (x - contentX) / sliderW;
-            foveationScale = (int)(pct * 80);
-            foveationScale = Math.max(0, Math.min(80, foveationScale));
+            activeSlider = SLIDER_FOVEATION;
+            float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
+            foveationScale = Math.max(0, Math.min(80, (int)(pct * 80)));
             saveSettings();
             markDirty();
             return;
@@ -1911,9 +1976,9 @@ public class WivrnLobbyView {
 
         sy += 35;
         if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
-            float pct = (x - contentX) / sliderW;
-            bitrate = (int)(5 + pct * 95);
-            bitrate = Math.max(5, Math.min(100, bitrate));
+            activeSlider = SLIDER_BITRATE;
+            float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
+            bitrate = Math.max(5, Math.min(100, (int)(5 + pct * 95)));
             saveSettings();
             markDirty();
             return;
@@ -1922,9 +1987,9 @@ public class WivrnLobbyView {
 
         sy += 35;
         if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
-            float pct = (x - contentX) / sliderW;
-            ipdMm = (int)(58 + pct * 14);
-            ipdMm = Math.max(58, Math.min(72, ipdMm));
+            activeSlider = SLIDER_IPD;
+            float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
+            ipdMm = Math.max(58, Math.min(72, (int)(58 + pct * 14)));
             saveSettings();
             markDirty();
             return;
