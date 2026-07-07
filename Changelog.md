@@ -1,5 +1,13 @@
-# RC1 (PVR)
-- Initial release
+# RC4 (Unreleased)
+
+ - Harden rendering
+ - Fix controller face buttons
+ - Fix controller trigger buttons
+
+# RC3
+
+- Fixes all stuttering and jitters 
+- Fix the memory leak 
 
 # RC2 
 
@@ -17,7 +25,5 @@
 - Pointer in lobby doesnt work you have to pair from the PC
 - Beat saber might be flipped upside down depding on your pc
 
-# RC3
-
-- Fixes all stuttering and jitters 
-- Fix the memory leak 
+# RC1 (PVR)
+- Initial release
