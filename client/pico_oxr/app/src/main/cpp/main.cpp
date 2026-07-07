@@ -1186,7 +1186,7 @@ static void render_frame(AppState* app) {
                          (tx != prev_touch_x) ||
                          (ty != prev_touch_y);
 
-    if (state_changed || (hit_hand >= 0 && (tdown || tpressed))) {
+    if (hit_hand >= 0 || state_changed) {
         static int jni_log_count = 0;
         if (jni_log_count++ % 30 == 0 || tpressed) {
             LOGI("JNI_TOUCH hit_hand=%d tx=%.1f ty=%.1f tdown=%d tpressed=%d tthumb=%.2f state_changed=%d",
