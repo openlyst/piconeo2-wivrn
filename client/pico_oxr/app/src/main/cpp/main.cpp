@@ -526,8 +526,7 @@ static bool openxr_create_session(AppState* app) {
         br = g_pfnXrInvokeFunctionsPICO(app->session, XR_SHUTDOWN_SDK_GUARDIANSYSTEM, dummy_in, 0, &dummy_out, 0);
         LOGI("XR_SHUTDOWN_SDK_GUARDIANSYSTEM result: %d", br);
         if (br == XR_SUCCESS) {
-            app->stream.tracker.floor_relative.store(true);
-            LOGI("Boundary disabled - LOCAL origin is now floor-relative");
+            LOGI("Boundary disabled");
         }
     }
 
@@ -773,8 +772,13 @@ static void render_frame(AppState* app) {
     float ipd = sqrtf(dx*dx + dy*dy + dz*dz);
 
     app->stream.tracker.set_head_pose(head_orient, head_pos);
-    app->stream.eye_fov[0] = views[0].fov;
-    app->stream.eye_fov[1] = views[1].fov;
+
+    // Pico Neo 2 has a square ~101 degree per-eye FOV.
+    // The OpenXR runtime reports incorrect/wider values that cause zoom-in.
+    // Use the known-correct value, same as the PVR client.
+    constexpr float k_fov_half = 101.0f * 0.5f * 0.01745329252f;
+    app->stream.eye_fov[0] = {-k_fov_half, k_fov_half, k_fov_half, -k_fov_half};
+    app->stream.eye_fov[1] = {-k_fov_half, k_fov_half, k_fov_half, -k_fov_half};
 
     static int hmd_log_count = 0;
     if (hmd_log_count++ % 120 == 0)
@@ -1001,7 +1005,7 @@ static void render_frame(AppState* app) {
 
         layerViews[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
         layerViews[eye].pose = views[eye].pose;
-        layerViews[eye].fov = views[eye].fov;
+        layerViews[eye].fov = app->stream.eye_fov[eye];
         layerViews[eye].subImage.swapchain = app->swapchains[eye].handle;
         layerViews[eye].subImage.imageRect.offset = {0, 0};
         layerViews[eye].subImage.imageRect.extent = {w, h};
