@@ -496,10 +496,10 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 	// The OpenXR runtime may report incorrect/wider FOV values that make
 	// everything look too small. Use the known-correct value from the Pico SDK.
 	constexpr float k_fov_half = 101.0f * 0.5f * 0.01745329252f;
-	constexpr float k_ipd = 0.064f;
+	float ipd = soft_ipd.load();
 	for (int eye = 0; eye < 2; eye++)
 	{
-		float eye_offset = (eye == 0 ? -k_ipd * 0.5f : k_ipd * 0.5f);
+		float eye_offset = (eye == 0 ? -ipd * 0.5f : ipd * 0.5f);
 		pkt.views[eye].pose.orientation = {0, 0, 0, 1};
 		pkt.views[eye].pose.position = {eye_offset, 0, 0};
 		pkt.views[eye].fov = {-k_fov_half, k_fov_half, k_fov_half, -k_fov_half};
