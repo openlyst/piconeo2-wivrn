@@ -4,8 +4,7 @@ Native WiVRn client for the Pico Neo 2 and Pico Neo 2 Eye.
 Got questions or want to contribute? Join the Discord for dev discussion and help: [https://discord.gg/RQ9nSpmtfU](https://discord.gg/RQ9nSpmtfU).
 
 ## Status
-### Alpha
-This project is really early and still has issues with the code. But it should stil work.
+### Beta
 
 ## Supported headsets
 - Pico Neo 2
@@ -18,25 +17,6 @@ This project is really early and still has issues with the code. But it should s
 - Controller models with pointer rays in lobby
 - Vibration
 - Audio
-
-### Todo before a 1.0
-
-#### Known bugs
-- [ ] Client will crash if you pair from the client rather then server (tested on usb)
-
-- [ ] Killing a applcation doesn't apply a visual indiactor.
-- [ ] Laucning a applcation doesnt apply a visual indiactor.
-- [ ] Cursor on the UI doesn't work
-- [X] Right eye is slightly jittery compared to the left eye
-- [X] Stream will crash while streaming and andriod will say the app is not responing even when it is witch breaks controller input and sends the user to a 2d view
-- [X] Reprojection is broken causing some people to get sick 
-- [X] UI gets super laggy when active (32bit)
-
-#### Features
-- [ ] Create a Gitlab pipeline for building.
-- [ ] Add i18n for Chinese Simplfed and English so we aint hardcoding.
-- [X] Implement Audio; Dekstop -> Client
-- [X] Implement controller haptics
 
 ### Getting the Pico OpenXR SDK
 
