@@ -993,6 +993,25 @@ static void render_frame(AppState* app) {
         prev_home[h] = home_now;
     }
 
+    // Toggle in-stream UI when both thumbsticks are clicked
+    if (app->stream.streaming.load())
+    {
+        static bool prev_stick_click[2] = {false, false};
+        bool stick_click[2] = {cs[0].connected && cs[0].thumbstick_click,
+                                cs[1].connected && cs[1].thumbstick_click};
+
+        bool both_now = stick_click[0] && stick_click[1];
+        bool both_prev = prev_stick_click[0] && prev_stick_click[1];
+        if (both_now && !both_prev)
+        {
+            app->stream.stream_ui_visible.store(!app->stream.stream_ui_visible.load());
+            LOGI("Both thumbsticks clicked: stream_ui_visible -> %d",
+                 (int)app->stream.stream_ui_visible.load());
+        }
+        prev_stick_click[0] = stick_click[0];
+        prev_stick_click[1] = stick_click[1];
+    }
+
     for (int h = 0; h < 2; h++)
     {
         if (cs[h].connected)
@@ -1156,7 +1175,7 @@ static void render_frame(AppState* app) {
 
         if (fbStatus != GL_FRAMEBUFFER_COMPLETE) {
             LOGE("Framebuffer incomplete: 0x%x (eye %u)", fbStatus, eye);
-        } else if (app->stream.streaming.load()) {
+        } else if (app->stream.streaming.load() && !app->stream.stream_ui_visible.load()) {
             static int blit_log_count = 0;
             if (eye == 0 && (blit_log_count++ % 300 == 0)) LOGI("STREAMING: blit path active");
 
@@ -1234,11 +1253,11 @@ static void render_frame(AppState* app) {
         sc_rel_ms += ts_diff(tc, te) * 1000.0f;
 
         layerViews[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
-        if (app->stream.streaming.load() && render_frames[eye] && render_frames[eye]->valid)
+        if (app->stream.streaming.load() && !app->stream.stream_ui_visible.load() && render_frames[eye] && render_frames[eye]->valid)
             layerViews[eye].pose = render_frames[eye]->server_pose[eye];
         else
             layerViews[eye].pose = views[eye].pose;
-        if (app->stream.streaming.load() && render_frames[eye] && render_frames[eye]->valid)
+        if (app->stream.streaming.load() && !app->stream.stream_ui_visible.load() && render_frames[eye] && render_frames[eye]->valid)
             layerViews[eye].fov = render_frames[eye]->server_fov[eye];
         else
             layerViews[eye].fov = app->stream.eye_fov[eye];
