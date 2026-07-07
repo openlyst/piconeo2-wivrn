@@ -368,7 +368,13 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 			controllers[h].position[2] * 0.001f,
 		};
 
-		Mat4 model = mat4_mul(mat4_translate(pos_m[0], pos_m[1], pos_m[2]), quat_to_mat4(controllers[h].orientation));
+		float corrected_orient[4] = {
+			-controllers[h].orientation[0],
+			-controllers[h].orientation[1],
+			controllers[h].orientation[2],
+			controllers[h].orientation[3],
+		};
+		Mat4 model = mat4_mul(mat4_translate(pos_m[0], pos_m[1], pos_m[2]), quat_to_mat4(corrected_orient));
 		Mat4 mvp = mat4_mul(vp, model);
 
 		if (h == 0)
