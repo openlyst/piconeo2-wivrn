@@ -4,7 +4,7 @@
  - Fix controller face buttons
  - Fix controller trigger buttons
  - Fix foveation causing apps to render upside down (sorry aus)
- - Fix overlay applcations not being usable
+ - Fix overlay applications not being usable
 # RC3
 
 - Fixes all stuttering and jitters 
