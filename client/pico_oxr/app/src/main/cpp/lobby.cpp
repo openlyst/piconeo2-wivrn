@@ -627,7 +627,7 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 
 		if (last_hit[h].valid)
 		{
-			float px = (u + 1.0f) * 0.5f * 1400.0f;
+			float px = (1.0f - (u + 1.0f) * 0.5f) * 1400.0f;
 			float py = (1.0f - (v + 1.0f) * 0.5f) * 900.0f;
 
 			lobby_touch_x[h] = px;
