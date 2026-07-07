@@ -257,8 +257,9 @@ public class MainActivity extends Activity {
             float scaleY = 900.0f / getHeight();
             float x = event.getX() * scaleX;
             float y = event.getY() * scaleY;
-            boolean down = event.getAction() != MotionEvent.ACTION_UP;
-            boolean pressed = event.getAction() == MotionEvent.ACTION_DOWN;
+            int action = event.getActionMasked();
+            boolean down = action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_CANCEL;
+            boolean pressed = action == MotionEvent.ACTION_DOWN;
             lobbyView.handleTouch(x, y, down, pressed, 0);
             return true;
         }
