@@ -805,6 +805,48 @@ static void render_frame(AppState* app) {
         cs[1] = g_controllers[1];
     }
 
+    static bool prev_home[2] = {false, false};
+    static uint64_t home_press_ts[2] = {0, 0};
+    for (int h = 0; h < 2; h++)
+    {
+        bool home_now = cs[h].connected && cs[h].home;
+        uint64_t now_ns = (uint64_t)fs.predictedDisplayTime;
+        if (home_now && !prev_home[h])
+        {
+            home_press_ts[h] = now_ns;
+        }
+        else if (!home_now && prev_home[h])
+        {
+            if (home_press_ts[h] > 0 && now_ns - home_press_ts[h] > 800000000ULL)
+            {
+                LOGI("recenter triggered by controller %d home button long press", h);
+                if (g_pfnXrResetSensorPICO && app->session)
+                {
+                    XrResult rr = g_pfnXrResetSensorPICO(app->session, XR_RESET_ALL);
+                    LOGI("xrResetSensorPICO result: %d", rr);
+                }
+                if (app->localSpace)
+                {
+                    xrDestroySpace(app->localSpace);
+                    app->localSpace = XR_NULL_HANDLE;
+                }
+                XrReferenceSpaceCreateInfo rsci = {};
+                rsci.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
+                rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+                rsci.poseInReferenceSpace.orientation.w = 1.f;
+                rsci.poseInReferenceSpace.position.y = 0.f;
+                XrResult rr = xrCreateReferenceSpace(app->session, &rsci, &app->localSpace);
+                if (rr != XR_SUCCESS)
+                    LOGE("xrCreateReferenceSpace after recenter failed: %d", rr);
+                else
+                    LOGI("Reference space recreated after recenter");
+                app->lobby.recenter();
+            }
+            home_press_ts[h] = 0;
+        }
+        prev_home[h] = home_now;
+    }
+
     for (int h = 0; h < 2; h++)
     {
         if (cs[h].connected)
