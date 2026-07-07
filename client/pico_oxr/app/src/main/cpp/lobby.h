@@ -16,6 +16,7 @@ class pico_lobby
 {
 	GLuint program = 0;
 	GLuint controller_vbo = 0;
+	GLuint ray_vbo = 0;
 
 	GLint pos_attrib = -1;
 	GLint mvp_uniform = -1;
