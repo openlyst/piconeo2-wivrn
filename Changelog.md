@@ -5,6 +5,8 @@
  - Fix controller trigger buttons
  - Fix foveation causing apps to render upside down (sorry aus)
  - Fix overlay applications not being usable
+ - Doubles tracking frequency to 300Hz
+
 # RC3
 
 - Fixes all stuttering and jitters 
