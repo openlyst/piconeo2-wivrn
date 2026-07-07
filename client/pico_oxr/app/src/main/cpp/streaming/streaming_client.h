@@ -77,6 +77,7 @@ struct streaming_client
 		wivrn::from_headset::feedback feedback{};
 		wivrn::to_headset::video_stream_data_shard::view_info_t view_info{};
 		bool has_view_info = false;
+		int64_t first_shard_ns = 0;
 
 		void reset(uint64_t idx)
 		{
@@ -84,21 +85,17 @@ struct streaming_client
 			shards.clear();
 			min_for_reconstruction = 0;
 			has_view_info = false;
+			first_shard_ns = 0;
 		}
 	};
 	shard_set current_shards[3];
 	shard_set next_shards[3];
 
+	static constexpr size_t FRAME_BUFFER_SIZE = 3;
+
 	std::mutex decoded_frame_mutex;
-	std::shared_ptr<pico_decoded_frame> latest_decoded_frames[3];
-	std::atomic<uint64_t> latest_decoded_frame_index{0};
-
-	GLuint eye_textures[3]{0, 0, 0};
-	EGLImageKHR eye_egl_images[3]{EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR};
-	EGLImageKHR eye_prev_egl_images[3]{EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR};
-	AHardwareBuffer * last_hb[3]{nullptr, nullptr, nullptr};
-
-	GLuint stream_fbo = 0;
+	std::array<std::shared_ptr<pico_decoded_frame>, FRAME_BUFFER_SIZE> decoded_frame_buffers[3];
+	uint64_t latest_decoded_frame_index{0};
 
 	std::mutex audio_mutex;
 	std::optional<wivrn::to_headset::audio_stream_description> audio_desc;

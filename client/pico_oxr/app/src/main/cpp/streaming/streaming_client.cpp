@@ -124,9 +124,30 @@ void streaming_client::setup_decoders()
 			*video_desc, i,
 			[this, i](std::shared_ptr<pico_decoded_frame> frame) {
 				g_stutter.on_frame_decoded(frame->frame_index, i);
-				std::lock_guard lock(decoded_frame_mutex);
-				latest_decoded_frames[i] = std::move(frame);
-				latest_decoded_frame_index.store(latest_decoded_frames[i]->frame_index);
+				uint64_t fi = frame->frame_index;
+				{
+					std::lock_guard lock(decoded_frame_mutex);
+					auto & buf = decoded_frame_buffers[i];
+					size_t oldest = 0;
+					uint64_t oldest_fi = UINT64_MAX;
+					for (size_t j = 0; j < buf.size(); j++)
+					{
+						if (!buf[j])
+						{ oldest = j; break; }
+						if (buf[j]->frame_index < oldest_fi)
+						{ oldest_fi = buf[j]->frame_index; oldest = j; }
+					}
+					buf[oldest] = frame;
+					latest_decoded_frame_index = frame->frame_index;
+				}
+				if (session)
+				{
+					wivrn::from_headset::feedback fb{};
+					fb.frame_index = fi;
+					fb.stream_index = i;
+					fb.received_from_decoder = to_xr_time(get_timestamp_ns());
+					session->send_stream(fb);
+				}
 			});
 		spdlog::warn("Created decoder for stream {}", i);
 	}
@@ -203,6 +224,8 @@ void streaming_client::handle_video_shard(to_headset::video_stream_data_shard &&
 
 	bool is_last_shard = shard.timing_info.has_value();
 	bool is_first_shard = (shard.shard_idx == 0);
+	if (is_first_shard && target->first_shard_ns == 0)
+		target->first_shard_ns = get_timestamp_ns();
 	target->shards[shard.shard_idx] = std::move(shard);
 
 	g_stutter.on_shard_arrived(frame_idx, idx, is_first_shard, is_last_shard);
@@ -236,17 +259,19 @@ void streaming_client::handle_video_shard(to_headset::video_stream_data_shard &&
 	feedback.stream_index = idx;
 
 	int64_t now = get_timestamp_ns();
-	feedback.received_first_packet = to_xr_time(now);
+	feedback.received_first_packet = to_xr_time(target->first_shard_ns);
 	feedback.received_last_packet = to_xr_time(now);
 	feedback.sent_to_decoder = to_xr_time(now);
 
 	decoders[idx]->push_data(data, frame_idx, false);
 	g_stutter.on_pushed_to_decoder(frame_idx, idx);
 
-	feedback.received_from_decoder = to_xr_time(get_timestamp_ns());
-
 	if (target->has_view_info)
+	{
 		decoders[idx]->frame_completed(feedback, target->view_info);
+	}
+
+	feedback.received_from_decoder = 0;
 
 	if (session)
 		session->send_stream(feedback);
@@ -386,10 +411,11 @@ void streaming_client::reset_stream_state()
 		next_shards[i].reset(1);
 		{
 			std::lock_guard lock(decoded_frame_mutex);
-			latest_decoded_frames[i].reset();
+			for (auto & slot : decoded_frame_buffers[i])
+				slot.reset();
 		}
 	}
-	latest_decoded_frame_index.store(0);
+	latest_decoded_frame_index = 0;
 	last_shard_ns.store(0);
 }
 

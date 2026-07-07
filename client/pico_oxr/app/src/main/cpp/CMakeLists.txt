@@ -107,7 +107,7 @@ set(STREAMING_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/streaming/oxr_blit.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/streaming/oxr_tracking.cpp
     ${PICO_NATIVE_DIR}/src/net/wivrn_client_pico.cpp
-    ${PICO_NATIVE_DIR}/src/video/pico_decoder.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/streaming/pico_decoder.cpp
     ${PICO_NATIVE_DIR}/src/audio/pico_audio.cpp
     ${PICO_NATIVE_DIR}/src/render/pico_blit.cpp
     ${PICO_NATIVE_DIR}/src/tracking/pico_tracking.cpp

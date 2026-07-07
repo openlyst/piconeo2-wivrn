@@ -50,11 +50,8 @@ void oxr_blit::blit(pico_blit_pipeline * pipeline, std::shared_ptr<pico_decoded_
 
 		if (last_hb[stream_idx] != hb)
 		{
-			if (eye_prev_egl_images[stream_idx] != EGL_NO_IMAGE_KHR)
-			{
+			if (eye_prev_egl_images[stream_idx] != EGL_NO_IMAGE_KHR && g_eglDestroyImageKHR)
 				g_eglDestroyImageKHR(dpy, eye_prev_egl_images[stream_idx]);
-				eye_prev_egl_images[stream_idx] = EGL_NO_IMAGE_KHR;
-			}
 			eye_prev_egl_images[stream_idx] = eye_egl_images[stream_idx];
 			eye_egl_images[stream_idx] = EGL_NO_IMAGE_KHR;
 			last_hb[stream_idx] = hb;
