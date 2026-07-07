@@ -176,7 +176,6 @@ pico_lobby::~pico_lobby()
 {
 	if (program) glDeleteProgram(program);
 	if (tex_program) glDeleteProgram(tex_program);
-	if (beam_vbo) glDeleteBuffers(1, &beam_vbo);
 	if (controller_vbo) glDeleteBuffers(1, &controller_vbo);
 	if (quad_vbo) glDeleteBuffers(1, &quad_vbo);
 	if (ui_texture) glDeleteTextures(1, &ui_texture);
@@ -245,57 +244,6 @@ void pico_lobby::init(int w, int h)
 	pos_attrib = glGetAttribLocation(program, "a_pos");
 	mvp_uniform = glGetUniformLocation(program, "u_mvp");
 	color_uniform = glGetUniformLocation(program, "u_color");
-
-	static constexpr float y_vals[] = {
-		0.0f, -0.15f, -0.35f, -0.6f, -0.9f, -1.3f, -1.8f, -2.4f,
-		-3.2f, -4.2f, -5.5f, -7.0f, -9.0f, -11.5f, -14.5f, -18.0f, -23.0f
-	};
-	static constexpr int n_rings = (int)(sizeof(y_vals) / sizeof(y_vals[0]));
-	static constexpr float beam_radius = 0.84f;
-	static constexpr int ring_segments = 32;
-	static constexpr int n_verticals = 8;
-
-	std::vector<float> beam_verts;
-	beam_segments.clear();
-
-	for (int i = 0; i < n_rings; i++)
-	{
-		int seg_start = (int)(beam_verts.size() / 3);
-
-		for (int j = 0; j < ring_segments; j++)
-		{
-			float a1 = (float)j / ring_segments * 2.0f * M_PI;
-			float a2 = (float)(j + 1) / ring_segments * 2.0f * M_PI;
-			beam_verts.push_back(cosf(a1) * beam_radius);
-			beam_verts.push_back(y_vals[i]);
-			beam_verts.push_back(sinf(a1) * beam_radius);
-			beam_verts.push_back(cosf(a2) * beam_radius);
-			beam_verts.push_back(y_vals[i]);
-			beam_verts.push_back(sinf(a2) * beam_radius);
-		}
-
-		if (i < n_rings - 1)
-		{
-			for (int j = 0; j < n_verticals; j++)
-			{
-				float a = (float)j / n_verticals * 2.0f * M_PI;
-				beam_verts.push_back(cosf(a) * beam_radius);
-				beam_verts.push_back(y_vals[i]);
-				beam_verts.push_back(sinf(a) * beam_radius);
-				beam_verts.push_back(cosf(a) * beam_radius);
-				beam_verts.push_back(y_vals[i + 1]);
-				beam_verts.push_back(sinf(a) * beam_radius);
-			}
-		}
-
-		int seg_count = (int)(beam_verts.size() / 3) - seg_start;
-		beam_segments.push_back({seg_start, seg_count});
-	}
-
-	glGenBuffers(1, &beam_vbo);
-	glBindBuffer(GL_ARRAY_BUFFER, beam_vbo);
-	glBufferData(GL_ARRAY_BUFFER, beam_verts.size() * sizeof(float), beam_verts.data(), GL_STATIC_DRAW);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
 
 	float s = 0.04f;
 	float box[] = {
@@ -395,52 +343,6 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	Mat4 view = mat4_view(head_orient, eye_pos);
 
 	Mat4 vp = mat4_mul(proj, view);
-
-	neo2::quat hq_draw = neo2::normalize_quat({head_orient[0], head_orient[1], head_orient[2], head_orient[3]});
-	float down_vec[3] = {0, -1, 0};
-	float down_world[3];
-	neo2::rotate_vector(hq_draw, down_vec, down_world);
-	float look_down = -down_world[1];
-	if (look_down < 0) look_down = 0;
-	float look_down_factor = look_down * look_down;
-
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glDepthMask(GL_FALSE);
-
-	Mat4 model = mat4_translate(head_pos[0], 0.0f, head_pos[2]);
-	Mat4 mvp = mat4_mul(vp, model);
-	glUniformMatrix4fv(mvp_uniform, 1, GL_FALSE, mvp.m);
-	glBindBuffer(GL_ARRAY_BUFFER, beam_vbo);
-	glEnableVertexAttribArray(pos_attrib);
-	glVertexAttribPointer(pos_attrib, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
-
-	int n_segs = (int)beam_segments.size();
-	for (int i = 0; i < n_segs; i++)
-	{
-		float depth_frac = (float)i / (n_segs - 1);
-		float alpha = powf(1.0f - depth_frac, 1.5f);
-		alpha += look_down_factor * depth_frac * 0.7f;
-		if (alpha > 1.0f) alpha = 1.0f;
-		if (alpha < 0.02f)
-			alpha = 0.02f;
-
-		float r = 0.3f + 0.2f * (1.0f - depth_frac);
-		float g = 0.5f + 0.3f * (1.0f - depth_frac);
-		float b = 0.8f + 0.2f * (1.0f - depth_frac);
-
-		if (i == 0)
-		{
-			r = 0.5f; g = 0.8f; b = 1.0f;
-			alpha = 0.95f;
-		}
-
-		glUniform4f(color_uniform, r, g, b, alpha);
-		glDrawArrays(GL_LINES, beam_segments[i].offset, beam_segments[i].count);
-	}
-
-	glDisable(GL_BLEND);
-	glDepthMask(GL_TRUE);
 
 	glDepthMask(GL_TRUE);
 	for (int h = 0; h < 2; h++)
