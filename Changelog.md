@@ -4,13 +4,13 @@
  - Fix controller face buttons
  - Fix controller trigger buttons
  - Fix foveation causing apps to render upside down (sorry aus)
- - Fix overlay applications not being usable
  - Doubles tracking frequency to 300Hz
  - Remove AV1
  - Adds the abilty to change software IPD
  - Fixed sliders in settings
  - Streams at native 2048x2160 resolution
  - Resualtion slider is now based on res's not %'s
+ - Adds WiVRn icon
 
 # RC3
 
