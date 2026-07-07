@@ -3,6 +3,7 @@
  - Harden rendering
  - Fix controller face buttons
  - Fix controller trigger buttons
+ - Fix foveation causing apps to render upside down (sorry aus)
 
 # RC3
 
