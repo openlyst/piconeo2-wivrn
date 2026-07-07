@@ -574,6 +574,7 @@ void pico_video_decoder::on_image_available(AImageReader * reader)
 	frame->height = desc.height;
 	frame->frame_index = frame_index;
 	frame->valid = true;
+	frame->display_time = info.view_info.display_time;
 	frame->t_pushed_to_decoder_ns = info.t_pushed_to_decoder_ns;
 	frame->t_dequeued_output_ns = info.t_dequeued_output_ns;
 	frame->t_image_available_ns = image_cb_time;

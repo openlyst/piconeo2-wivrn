@@ -18,6 +18,7 @@
 #include <openxr/openxr.h>
 
 #include <atomic>
+#include <array>
 #include <chrono>
 #include <future>
 #include <memory>
@@ -89,9 +90,20 @@ struct streaming_client
 	shard_set current_shards[3];
 	shard_set next_shards[3];
 
+	static constexpr size_t FRAME_BUFFER_SIZE = 3;
+
 	std::mutex decoded_frame_mutex;
-	std::shared_ptr<pico_decoded_frame> latest_decoded_frames[3];
+	std::array<std::shared_ptr<pico_decoded_frame>, FRAME_BUFFER_SIZE> decoded_frame_buffers[3];
 	std::atomic<uint64_t> latest_decoded_frame_index{0};
+
+	std::shared_ptr<pico_decoded_frame> get_frame(uint64_t frame_index, int stream) const
+	{
+		auto &buf = decoded_frame_buffers[stream];
+		auto &slot = buf[frame_index % buf.size()];
+		if (slot && slot->valid && slot->frame_index == frame_index)
+			return slot;
+		return nullptr;
+	}
 
 	GLuint eye_textures[3]{0, 0, 0};
 	EGLImageKHR eye_egl_images[3]{EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR};

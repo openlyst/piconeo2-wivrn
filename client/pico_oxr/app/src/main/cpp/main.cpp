@@ -921,43 +921,67 @@ static void render_frame(AppState* app) {
 
     float sc_wait_ms = 0, gl_draw_ms = 0, sc_rel_ms = 0;
 
-    // Sync both eyes to the same server frame index.
-    // Hold back the newer stream until the slower stream catches up.
-    // This eliminates the right-eye jitter caused by stream 1 being 1 frame behind.
+    // Common frame selection — match upstream WiVRn's common_frame() approach.
+    // Find a frame index present in both eyes' rolling buffers, closest to predictedDisplayTime.
+    // Falls back to per-eye latest if no common frame exists.
     static std::shared_ptr<pico_decoded_frame> render_frames[3];
-    static uint64_t render_sync_fi = 0;
+    static bool was_streaming = false;
 
-    std::shared_ptr<pico_decoded_frame> pose_frame;
     if (app->stream.streaming.load())
     {
+        was_streaming = true;
         std::lock_guard lock(app->stream.decoded_frame_mutex);
-        auto &f0 = app->stream.latest_decoded_frames[0];
-        auto &f1 = app->stream.latest_decoded_frames[1];
 
-        if (f0 && f0->valid && f1 && f1->valid)
+        auto &buf0 = app->stream.decoded_frame_buffers[0];
+        auto &buf1 = app->stream.decoded_frame_buffers[1];
+
+        // Collect valid frame indices from each buffer
+        uint64_t best_common_idx = UINT64_MAX;
+        int64_t best_common_diff = INT64_MAX;
+
+        for (auto &s0 : buf0)
         {
-            uint64_t min_fi = std::min(f0->frame_index, f1->frame_index);
-            if (min_fi > render_sync_fi)
+            if (!s0 || !s0->valid) continue;
+            for (auto &s1 : buf1)
             {
-                if (f0->frame_index == min_fi)
-                    render_frames[0] = f0;
-                if (f1->frame_index == min_fi)
-                    render_frames[1] = f1;
-                render_sync_fi = min_fi;
+                if (!s1 || !s1->valid) continue;
+                if (s0->frame_index == s1->frame_index)
+                {
+                    int64_t diff = (int64_t)s0->display_time - (int64_t)fs.predictedDisplayTime;
+                    if (diff < 0) diff = -diff;
+                    if (diff < best_common_diff)
+                    {
+                        best_common_diff = diff;
+                        best_common_idx = s0->frame_index;
+                    }
+                }
             }
-            // Use the newer frame for poses (it has the most recent head pose)
-            pose_frame = (f0->frame_index >= f1->frame_index) ? f0 : f1;
         }
-        else if (f0 && f0->valid)
+
+        if (best_common_idx != UINT64_MAX)
         {
-            render_frames[0] = f0;
-            pose_frame = f0;
+            render_frames[0] = app->stream.get_frame(best_common_idx, 0);
+            render_frames[1] = app->stream.get_frame(best_common_idx, 1);
         }
-        else if (f1 && f1->valid)
+        else
         {
-            render_frames[1] = f1;
-            pose_frame = f1;
+            // No common frame — fall back to latest valid per eye
+            render_frames[0].reset();
+            render_frames[1].reset();
+            for (auto &s : buf0)
+                if (s && s->valid && (!render_frames[0] || s->frame_index > render_frames[0]->frame_index))
+                    render_frames[0] = s;
+            for (auto &s : buf1)
+                if (s && s->valid && (!render_frames[1] || s->frame_index > render_frames[1]->frame_index))
+                    render_frames[1] = s;
         }
+    }
+    else if (was_streaming)
+    {
+        render_frames[0].reset();
+        render_frames[1].reset();
+        render_frames[2].reset();
+        was_streaming = false;
     }
 
     for (uint32_t eye = 0; eye < NUM_EYES; eye++) {
@@ -1012,63 +1036,41 @@ static void render_frame(AppState* app) {
             if (eye == 0 && (blit_log_count++ % 300 == 0)) LOGI("STREAMING: blit path active");
 
             if (eye == 0) {
-                std::shared_ptr<pico_decoded_frame> decoded_all[3];
-                {
-                    std::lock_guard lock(app->stream.decoded_frame_mutex);
-                    decoded_all[0] = app->stream.latest_decoded_frames[0];
-                    decoded_all[1] = app->stream.latest_decoded_frames[1];
-                }
-
                 static int sync_log_count = 0;
-                bool has_both = decoded_all[0] && decoded_all[0]->valid && decoded_all[1] && decoded_all[1]->valid;
+                bool has_both = render_frames[0] && render_frames[0]->valid && render_frames[1] && render_frames[1]->valid;
                 if (has_both)
                 {
-                    uint64_t fi0 = decoded_all[0]->frame_index;
-                    uint64_t fi1 = decoded_all[1]->frame_index;
+                    uint64_t fi0 = render_frames[0]->frame_index;
+                    uint64_t fi1 = render_frames[1]->frame_index;
                     int64_t fi_diff = (int64_t)fi0 - (int64_t)fi1;
                     if (fi_diff < 0) fi_diff = -fi_diff;
 
-                    uint64_t pose_fi = pose_frame ? pose_frame->frame_index : 0;
-                    const XrPosef &p0 = pose_frame ? pose_frame->server_pose[0] : XrPosef{};
-                    const XrPosef &p1 = pose_frame ? pose_frame->server_pose[1] : XrPosef{};
-                    float pdx = p0.position.x - p1.position.x;
-                    float pdy = p0.position.y - p1.position.y;
-                    float pdz = p0.position.z - p1.position.z;
-                    float pos_delta = sqrtf(pdx*pdx + pdy*pdy + pdz*pdz);
-
-                    float qdx = p0.orientation.x - p1.orientation.x;
-                    float qdy = p0.orientation.y - p1.orientation.y;
-                    float qdz = p0.orientation.z - p1.orientation.z;
-                    float qdw = p0.orientation.w - p1.orientation.w;
-                    float rot_delta = sqrtf(qdx*qdx + qdy*qdy + qdz*qdz + qdw*qdw);
-
-                    if (++sync_log_count % 30 == 1 || sync_log_count <= 5 || fi_diff > 1)
+                    if (++sync_log_count % 30 == 1 || sync_log_count <= 5 || fi_diff > 0)
                     {
-                        LOGI("EYE_SYNC fi0=%llu fi1=%llu diff=%lld | pose_frame=%llu pos_delta=%.4f rot_delta=%.4f",
+                        LOGI("EYE_SYNC fi0=%llu fi1=%llu diff=%lld",
                              (unsigned long long)fi0, (unsigned long long)fi1,
-                             (long long)fi_diff, (unsigned long long)pose_fi,
-                             pos_delta, rot_delta);
+                             (long long)fi_diff);
                     }
                 }
 
                 for (int e = 0; e < 2; e++) {
-                    if (decoded_all[e] && decoded_all[e]->valid) {
-                        g_stutter.on_pose_update(e, decoded_all[e]->frame_index, decoded_all[e]->server_pose[e]);
+                    if (render_frames[e] && render_frames[e]->valid) {
+                        g_stutter.on_pose_update(e, render_frames[e]->frame_index, render_frames[e]->server_pose[e]);
                     }
                 }
                 g_stutter.on_frame_begin(
-                    decoded_all[0] ? decoded_all[0]->frame_index : 0,
-                    decoded_all[1] ? decoded_all[1]->frame_index : 0);
+                    render_frames[0] ? render_frames[0]->frame_index : 0,
+                    render_frames[1] ? render_frames[1]->frame_index : 0);
                 g_stutter.on_frame_end();
                 g_stutter.log_summary();
 
                 static int fov_cmp_count = 0;
-                if (fov_cmp_count++ % 120 == 0 && decoded_all[0] && decoded_all[0]->valid)
+                if (fov_cmp_count++ % 120 == 0 && render_frames[0] && render_frames[0]->valid)
                 {
                     for (int e = 0; e < 2; e++)
                     {
                         const XrFovf &cf = app->stream.eye_fov[e];
-                        const XrFovf &sf = decoded_all[e] ? decoded_all[e]->server_fov[e] : XrFovf{};
+                        const XrFovf &sf = render_frames[e] ? render_frames[e]->server_fov[e] : XrFovf{};
                         constexpr float rad2deg = 180.0f / 3.14159265358979f;
                         float client_h_fov = (cf.angleRight - cf.angleLeft) * rad2deg;
                         float client_v_fov = (cf.angleUp - cf.angleDown) * rad2deg;
@@ -1104,8 +1106,8 @@ static void render_frame(AppState* app) {
         sc_rel_ms += ts_diff(tc, te) * 1000.0f;
 
         layerViews[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
-        if (app->stream.streaming.load() && pose_frame && pose_frame->valid)
-            layerViews[eye].pose = pose_frame->server_pose[eye];
+        if (app->stream.streaming.load() && render_frames[eye] && render_frames[eye]->valid)
+            layerViews[eye].pose = render_frames[eye]->server_pose[eye];
         else
             layerViews[eye].pose = views[eye].pose;
         layerViews[eye].fov = app->stream.eye_fov[eye];

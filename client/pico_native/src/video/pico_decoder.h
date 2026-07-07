@@ -24,6 +24,8 @@ struct pico_decoded_frame
 	uint64_t frame_index = 0;
 	bool valid = false;
 
+	XrTime display_time = 0;
+
 	int64_t t_pushed_to_decoder_ns = 0;
 	int64_t t_dequeued_output_ns = 0;
 	int64_t t_image_available_ns = 0;
