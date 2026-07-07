@@ -899,6 +899,7 @@ static void render_frame(AppState* app) {
 
     struct timespec tfl0, tfl1;
     clock_gettime(CLOCK_MONOTONIC, &tfl0);
+    if (!app->stream.streaming.load())
     {
         JNIEnv * env = nullptr;
         bool attached = false;
@@ -921,9 +922,9 @@ static void render_frame(AppState* app) {
 
     float sc_wait_ms = 0, gl_draw_ms = 0, sc_rel_ms = 0;
 
-    // Sync both eyes to the same server frame index.
-    // Hold back the newer stream until the slower stream catches up.
-    // This eliminates the right-eye jitter caused by stream 1 being 1 frame behind.
+    // Select frames from the rolling buffer using display-time matching.
+    // Finds a common frame index across both eye streams, preferring the frame
+    // whose display_time is closest to the predicted display time.
     static std::shared_ptr<pico_decoded_frame> render_frames[3];
     static uint64_t render_sync_fi = 0;
 
@@ -931,21 +932,65 @@ static void render_frame(AppState* app) {
     if (app->stream.streaming.load())
     {
         std::lock_guard lock(app->stream.decoded_frame_mutex);
-        auto &f0 = app->stream.latest_decoded_frames[0];
-        auto &f1 = app->stream.latest_decoded_frames[1];
+        auto &buf0 = app->stream.decoded_frame_buffers[0];
+        auto &buf1 = app->stream.decoded_frame_buffers[1];
+
+        auto f0 = app->stream.get_latest_frame(0);
+        auto f1 = app->stream.get_latest_frame(1);
 
         if (f0 && f0->valid && f1 && f1->valid)
         {
-            uint64_t min_fi = std::min(f0->frame_index, f1->frame_index);
-            if (min_fi > render_sync_fi)
+            // Find common frame indices across both streams
+            // Collect available frame indices from each stream
+            std::vector<uint64_t> fi0, fi1;
+            for (auto &s : buf0) if (s && s->valid) fi0.push_back(s->frame_index);
+            for (auto &s : buf1) if (s && s->valid) fi1.push_back(s->frame_index);
+
+            // Find common indices
+            std::vector<uint64_t> common;
+            for (uint64_t fi : fi0)
             {
-                if (f0->frame_index == min_fi)
-                    render_frames[0] = f0;
-                if (f1->frame_index == min_fi)
-                    render_frames[1] = f1;
-                render_sync_fi = min_fi;
+                for (uint64_t fj : fi1)
+                {
+                    if (fi == fj) common.push_back(fi);
+                }
             }
-            // Use the newer frame for poses (it has the most recent head pose)
+
+            if (!common.empty())
+            {
+                // Pick the common frame with display_time closest to predictedDisplayTime
+                uint64_t best_fi = common[0];
+                XrTime best_diff = std::numeric_limits<XrTime>::max();
+
+                for (uint64_t fi : common)
+                {
+                    // Find the frame in buf0 with this index to get display_time
+                    std::shared_ptr<pico_decoded_frame> frame0, frame1;
+                    for (auto &s : buf0) if (s && s->frame_index == fi) { frame0 = s; break; }
+                    for (auto &s : buf1) if (s && s->frame_index == fi) { frame1 = s; break; }
+
+                    XrTime dt0 = frame0 ? frame0->display_time : 0;
+                    XrTime dt1 = frame1 ? frame1->display_time : 0;
+                    XrTime avg_dt = (dt0 + dt1) / 2;
+                    XrTime diff = avg_dt > fs.predictedDisplayTime
+                        ? avg_dt - fs.predictedDisplayTime
+                        : fs.predictedDisplayTime - avg_dt;
+
+                    if (diff < best_diff)
+                    {
+                        best_diff = diff;
+                        best_fi = fi;
+                    }
+                }
+
+                if (best_fi > render_sync_fi)
+                {
+                    for (auto &s : buf0) if (s && s->frame_index == best_fi) { render_frames[0] = s; break; }
+                    for (auto &s : buf1) if (s && s->frame_index == best_fi) { render_frames[1] = s; break; }
+                    render_sync_fi = best_fi;
+                }
+            }
+            // Use the newer frame for poses
             pose_frame = (f0->frame_index >= f1->frame_index) ? f0 : f1;
         }
         else if (f0 && f0->valid)
@@ -1015,8 +1060,8 @@ static void render_frame(AppState* app) {
                 std::shared_ptr<pico_decoded_frame> decoded_all[3];
                 {
                     std::lock_guard lock(app->stream.decoded_frame_mutex);
-                    decoded_all[0] = app->stream.latest_decoded_frames[0];
-                    decoded_all[1] = app->stream.latest_decoded_frames[1];
+                    decoded_all[0] = app->stream.get_latest_frame(0);
+                    decoded_all[1] = app->stream.get_latest_frame(1);
                 }
 
                 static int sync_log_count = 0;

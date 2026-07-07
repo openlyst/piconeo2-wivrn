@@ -9,13 +9,22 @@
 #include <GLES3/gl3.h>
 #include <android/hardware_buffer.h>
 
+#include <unordered_map>
+
 class oxr_blit
 {
+	struct HbHash { size_t operator()(AHardwareBuffer * h) const { return std::hash<void*>()(h); } };
+
 	EGLDisplay dpy = EGL_NO_DISPLAY;
 	GLuint eye_textures[3]{0, 0, 0};
-	EGLImageKHR eye_egl_images[3]{EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR};
-	EGLImageKHR eye_prev_egl_images[3]{EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR};
-	AHardwareBuffer * last_hb[3]{nullptr, nullptr, nullptr};
+
+	struct EGLImageCacheEntry {
+		EGLImageKHR img = EGL_NO_IMAGE_KHR;
+		int ref_count = 0;
+	};
+	std::unordered_map<AHardwareBuffer*, EGLImageCacheEntry, HbHash> egl_image_cache;
+
+	AHardwareBuffer * current_hb[3]{nullptr, nullptr, nullptr};
 	GLuint fbo = 0;
 	bool initialized = false;
 
