@@ -266,8 +266,6 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeDisconnectServer(JNIEnv * env, jobj
     if (!g_app) return;
     LOGI("nativeDisconnectServer");
     g_app->stream.shutdown = true;
-    if (g_app->stream.session)
-        g_app->stream.session.reset();
 }
 
 JNIEXPORT void JNICALL
