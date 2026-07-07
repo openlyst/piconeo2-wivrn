@@ -2,6 +2,7 @@ package org.meumeu.wivrn.oxr;
 
 import android.app.NativeActivity;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.util.Log;
 
@@ -89,6 +90,9 @@ public class StreamingActivity extends NativeActivity {
             return;
         }
         Log.i(TAG, "Connecting to " + mHost + ":" + mPort + " tcp=" + mTcpOnly);
+        SharedPreferences sp = getSharedPreferences("wivrn_settings", MODE_PRIVATE);
+        int ipdMm = sp.getInt("ipd_mm", 64);
+        nativeSetIpd(ipdMm);
         nativeConnectServer(mHost, mPort, mTcpOnly);
         if (mPin != null && !mPin.isEmpty()) {
             nativeSetPin(mPin);
@@ -244,5 +248,6 @@ public class StreamingActivity extends NativeActivity {
     public native void nativeConnectServer(String host, int port, boolean tcpOnly);
     public native void nativeDisconnectServer();
     public native void nativeSetPin(String pin);
+    public native void nativeSetIpd(int ipdMm);
     public native boolean nativeReady();
 }

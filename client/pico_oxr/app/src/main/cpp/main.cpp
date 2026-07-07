@@ -240,6 +240,15 @@ Java_org_meumeu_wivrn_oxr_StreamingActivity_nativeSetPin(JNIEnv * env, jobject t
     env->ReleaseStringUTFChars(pin, p);
 }
 
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_oxr_StreamingActivity_nativeSetIpd(JNIEnv * env, jobject thiz, jint ipdMm)
+{
+    if (!g_app) return;
+    float ipd_m = ipdMm * 0.001f;
+    g_app->stream.tracker.soft_ipd.store(ipd_m);
+    LOGI("Software IPD set to %d mm (%.4f m)", ipdMm, ipd_m);
+}
+
 JNIEXPORT jboolean JNICALL
 Java_org_meumeu_wivrn_oxr_StreamingActivity_nativeReady(JNIEnv * env, jobject thiz)
 {
