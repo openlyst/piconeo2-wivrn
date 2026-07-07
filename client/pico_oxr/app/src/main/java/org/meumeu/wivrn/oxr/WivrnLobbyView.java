@@ -1570,9 +1570,31 @@ public class WivrnLobbyView {
 
     private void renderTouchCursor() {
         if (touchX >= 0 && touchY >= 0) {
-            Paint cursorPaint = new Paint();
-            cursorPaint.setColor(touchDown ? Color.argb(180, 80, 160, 240) : Color.argb(100, 200, 200, 200));
-            canvas.drawCircle(touchX, touchY, touchDown ? 20 : 15, cursorPaint);
+            int baseAlpha = touchDown ? 220 : 140;
+            int color = touchDown ? Color.argb(baseAlpha, 80, 160, 240) : Color.argb(baseAlpha, 255, 255, 255);
+
+            Paint ringPaint = new Paint();
+            ringPaint.setColor(color);
+            ringPaint.setAntiAlias(true);
+            ringPaint.setStyle(Paint.Style.STROKE);
+            ringPaint.setStrokeWidth(3);
+            canvas.drawCircle(touchX, touchY, touchDown ? 24 : 18, ringPaint);
+
+            Paint linePaint = new Paint();
+            linePaint.setColor(color);
+            linePaint.setAntiAlias(true);
+            linePaint.setStrokeWidth(2);
+            float gap = 6;
+            float len = 14;
+            canvas.drawLine(touchX - gap - len, touchY, touchX - gap, touchY, linePaint);
+            canvas.drawLine(touchX + gap, touchY, touchX + gap + len, touchY, linePaint);
+            canvas.drawLine(touchX, touchY - gap - len, touchX, touchY - gap, linePaint);
+            canvas.drawLine(touchX, touchY + gap, touchX, touchY + gap + len, linePaint);
+
+            Paint dotPaint = new Paint();
+            dotPaint.setColor(color);
+            dotPaint.setAntiAlias(true);
+            canvas.drawCircle(touchX, touchY, 3, dotPaint);
         }
     }
 
@@ -1590,6 +1612,12 @@ public class WivrnLobbyView {
         touchY = y;
         touchDown = down;
         touchPressed = pressed;
+
+        android.util.Log.i("WiVRn-Lobby", "handleTouch x=" + x + " y=" + y + " down=" + down + " pressed=" + pressed + " state=" + connectionState);
+
+        if (pressed) {
+            android.util.Log.i("WiVRn-Lobby", "CLICK DISPATCH x=" + x + " y=" + y + " state=" + connectionState + " tab=" + currentTab);
+        }
 
         if (connectionState == STATE_CONNECTED && streamTab == STREAM_TAB_LAUNCH) {
             if (down && prevDown && y != prevY) {
