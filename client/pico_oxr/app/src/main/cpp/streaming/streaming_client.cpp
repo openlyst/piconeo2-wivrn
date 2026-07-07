@@ -665,17 +665,31 @@ void streaming_client::send_headset_info()
 
 void streaming_client::try_connect()
 {
-	if (server_host.empty() || shutdown)
+	if (server_host.empty())
+	{
+		spdlog::warn("try_connect: server_host is empty");
+		notify_connection_state(3, "No server address set");
 		return;
+	}
 
 	std::lock_guard lock(connect_mutex);
 	if (connect_thread.joinable())
 	{
 		if (session)
-			return;
-		shutdown = true;
-		connect_thread.join();
-		shutdown = false;
+		{
+			spdlog::info("try_connect: already connected, disconnecting first");
+			shutdown = true;
+			connect_thread.join();
+			session.reset();
+			shutdown = false;
+		}
+		else
+		{
+			spdlog::info("try_connect: stopping previous connection attempt");
+			shutdown = true;
+			connect_thread.join();
+			shutdown = false;
+		}
 	}
 
 	connect_thread = std::thread([this] {
