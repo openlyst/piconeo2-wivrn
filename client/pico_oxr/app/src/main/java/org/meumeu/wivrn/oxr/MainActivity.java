@@ -431,6 +431,10 @@ public class MainActivity extends NativeActivity {
 
     public void onPinCancelled() {
         Log.d(TAG, "PIN entry cancelled");
+        nativeDisconnectServer();
+        if (lobbyView != null) {
+            lobbyView.setConnectionState(WivrnLobbyView.STATE_IDLE, "");
+        }
     }
 
     public void onDisconnectRequested() {
