@@ -470,6 +470,10 @@ void pico_lobby::draw_quad(const float head_orient[4], const float head_pos[3],
 
 	Mat4 mvp = mat4_mul(vp, model);
 
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LEQUAL);
+	glDepthMask(GL_TRUE);
+
 	glUseProgram(tex_program);
 	glUniformMatrix4fv(tex_mvp_uniform, 1, GL_FALSE, mvp.m);
 	glUniform1i(tex_sampler_uniform, 0);
@@ -581,7 +585,22 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 		neo2::rotate_vector(cq, dir, ray_dir);
 
 		float u, v;
-		if (ray_plane_intersect(origin, ray_dir, panel_pos, normal, u_axis, v_axis, half_w, half_h, u, v))
+		bool hit = ray_plane_intersect(origin, ray_dir, panel_pos, normal, u_axis, v_axis, half_w, half_h, u, v);
+		
+		static int interact_log_count = 0;
+		if (interact_log_count++ % 60 == 0)
+		{
+			float denom = ray_dir[0]*normal[0] + ray_dir[1]*normal[1] + ray_dir[2]*normal[2];
+			float to_center[3] = {panel_pos[0]-origin[0], panel_pos[1]-origin[1], panel_pos[2]-origin[2]};
+			float t = (to_center[0]*normal[0] + to_center[1]*normal[1] + to_center[2]*normal[2]) / denom;
+			float hitpt[3] = {origin[0]+ray_dir[0]*t, origin[1]+ray_dir[1]*t, origin[2]+ray_dir[2]*t};
+			LOGI("INTERACT h=%d origin=(%.2f,%.2f,%.2f) dir=(%.2f,%.2f,%.2f) t=%.2f hitpt=(%.2f,%.2f,%.2f) panel=(%.2f,%.2f,%.2f) half_w=%.2f half_h=%.2f hit=%d",
+			     h, origin[0], origin[1], origin[2], ray_dir[0], ray_dir[1], ray_dir[2],
+			     t, hitpt[0], hitpt[1], hitpt[2],
+			     panel_pos[0], panel_pos[1], panel_pos[2], half_w, half_h, (int)hit);
+		}
+
+		if (hit)
 		{
 			last_hit[h].valid = true;
 			last_hit[h].u = u;
