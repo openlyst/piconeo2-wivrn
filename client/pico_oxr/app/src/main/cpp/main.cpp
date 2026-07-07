@@ -923,10 +923,11 @@ static void render_frame(AppState* app) {
     float sc_wait_ms = 0, gl_draw_ms = 0, sc_rel_ms = 0;
 
     static std::shared_ptr<pico_decoded_frame> render_frames[3];
+    static bool was_streaming = false;
 
-    std::shared_ptr<pico_decoded_frame> pose_frame;
     if (app->stream.streaming.load())
     {
+        was_streaming = true;
         std::lock_guard lock(app->stream.decoded_frame_mutex);
         for (auto & s : app->stream.decoded_frame_buffers[0])
             if (s && s->valid && (!render_frames[0] || s->frame_index > render_frames[0]->frame_index))
@@ -934,7 +935,13 @@ static void render_frame(AppState* app) {
         for (auto & s : app->stream.decoded_frame_buffers[1])
             if (s && s->valid && (!render_frames[1] || s->frame_index > render_frames[1]->frame_index))
                 render_frames[1] = s;
-        pose_frame = render_frames[0];
+    }
+    else if (was_streaming)
+    {
+        render_frames[0].reset();
+        render_frames[1].reset();
+        render_frames[2].reset();
+        was_streaming = false;
     }
 
     for (uint32_t eye = 0; eye < NUM_EYES; eye++) {
@@ -1038,8 +1045,8 @@ static void render_frame(AppState* app) {
         sc_rel_ms += ts_diff(tc, te) * 1000.0f;
 
         layerViews[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
-        if (app->stream.streaming.load() && pose_frame && pose_frame->valid)
-            layerViews[eye].pose = pose_frame->server_pose[eye];
+        if (app->stream.streaming.load() && render_frames[eye] && render_frames[eye]->valid)
+            layerViews[eye].pose = render_frames[eye]->server_pose[eye];
         else
             layerViews[eye].pose = views[eye].pose;
         layerViews[eye].fov = app->stream.eye_fov[eye];
