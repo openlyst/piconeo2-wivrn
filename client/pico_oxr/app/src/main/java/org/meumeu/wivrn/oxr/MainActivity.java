@@ -426,7 +426,7 @@ public class MainActivity extends NativeActivity {
     }
 
     public void onServerConnect(String hostname, int port, boolean tcpOnly) {
-        Log.d(TAG, "Connect requested: " + hostname + ":" + port + " tcp=" + tcpOnly);
+        Log.i(TAG, "Connect requested: " + hostname + ":" + port + " tcp=" + tcpOnly);
         pendingHost = hostname;
         pendingPort = port;
         pendingTcpOnly = tcpOnly;

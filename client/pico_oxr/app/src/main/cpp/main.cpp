@@ -256,6 +256,7 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeConnectServer(JNIEnv * env, jobject
     g_app->stream.server_port = port;
     g_app->stream.tcp_only = tcpOnly;
     env->ReleaseStringUTFChars(host, h);
+    g_app->stream.shutdown = false;
     g_app->stream.try_connect();
 }
 
@@ -263,6 +264,7 @@ JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_oxr_MainActivity_nativeDisconnectServer(JNIEnv * env, jobject thiz)
 {
     if (!g_app) return;
+    LOGI("nativeDisconnectServer");
     g_app->stream.shutdown = true;
     if (g_app->stream.session)
         g_app->stream.session.reset();
