@@ -124,6 +124,9 @@ public class MainActivity extends NativeActivity {
             pendingTcpOnly = tcpOnly;
             pendingPin = pin;
             hasPendingConnection = true;
+            if (lobbyView != null) {
+                lobbyView.addOrUpdateServer(host, host, port, tcpOnly);
+            }
             flushPendingConnection();
         }
     }
@@ -158,6 +161,9 @@ public class MainActivity extends NativeActivity {
         }
         setupControllers();
         flushPendingConnection();
+        if (!hasPendingConnection && lobbyView != null) {
+            lobbyView.tryAutoconnect();
+        }
     }
 
     @Override
@@ -421,6 +427,9 @@ public class MainActivity extends NativeActivity {
 
     public void onServerConnect(String hostname, int port, boolean tcpOnly) {
         Log.d(TAG, "Connect requested: " + hostname + ":" + port + " tcp=" + tcpOnly);
+        pendingHost = hostname;
+        pendingPort = port;
+        pendingTcpOnly = tcpOnly;
         nativeConnectServer(hostname, port, tcpOnly);
     }
 
