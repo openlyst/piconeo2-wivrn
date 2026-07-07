@@ -250,6 +250,8 @@ pico_video_decoder::pico_video_decoder(
 
 	check(AMediaCodec_configure(media_codec, format, window, nullptr, 0), "AMediaCodec_configure");
 
+#if __ANDROID_API__ >= 28
+	use_async = true;
 	AMediaCodecOnAsyncNotifyCallback async_cb = {
 		.onAsyncInputAvailable = on_async_input_available,
 		.onAsyncOutputAvailable = on_async_output_available,
@@ -257,10 +259,17 @@ pico_video_decoder::pico_video_decoder(
 		.onAsyncError = on_async_error,
 	};
 	check(AMediaCodec_setAsyncNotifyCallback(media_codec, async_cb, this), "AMediaCodec_setAsyncNotifyCallback");
+#endif
 
 	check(AMediaCodec_start(media_codec), "AMediaCodec_start");
 
 	AMediaFormat_delete(format);
+
+	if (!use_async)
+	{
+		input_worker = std::thread([this]() { input_loop(); });
+		output_worker = std::thread([this]() { output_loop(); });
+	}
 }
 
 pico_video_decoder::~pico_video_decoder()
@@ -272,6 +281,90 @@ pico_video_decoder::~pico_video_decoder()
 	{
 		AMediaCodec_stop(media_codec);
 		AMediaCodec_delete(media_codec);
+	}
+
+	if (input_worker.joinable())
+		input_worker.join();
+	if (output_worker.joinable())
+		output_worker.join();
+}
+
+void pico_video_decoder::input_loop()
+{
+	while (!exiting)
+	{
+		pending_frame frame;
+		{
+			std::unique_lock lock(pending_mutex);
+			pending_cv.wait(lock, [&]() { return !pending_frames.empty() || exiting || flushing.load(); });
+			if (exiting)
+				return;
+			if (flushing.load())
+				continue;
+			frame = std::move(pending_frames.front());
+			pending_frames.erase(pending_frames.begin());
+		}
+
+		ssize_t in_idx = -1;
+		while (!exiting && !flushing.load() && in_idx < 0)
+			in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 5000);
+		if (exiting || flushing.load())
+			continue;
+
+		size_t buf_size;
+		uint8_t * buf = AMediaCodec_getInputBuffer(media_codec, in_idx, &buf_size);
+		if (!buf)
+		{
+			AMediaCodec_queueInputBuffer(media_codec, in_idx, 0, 0, 0, 0);
+			continue;
+		}
+
+		std::vector<uint8_t> frame_data = std::move(frame.data);
+		size_t copy_size = std::min(frame_data.size(), buf_size);
+		memcpy(buf, frame_data.data(), copy_size);
+
+		uint64_t timestamp = frame.frame_index * 10'000;
+		AMediaCodec_queueInputBuffer(media_codec, in_idx, 0, copy_size, timestamp, 0);
+	}
+}
+
+void pico_video_decoder::output_loop()
+{
+	while (!exiting)
+	{
+		if (flushing.load())
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(2));
+			continue;
+		}
+
+		AMediaCodecBufferInfo info;
+		ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(media_codec, &info, 5000);
+		if (out_idx >= 0)
+		{
+			int64_t dequeue_time = now_ns();
+			uint64_t ts_frame = (info.presentationTimeUs + 5'000) / 10'000;
+
+			{
+				std::lock_guard lock(frame_info_mutex);
+				for (auto & fi : pending_frame_infos)
+				{
+					if (fi.frame_index == ts_frame)
+					{
+						fi.t_dequeued_output_ns = dequeue_time;
+						break;
+					}
+				}
+			}
+
+			AMediaCodec_releaseOutputBuffer(media_codec, out_idx, true);
+		}
+		else if (out_idx == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED)
+		{
+			AMediaFormat * fmt = AMediaCodec_getOutputFormat(media_codec);
+			spdlog::warn("MediaCodec output format changed: {}", AMediaFormat_toString(fmt));
+			AMediaFormat_delete(fmt);
+		}
 	}
 }
 

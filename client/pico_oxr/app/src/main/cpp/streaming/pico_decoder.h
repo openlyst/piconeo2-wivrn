@@ -80,11 +80,17 @@ private:
 
 	std::atomic<bool> exiting = false;
 	std::atomic<bool> flushing = false;
+	std::thread input_worker;
+	std::thread output_worker;
+	bool use_async = false;
 
 	frame_callback on_frame_decoded;
 
 	void on_image_available(AImageReader * reader);
 	static void on_image_available_cb(void * ctx, AImageReader * reader);
+
+	void input_loop();
+	void output_loop();
 
 	static void on_async_input_available(AMediaCodec * codec, void * userdata, int32_t index);
 	static void on_async_output_available(AMediaCodec * codec, void * userdata, int32_t index, AMediaCodecBufferInfo * info);
