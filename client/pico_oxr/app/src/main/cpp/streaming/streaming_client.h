@@ -42,6 +42,9 @@ struct streaming_client
 	std::atomic<bool> streaming{false};
 	std::atomic<bool> stream_ui_visible{false};
 
+	std::atomic<int64_t> last_shard_ns{0};
+	std::atomic<int64_t> connected_ns{0};
+
 	uint64_t stats_bytes_rx = 0;
 	uint64_t stats_bytes_tx = 0;
 	int64_t stats_last_time = 0;
@@ -137,6 +140,7 @@ struct streaming_client
 	void try_connect();
 	void send_headset_info();
 	void network_loop();
+	void reset_stream_state();
 
 	void notify_connection_state(int state, const std::string & msg);
 	void notify_stream_stats(int fps, int latency_ms, float bandwidth_rx, float bandwidth_tx, int bitrate_mbps);
