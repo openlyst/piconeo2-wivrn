@@ -929,12 +929,52 @@ static void render_frame(AppState* app) {
     {
         was_streaming = true;
         std::lock_guard lock(app->stream.decoded_frame_mutex);
-        for (auto & s : app->stream.decoded_frame_buffers[0])
-            if (s && s->valid && (!render_frames[0] || s->frame_index > render_frames[0]->frame_index))
-                render_frames[0] = s;
-        for (auto & s : app->stream.decoded_frame_buffers[1])
-            if (s && s->valid && (!render_frames[1] || s->frame_index > render_frames[1]->frame_index))
-                render_frames[1] = s;
+
+        auto &buf0 = app->stream.decoded_frame_buffers[0];
+        auto &buf1 = app->stream.decoded_frame_buffers[1];
+
+        // Find common frame indices across both eye buffers
+        uint64_t best_common_idx = UINT64_MAX;
+        int64_t best_common_diff = INT64_MAX;
+
+        for (auto &s0 : buf0)
+        {
+            if (!s0 || !s0->valid) continue;
+            for (auto &s1 : buf1)
+            {
+                if (!s1 || !s1->valid) continue;
+                if (s0->frame_index == s1->frame_index)
+                {
+                    int64_t diff = (int64_t)(s0->display_time - fs.predictedDisplayTime);
+                    if (diff < 0) diff = -diff;
+                    if (diff < best_common_diff)
+                    {
+                        best_common_diff = diff;
+                        best_common_idx = s0->frame_index;
+                    }
+                }
+            }
+        }
+
+        if (best_common_idx != UINT64_MAX)
+        {
+            for (auto &s : buf0)
+                if (s && s->valid && s->frame_index == best_common_idx)
+                    render_frames[0] = s;
+            for (auto &s : buf1)
+                if (s && s->valid && s->frame_index == best_common_idx)
+                    render_frames[1] = s;
+        }
+        else
+        {
+            // No common frame — fall back to latest per eye
+            for (auto &s : buf0)
+                if (s && s->valid && (!render_frames[0] || s->frame_index > render_frames[0]->frame_index))
+                    render_frames[0] = s;
+            for (auto &s : buf1)
+                if (s && s->valid && (!render_frames[1] || s->frame_index > render_frames[1]->frame_index))
+                    render_frames[1] = s;
+        }
     }
     else if (was_streaming)
     {
