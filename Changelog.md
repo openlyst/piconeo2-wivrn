@@ -13,6 +13,7 @@
  - Adds WiVRn icon
  - Fix close button not working in the lobby for pairing 
  - Servers are now remembered after pairing with autoconnect support
+ - Adds support for boundrys
  
 # RC3
 
