@@ -1076,7 +1076,7 @@ static void render_frame(AppState* app) {
                 g_stutter.log_summary();
 
                 static int fov_cmp_count = 0;
-                if (fov_cmp_count++ % 120 == 0 && render_frames[0] && render_frames[0]->valid)
+                if (fov_cmp_count++ % 30 == 0 && render_frames[0] && render_frames[0]->valid)
                 {
                     for (int e = 0; e < 2; e++)
                     {
@@ -1089,10 +1089,13 @@ static void render_frame(AppState* app) {
                         float server_v_fov = (sf.angleUp - sf.angleDown) * rad2deg;
                         float h_ratio = (server_h_fov > 0.001f) ? client_h_fov / server_h_fov : 0;
                         float v_ratio = (server_v_fov > 0.001f) ? client_v_fov / server_v_fov : 0;
-                        LOGI("FOV_CMP eye=%d | client: H=%.1f V=%.1f deg | server: H=%.1f V=%.1f deg | ratio: H=%.2f V=%.2f%s",
+                        const XrPosef &sp = render_frames[e]->server_pose[e];
+                        LOGI("FOV_CMP eye=%d | client: H=%.1f V=%.1f deg | server: H=%.1f V=%.1f deg | ratio: H=%.2f V=%.2f%s | server_pose: q=(%.3f,%.3f,%.3f,%.3f) p=(%.3f,%.3f,%.3f)",
                              e, client_h_fov, client_v_fov, server_h_fov, server_v_fov,
                              h_ratio, v_ratio,
-                             (h_ratio < 0.95f || h_ratio > 1.05f) ? " [MISMATCH]" : "");
+                             (h_ratio < 0.95f || h_ratio > 1.05f) ? " [MISMATCH]" : "",
+                             sp.orientation.x, sp.orientation.y, sp.orientation.z, sp.orientation.w,
+                             sp.position.x, sp.position.y, sp.position.z);
                     }
                 }
             }
