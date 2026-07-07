@@ -3,7 +3,11 @@
 
 #include <spdlog/spdlog.h>
 #include <cstring>
+#include <cstdio>
 #include <chrono>
+#include <sched.h>
+#include <sys/resource.h>
+#include <unistd.h>
 
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
@@ -280,6 +284,23 @@ void pico_video_decoder::input_loop()
 	int nice = (stream_index == 1) ? -10 : -8;
 	pico_sched::pin_current_thread("decoder input", prio, nice);
 
+	// Log actual scheduling result
+	{
+		pid_t tid = gettid();
+		int cur_sched = sched_getscheduler(tid);
+		int cur_nice = getpriority(PRIO_PROCESS, tid);
+		cpu_set_t cur;
+		CPU_ZERO(&cur);
+		sched_getaffinity(tid, sizeof(cur), &cur);
+		char cores[64] = {};
+		int off = 0;
+		for (int c = 0; c < 8; c++)
+			if (CPU_ISSET(c, &cur))
+				off += snprintf(cores + off, sizeof(cores) - off, "%s%d", off ? "," : "", c);
+		spdlog::warn("SCHED_DIAG s={} input tid={} policy={} nice={} cores=[{}]",
+			stream_index, (int)tid, cur_sched, cur_nice, cores);
+	}
+
 	while (!exiting)
 	{
 		pending_frame frame;
@@ -295,8 +316,13 @@ void pico_video_decoder::input_loop()
 		}
 
 		ssize_t in_idx = -1;
+		int dequeue_retries = 0;
 		while (!exiting && !flushing.load() && in_idx < 0)
-			in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 1000);
+		{
+			in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 5000);
+			if (in_idx < 0)
+				dequeue_retries++;
+		}
 		if (exiting || flushing.load())
 			continue;
 
@@ -310,11 +336,6 @@ void pico_video_decoder::input_loop()
 
 		std::vector<uint8_t> frame_data = std::move(frame.data);
 
-		static int feed_count = 0;
-		if (++feed_count % 100 == 1)
-			spdlog::warn("Decoder stream {} feeding frame {} bytes={}",
-				stream_index, frame.frame_index, frame_data.size());
-
 		size_t copy_size = std::min(frame_data.size(), buf_size);
 		memcpy(buf, frame_data.data(), copy_size);
 
@@ -324,6 +345,14 @@ void pico_video_decoder::input_loop()
 			media_codec, in_idx, 0, copy_size, timestamp, 0);
 		if (status != AMEDIA_OK)
 			spdlog::error("AMediaCodec_queueInputBuffer: error {}", (int)status);
+
+	static int feed_count[2] = {0, 0};
+	if (++feed_count[stream_index] % 30 == 1 || feed_count[stream_index] <= 5)
+	{
+		spdlog::warn("DEC_LATENCY s={} frame={} | recv_to_queue={:.1f}ms dequeue_retries={}",
+			stream_index, frame.frame_index,
+			(queue_time - frame.t_received_ns) / 1e6f, dequeue_retries);
+	}
 	}
 }
 
@@ -332,6 +361,23 @@ void pico_video_decoder::output_loop()
 	int prio = (stream_index == 1) ? 3 : 2;
 	int nice = (stream_index == 1) ? -10 : -8;
 	pico_sched::pin_current_thread("decoder output", prio, nice);
+
+	// Log actual scheduling result
+	{
+		pid_t tid = gettid();
+		int cur_sched = sched_getscheduler(tid);
+		int cur_nice = getpriority(PRIO_PROCESS, tid);
+		cpu_set_t cur;
+		CPU_ZERO(&cur);
+		sched_getaffinity(tid, sizeof(cur), &cur);
+		char cores[64] = {};
+		int off = 0;
+		for (int c = 0; c < 8; c++)
+			if (CPU_ISSET(c, &cur))
+				off += snprintf(cores + off, sizeof(cores) - off, "%s%d", off ? "," : "", c);
+		spdlog::warn("SCHED_DIAG s={} output tid={} policy={} nice={} cores=[{}]",
+			stream_index, (int)tid, cur_sched, cur_nice, cores);
+	}
 
 	while (!exiting)
 	{
@@ -342,16 +388,13 @@ void pico_video_decoder::output_loop()
 		}
 
 		AMediaCodecBufferInfo info;
-		ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(media_codec, &info, 1000);
+		ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(media_codec, &info, 5000);
 		if (out_idx >= 0)
 		{
 			int64_t dequeue_time = now_ns();
-			static int out_count = 0;
-			if (++out_count % 100 == 1)
-				spdlog::warn("Decoder stream {} output buffer {} flags={} size={} ts={}",
-					stream_index, out_count, info.flags, info.size, info.presentationTimeUs);
-
 			uint64_t ts_frame = (info.presentationTimeUs + 5'000) / 10'000;
+
+			int64_t queue_time_for_frame = 0;
 			{
 				std::lock_guard lock(frame_info_mutex);
 				for (auto & fi : pending_frame_infos)
@@ -359,10 +402,20 @@ void pico_video_decoder::output_loop()
 					if (fi.frame_index == ts_frame)
 					{
 						fi.t_dequeued_output_ns = dequeue_time;
+						queue_time_for_frame = fi.t_pushed_to_decoder_ns;
 						break;
 					}
 				}
 			}
+
+		static int out_count[2] = {0, 0};
+		if (++out_count[stream_index] % 30 == 1 || out_count[stream_index] <= 5)
+		{
+			int64_t queue_to_dequeue = queue_time_for_frame ? (dequeue_time - queue_time_for_frame) : 0;
+			spdlog::warn("DEC_LATENCY s={} frame={} | queue_to_dequeue={:.1f}ms",
+				stream_index, ts_frame,
+				queue_to_dequeue / 1e6f);
+		}
 
 			auto status = AMediaCodec_releaseOutputBuffer(media_codec, out_idx, true);
 			if (status != AMEDIA_OK)
@@ -464,6 +517,12 @@ void pico_video_decoder::on_image_available_cb(void * ctx, AImageReader * reader
 void pico_video_decoder::on_image_available(AImageReader * reader)
 {
 	int64_t image_cb_time = now_ns();
+	pid_t cb_tid = gettid();
+
+	static int cb_count[2] = {0, 0};
+	if (++cb_count[stream_index] % 30 == 1 || cb_count[stream_index] <= 3)
+		spdlog::warn("SCHED_DIAG s={} image_cb tid={} count={}", stream_index, (int)cb_tid, cb_count[stream_index]);
+
 	AImage * tmp;
 	check(AImageReader_acquireNextImage(image_reader.get(), &tmp), "AImageReader_acquireNextImage");
 	std::shared_ptr<AImage> image(tmp, [](AImage * img) { AImage_delete(img); });
@@ -526,14 +585,16 @@ void pico_video_decoder::on_image_available(AImageReader * reader)
 		frame->foveation[i] = info.view_info.foveation[i];
 	}
 
-	static int decoded_count = 0;
-	if (++decoded_count % 100 == 1)
+	static int decoded_count[2] = {0, 0};
+	if (++decoded_count[stream_index] % 30 == 1 || decoded_count[stream_index] <= 5)
 	{
+		int64_t total_latency = image_cb_time - info.t_pushed_to_decoder_ns;
 		int64_t decode_latency = info.t_dequeued_output_ns - info.t_pushed_to_decoder_ns;
 		int64_t image_latency = image_cb_time - info.t_dequeued_output_ns;
-		spdlog::warn("Decoded frame {} available ({}x{}) stream {} decode={:.1f}ms image_cb={:.1f}ms",
-			frame_index, desc.width, desc.height, stream_index,
-			decode_latency / 1e6f, image_latency / 1e6f);
+		spdlog::warn("DEC_LATENCY s={} frame={} | TOTAL={:.1f}ms decode={:.1f}ms release_to_image={:.1f}ms ({}x{})",
+			stream_index, frame_index,
+			total_latency / 1e6f, decode_latency / 1e6f, image_latency / 1e6f,
+			desc.width, desc.height);
 	}
 
 	if (on_frame_decoded)

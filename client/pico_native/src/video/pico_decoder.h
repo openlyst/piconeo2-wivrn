@@ -59,6 +59,7 @@ private:
 	{
 		std::vector<uint8_t> data;
 		uint64_t frame_index = 0;
+		int64_t t_received_ns = 0;
 	};
 	std::mutex pending_mutex;
 	std::vector<pending_frame> pending_frames;
