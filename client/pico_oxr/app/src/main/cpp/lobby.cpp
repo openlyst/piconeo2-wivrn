@@ -421,7 +421,7 @@ void pico_lobby::draw_quad(const float head_orient[4], const float head_pos[3],
 	Mat4 vp = mat4_mul(proj, view);
 
 	Mat4 model = mat4_mul(mat4_translate(panel_pos[0], panel_pos[1], panel_pos[2]),
-	                      mat4_mul(mat4_rotate_y(panel_yaw), mat4_rotate_y(M_PI)));
+	                      mat4_rotate_y(panel_yaw));
 
 	Mat4 scale = mat4_scale(panel_w * 0.5f, panel_h * 0.5f, 1.0f);
 	model = mat4_mul(model, scale);
