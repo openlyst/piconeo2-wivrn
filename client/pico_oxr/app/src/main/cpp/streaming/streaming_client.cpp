@@ -291,6 +291,10 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 					head_pred = std::max(head_pred, s.prediction_ns);
 				}
 			}
+			if (head_pred == 0 && p.motions_to_photons > 0)
+				head_pred = p.motions_to_photons;
+			if (head_pred == 0)
+				head_pred = 30000000; // 30ms default prediction
 			tracker.set_prediction_ns(head_pred);
 			spdlog::info("Head prediction: {}ns", head_pred);
 		}

@@ -127,7 +127,9 @@ private:
 	std::atomic<bool> recenter_requested{false};
 
 	float ctrl_lin_vel[2][3]{{0, 0, 0}, {0, 0, 0}};
+	float ctrl_ang_vel[2][3]{{0, 0, 0}, {0, 0, 0}};
 	float ctrl_prev_pos[2][3]{{0, 0, 0}, {0, 0, 0}};
+	neo2::quat ctrl_prev_orient[2]{{0, 0, 0, 1}, {0, 0, 0, 1}};
 	uint64_t ctrl_prev_ts[2]{0, 0};
 	bool ctrl_filter_init[2]{false, false};
 
@@ -139,7 +141,7 @@ private:
 	input_state prev_inputs[2][10];
 
 	void step_head_filter(const float pos[3], const neo2::quat & orient, uint64_t ts);
-	void step_ctrl_filter(int hand, const float pos_m[3], uint64_t ts);
+	void step_ctrl_filter(int hand, const float pos_m[3], const neo2::quat & orient, uint64_t ts);
 
 	void run();
 	void transmit_tracking(int64_t headset_ns);

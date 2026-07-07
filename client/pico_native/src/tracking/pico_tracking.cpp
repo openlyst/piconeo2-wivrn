@@ -13,7 +13,7 @@ namespace
 {
 
 constexpr long k_period_ns = 1000000000L / 300;
-constexpr int k_uplink_div = 4;
+constexpr int k_uplink_div = 2;
 
 constexpr float k_yaw_offset_deg = 35.0f;
 constexpr float k_rot_offset_x_deg = 10.0f;
@@ -23,8 +23,8 @@ constexpr float k_grip_up_mm = 12.5f;
 constexpr float k_grip_back_mm = 40.0f;
 constexpr float k_rot_swing = 1.0f;
 
-constexpr float k_head_vel_tau = 0.66f;
-constexpr float k_ctrl_vel_tau = 0.05f;
+constexpr float k_head_vel_tau = 0.02f;
+constexpr float k_ctrl_vel_tau = 0.02f;
 
 neo2::quat apply_controller_orientation(const float raw_orient[4], int hand)
 {
@@ -260,7 +260,7 @@ void pico_native_tracker::step_head_filter(const float pos[3], const neo2::quat 
 	head_filter_init = true;
 }
 
-void pico_native_tracker::step_ctrl_filter(int hand, const float pos_m[3], uint64_t ts)
+void pico_native_tracker::step_ctrl_filter(int hand, const float pos_m[3], const neo2::quat & orient, uint64_t ts)
 {
 	if (ctrl_filter_init[hand])
 	{
@@ -274,11 +274,32 @@ void pico_native_tracker::step_ctrl_filter(int hand, const float pos_m[3], uint6
 			ctrl_lin_vel[hand][0] += (lvx - ctrl_lin_vel[hand][0]) * alpha;
 			ctrl_lin_vel[hand][1] += (lvy - ctrl_lin_vel[hand][1]) * alpha;
 			ctrl_lin_vel[hand][2] += (lvz - ctrl_lin_vel[hand][2]) * alpha;
+
+			neo2::quat delta = neo2::normalize_quat(
+				neo2::multiply_quat(orient, neo2::conjugate_quat(ctrl_prev_orient[hand])));
+			if (delta.w < 0)
+			{
+				delta.x = -delta.x; delta.y = -delta.y;
+				delta.z = -delta.z; delta.w = -delta.w;
+			}
+			float w = delta.w > 1.0f ? 1.0f : delta.w;
+			float angle = 2.0f * std::acos(w);
+			float s = std::sqrt(1.0f - w * w);
+			float avx = 0, avy = 0, avz = 0;
+			if (s > 1e-6f)
+			{
+				float k = (angle / s) / (float)dt;
+				avx = delta.x * k; avy = delta.y * k; avz = delta.z * k;
+			}
+			ctrl_ang_vel[hand][0] += (avx - ctrl_ang_vel[hand][0]) * alpha;
+			ctrl_ang_vel[hand][1] += (avy - ctrl_ang_vel[hand][1]) * alpha;
+			ctrl_ang_vel[hand][2] += (avz - ctrl_ang_vel[hand][2]) * alpha;
 		}
 	}
 	ctrl_prev_pos[hand][0] = pos_m[0];
 	ctrl_prev_pos[hand][1] = pos_m[1];
 	ctrl_prev_pos[hand][2] = pos_m[2];
+	ctrl_prev_orient[hand] = orient;
 	ctrl_prev_ts[hand] = ts;
 	ctrl_filter_init[hand] = true;
 }
@@ -406,7 +427,7 @@ void pico_native_tracker::run()
 				cs[h].position[1] * 0.001f + grip_world[1],
 				cs[h].position[2] * 0.001f + grip_world[2],
 			};
-			step_ctrl_filter(h, pos_m, ts);
+			step_ctrl_filter(h, pos_m, cq, ts);
 		}
 
 		bool do_uplink = (frame_counter % k_uplink_div) == 0;
@@ -528,12 +549,22 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 		uint8_t pose_flags = from_headset::tracking::orientation_valid |
 		                     from_headset::tracking::position_valid |
 		                     from_headset::tracking::orientation_tracked |
-		                     from_headset::tracking::position_tracked;
+		                     from_headset::tracking::position_tracked |
+		                     from_headset::tracking::linear_velocity_valid |
+		                     from_headset::tracking::angular_velocity_valid;
 
 		from_headset::tracking::pose grip_p{};
 		grip_p.pose = ctrl_pose;
 		grip_p.device = is_left ? device_id::LEFT_GRIP : device_id::RIGHT_GRIP;
 		grip_p.flags = pose_flags;
+		grip_p.linear_velocity = {
+			ctrl_lin_vel[h][0],
+			ctrl_lin_vel[h][1],
+			ctrl_lin_vel[h][2]};
+		grip_p.angular_velocity = {
+			ctrl_ang_vel[h][0],
+			ctrl_ang_vel[h][1],
+			ctrl_ang_vel[h][2]};
 		pkt.device_poses.push_back(grip_p);
 
 		from_headset::tracking::pose aim_p{};
@@ -545,6 +576,8 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 		};
 		aim_p.device = is_left ? device_id::LEFT_AIM : device_id::RIGHT_AIM;
 		aim_p.flags = pose_flags;
+		aim_p.linear_velocity = grip_p.linear_velocity;
+		aim_p.angular_velocity = grip_p.angular_velocity;
 		pkt.device_poses.push_back(aim_p);
 	}
 
