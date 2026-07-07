@@ -1121,7 +1121,10 @@ static void render_frame(AppState* app) {
             layerViews[eye].pose = render_frames[eye]->server_pose[eye];
         else
             layerViews[eye].pose = views[eye].pose;
-        layerViews[eye].fov = app->stream.eye_fov[eye];
+        if (app->stream.streaming.load() && render_frames[eye] && render_frames[eye]->valid)
+            layerViews[eye].fov = render_frames[eye]->server_fov[eye];
+        else
+            layerViews[eye].fov = app->stream.eye_fov[eye];
         layerViews[eye].subImage.swapchain = app->swapchains[eye].handle;
         layerViews[eye].subImage.imageRect.offset = {0, 0};
         layerViews[eye].subImage.imageRect.extent = {w, h};
