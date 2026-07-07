@@ -501,6 +501,7 @@ static bool openxr_init(struct android_app* androidApp, AppState* app) {
 
     bool hasGLES = false, hasAndroidCI = false;
     bool hasPicoConfigs = false, hasPicoSessionBegin = false, hasPicoResetSensor = false, hasPicoBoundary = false;
+    bool hasPicoViewState = false, hasPicoFrameEndInfo = false;
     for (const auto& e : exts) {
         LOGI("Extension: %s", e.extensionName);
         if (strcmp(e.extensionName, XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME) == 0)
@@ -515,6 +516,10 @@ static bool openxr_init(struct android_app* androidApp, AppState* app) {
             hasPicoResetSensor = true;
         if (strcmp(e.extensionName, XR_PICO_BOUNDARY_EXT_EXTENSION_NAME) == 0)
             hasPicoBoundary = true;
+        if (strcmp(e.extensionName, XR_PICO_VIEW_STATE_EXT_ENABLE_EXTENSION_NAME) == 0)
+            hasPicoViewState = true;
+        if (strcmp(e.extensionName, XR_PICO_FRAME_END_INFO_EXT_EXTENSION_NAME) == 0)
+            hasPicoFrameEndInfo = true;
     }
     if (!hasGLES) {
         LOGE("XR_KHR_opengl_es_enable not supported");
@@ -533,6 +538,10 @@ static bool openxr_init(struct android_app* androidApp, AppState* app) {
         enabledExtsVec.push_back(XR_PICO_RESET_SENSOR_EXTENSION_NAME);
     if (hasPicoBoundary)
         enabledExtsVec.push_back(XR_PICO_BOUNDARY_EXT_EXTENSION_NAME);
+    if (hasPicoViewState)
+        enabledExtsVec.push_back(XR_PICO_VIEW_STATE_EXT_ENABLE_EXTENSION_NAME);
+    if (hasPicoFrameEndInfo)
+        enabledExtsVec.push_back(XR_PICO_FRAME_END_INFO_EXT_EXTENSION_NAME);
 
     XrInstanceCreateInfoAndroidKHR androidCI = {};
     androidCI.type = XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR;
@@ -646,14 +655,8 @@ static bool openxr_create_session(AppState* app) {
     if (g_pfnXrInvokeFunctionsPICO) {
         void* dummy_in = nullptr;
         void* dummy_out = nullptr;
-        XrResult br;
-        br = g_pfnXrInvokeFunctionsPICO(app->session, XR_DISABLE_BOUNDARY, dummy_in, 0, &dummy_out, 0);
-        LOGI("XR_DISABLE_BOUNDARY result: %d", br);
-        br = g_pfnXrInvokeFunctionsPICO(app->session, XR_SHUTDOWN_SDK_GUARDIANSYSTEM, dummy_in, 0, &dummy_out, 0);
-        LOGI("XR_SHUTDOWN_SDK_GUARDIANSYSTEM result: %d", br);
-        if (br == XR_SUCCESS) {
-            LOGI("Boundary disabled");
-        }
+        XrResult br = g_pfnXrInvokeFunctionsPICO(app->session, XR_START_SDK_BOUNDARY, dummy_in, 0, &dummy_out, 0);
+        LOGI("XR_START_SDK_BOUNDARY result: %d", br);
     }
 
     if (g_pfnXrGetConfigPICO) {
@@ -862,6 +865,10 @@ static void render_frame(AppState* app) {
 
     XrViewState vstate = {};
     vstate.type = XR_TYPE_VIEW_STATE;
+
+    XrViewStatePICOEXT vsPico = {};
+    vsPico.type = XR_TYPE_VIEW_STATE;
+    vstate.next = &vsPico;
 
     XrViewLocateInfo vli = {};
     vli.type = XR_TYPE_VIEW_LOCATE_INFO;
@@ -1336,8 +1343,14 @@ static void render_frame(AppState* app) {
         reinterpret_cast<XrCompositionLayerBaseHeader*>(&layers[0])
     };
 
+    XrFrameEndInfoEXT fePico = {};
+    fePico.type = XR_TYPE_FRAME_END_INFO;
+    fePico.useHeadposeExt = 1;
+    fePico.gsIndex = vsPico.gsIndex;
+
     XrFrameEndInfo fe = {};
     fe.type = XR_TYPE_FRAME_END_INFO;
+    fe.next = &fePico;
     fe.displayTime = fs.predictedDisplayTime;
     fe.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
     fe.layerCount = 1;
