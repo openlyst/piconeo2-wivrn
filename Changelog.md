@@ -6,12 +6,10 @@
  - Fix foveation causing apps to render upside down (sorry aus)
  - Fix overlay applications not being usable
  - Doubles tracking frequency to 300Hz
- - Removes lobby and replaces it with a 2d one.
- - Removes pointer from UI 
  - Remove AV1
  - Adds the abilty to change software IPD
  - Fixed sliders in settings
- - Streams at native 2048x2160 resolution 
+ - Streams at native 2048x2160 resolution
  - Resualtion slider is now based on res's not %'s
 
 # RC3
