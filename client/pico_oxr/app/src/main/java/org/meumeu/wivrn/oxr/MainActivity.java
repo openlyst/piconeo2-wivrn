@@ -393,14 +393,6 @@ public class MainActivity extends NativeActivity {
         if (lobbyView != null) {
             lobbyView.setConnectionState(state, message);
         }
-        if (state == WivrnLobbyView.STATE_CONNECTED && lobbyView != null) {
-            String host = pendingHost;
-            int port = pendingPort;
-            if (host != null && !host.isEmpty()) {
-                lobbyView.addOrUpdateServer(host, host, port, pendingTcpOnly);
-                lobbyView.setAutoconnect(host, port);
-            }
-        }
     }
 
     public void onApplicationList(String[] ids, String[] names) {
