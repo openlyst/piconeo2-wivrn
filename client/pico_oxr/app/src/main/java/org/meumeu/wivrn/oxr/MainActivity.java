@@ -372,7 +372,12 @@ public class MainActivity extends NativeActivity {
         if (lobbySurfaceTexture != null) { lobbySurfaceTexture.release(); lobbySurfaceTexture = null; }
     }
 
+    private static int touchLogCount = 0;
+
     public void onLobbyTouch(float x, float y, boolean down, boolean pressed, float thumbstickY) {
+        if (touchLogCount++ % 30 == 0 || pressed) {
+            Log.i(TAG, "onLobbyTouch x=" + x + " y=" + y + " down=" + down + " pressed=" + pressed + " thumb=" + thumbstickY);
+        }
         if (lobbyView != null) {
             lobbyView.handleTouch(x, y, down, pressed, thumbstickY);
         }

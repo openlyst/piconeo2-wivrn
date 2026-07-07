@@ -53,6 +53,15 @@ class pico_lobby
 	};
 	ray_hit last_hit[2];
 
+	bool debug_laser_hit = false;
+	int debug_hit_hand = -1;
+	float debug_hit_u = 0;
+	float debug_hit_v = 0;
+	float debug_touch_x = -1;
+	float debug_touch_y = -1;
+	bool debug_trigger_down = false;
+	int debug_frame_count = 0;
+
 	static constexpr float panel_w = 2.0f;
 	static constexpr float panel_h = 1.286f;
 

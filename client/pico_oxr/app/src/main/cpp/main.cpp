@@ -1186,7 +1186,12 @@ static void render_frame(AppState* app) {
                          (tx != prev_touch_x) ||
                          (ty != prev_touch_y);
 
-    if (state_changed || (hit_hand >= 0 && (tdown || tpressed))) {
+    if (hit_hand >= 0 || state_changed) {
+        static int jni_log_count = 0;
+        if (jni_log_count++ % 30 == 0 || tpressed) {
+            LOGI("JNI_TOUCH hit_hand=%d tx=%.1f ty=%.1f tdown=%d tpressed=%d tthumb=%.2f state_changed=%d",
+                 hit_hand, tx, ty, (int)tdown, (int)tpressed, tthumb, (int)state_changed);
+        }
         if (g_jvm && g_activity && g_onLobbyTouchMethod) {
             JNIEnv * env = nullptr;
             bool attached = false;
@@ -1196,9 +1201,14 @@ static void render_frame(AppState* app) {
             }
             if (env) {
                 env->CallVoidMethod(g_activity, g_onLobbyTouchMethod, tx, ty, tdown, tpressed, tthumb);
+            } else {
+                LOGE("JNI_TOUCH failed to get JNIEnv for callback");
             }
             if (attached)
                 g_jvm->DetachCurrentThread();
+        } else {
+            LOGE("JNI_TOUCH missing callback g_jvm=%p g_activity=%p g_onLobbyTouchMethod=%p",
+                 g_jvm, g_activity, g_onLobbyTouchMethod);
         }
     }
 
@@ -1363,13 +1373,23 @@ extern "C" void android_main(struct android_app* androidApp) {
 
     g_jvm = androidApp->activity->vm;
     JNIEnv * env = nullptr;
-    if (g_jvm->GetEnv((void**)&env, JNI_VERSION_1_6) == JNI_OK) {
+    bool attached = false;
+    if (g_jvm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (g_jvm->AttachCurrentThread(&env, nullptr) == JNI_OK)
+            attached = true;
+    }
+    if (env) {
         g_activity = env->NewGlobalRef(androidApp->activity->clazz);
         jclass clazz = env->GetObjectClass(g_activity);
         g_activityClass = (jclass)env->NewGlobalRef(clazz);
         g_onLobbyTouchMethod = env->GetMethodID(clazz, "onLobbyTouch", "(FFZZF)V");
+        LOGI("JNI refs: g_activity=%p g_onLobbyTouchMethod=%p", g_activity, g_onLobbyTouchMethod);
         env->DeleteLocalRef(clazz);
+    } else {
+        LOGE("Failed to get JNIEnv for JNI ref setup");
     }
+    if (attached)
+        g_jvm->DetachCurrentThread();
 
     if (!egl_init(&app)) {
         LOGE("EGL init failed");
