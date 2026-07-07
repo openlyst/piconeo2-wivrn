@@ -11,7 +11,8 @@
  - Remove AV1
  - Adds the abilty to change software IPD
  - Fixed sliders in settings
- - Stream at native 2048x2160 resolution with configurable resolution slider
+ - Streams at native 2048x2160 resolution 
+ - Resualtion slider is now based on res's not %'s
 
 # RC3
 
