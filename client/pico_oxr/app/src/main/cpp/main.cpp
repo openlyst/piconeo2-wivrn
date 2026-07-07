@@ -814,12 +814,20 @@ static void render_frame(AppState* app) {
         if (home_now && !prev_home[h])
         {
             home_press_ts[h] = now_ns;
+            LOGI("controller %d home button pressed", h);
+        }
+        else if (home_now && prev_home[h] && home_press_ts[h] > 0)
+        {
+            uint64_t held_ns = now_ns - home_press_ts[h];
+            if (held_ns > 500000000ULL && held_ns < 510000000ULL)
+                LOGI("controller %d home held for %llums, will recenter on release", h, held_ns / 1000000ULL);
         }
         else if (!home_now && prev_home[h])
         {
-            if (home_press_ts[h] > 0 && now_ns - home_press_ts[h] > 800000000ULL)
+            if (home_press_ts[h] > 0 && now_ns - home_press_ts[h] > 500000000ULL)
             {
-                LOGI("recenter triggered by controller %d home button long press", h);
+                uint64_t held_ns = now_ns - home_press_ts[h];
+                LOGI("recenter triggered by controller %d home button long press (%llums)", h, held_ns / 1000000ULL);
                 if (g_pfnXrResetSensorPICO && app->session)
                 {
                     XrResult rr = g_pfnXrResetSensorPICO(app->session, XR_RESET_ALL);
@@ -829,6 +837,7 @@ static void render_frame(AppState* app) {
                 {
                     xrDestroySpace(app->localSpace);
                     app->localSpace = XR_NULL_HANDLE;
+                    LOGI("old localSpace destroyed");
                 }
                 XrReferenceSpaceCreateInfo rsci = {};
                 rsci.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
@@ -841,6 +850,10 @@ static void render_frame(AppState* app) {
                 else
                     LOGI("Reference space recreated after recenter");
                 app->lobby.recenter();
+            }
+            else if (home_press_ts[h] > 0)
+            {
+                LOGI("controller %d home released too quickly (%llums), no recenter", h, (now_ns - home_press_ts[h]) / 1000000ULL);
             }
             home_press_ts[h] = 0;
         }
@@ -1123,10 +1136,56 @@ static void app_handle_cmd(struct android_app* app, int32_t cmd) {
     }
 }
 
+static struct timespec g_home_press_ts = {};
+static bool g_home_pressed = false;
+
+static void trigger_recenter(AppState* app) {
+    LOGI("recenter triggered by Pico home button");
+    if (g_pfnXrResetSensorPICO && app->session) {
+        XrResult rr = g_pfnXrResetSensorPICO(app->session, XR_RESET_ALL);
+        LOGI("xrResetSensorPICO result: %d", rr);
+    }
+    if (app->localSpace) {
+        xrDestroySpace(app->localSpace);
+        app->localSpace = XR_NULL_HANDLE;
+        LOGI("old localSpace destroyed");
+    }
+    XrReferenceSpaceCreateInfo rsci = {};
+    rsci.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
+    rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+    rsci.poseInReferenceSpace.orientation.w = 1.f;
+    rsci.poseInReferenceSpace.position.y = 0.f;
+    XrResult rr = xrCreateReferenceSpace(app->session, &rsci, &app->localSpace);
+    if (rr != XR_SUCCESS)
+        LOGE("xrCreateReferenceSpace after recenter failed: %d", rr);
+    else
+        LOGI("Reference space recreated after recenter");
+    app->lobby.recenter();
+}
+
 static int32_t on_input_event(struct android_app* app, AInputEvent* event) {
     int type = AInputEvent_getType(event);
     if (type == AINPUT_EVENT_TYPE_KEY) {
         int32_t code = AKeyEvent_getKeyCode(event);
+        int32_t action = AKeyEvent_getAction(event);
+        if (code == AKEYCODE_HOME) {
+            if (action == AKEY_EVENT_ACTION_DOWN && !g_home_pressed) {
+                clock_gettime(CLOCK_MONOTONIC, &g_home_press_ts);
+                g_home_pressed = true;
+                LOGI("Pico home button pressed, starting recenter timer");
+            } else if (action == AKEY_EVENT_ACTION_UP && g_home_pressed) {
+                struct timespec now;
+                clock_gettime(CLOCK_MONOTONIC, &now);
+                double held_ms = (now.tv_sec - g_home_press_ts.tv_sec) * 1000.0
+                               + (now.tv_nsec - g_home_press_ts.tv_nsec) / 1000000.0;
+                g_home_pressed = false;
+                LOGI("Pico home button released after %.0fms", held_ms);
+                if (held_ms >= 500.0 && g_app) {
+                    trigger_recenter(g_app);
+                }
+            }
+            return 1;
+        }
         if (code == AKEYCODE_BACK) {
             return 1;
         }
