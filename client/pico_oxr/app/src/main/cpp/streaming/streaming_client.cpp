@@ -123,10 +123,12 @@ void streaming_client::setup_decoders()
 		decoders[i] = std::make_unique<pico_video_decoder>(
 			*video_desc, i,
 			[this, i](std::shared_ptr<pico_decoded_frame> frame) {
-				g_stutter.on_frame_decoded(frame->frame_index, i);
+				uint64_t fi = frame->frame_index;
+				g_stutter.on_frame_decoded(fi, i);
 				std::lock_guard lock(decoded_frame_mutex);
-				latest_decoded_frames[i] = std::move(frame);
-				latest_decoded_frame_index.store(latest_decoded_frames[i]->frame_index);
+				auto &buf = decoded_frame_buffers[i];
+				buf[fi % buf.size()] = std::move(frame);
+				latest_decoded_frame_index.store(fi);
 			});
 		spdlog::warn("Created decoder for stream {}", i);
 	}
@@ -386,7 +388,8 @@ void streaming_client::reset_stream_state()
 		next_shards[i].reset(1);
 		{
 			std::lock_guard lock(decoded_frame_mutex);
-			latest_decoded_frames[i].reset();
+			for (auto &slot : decoded_frame_buffers[i])
+				slot.reset();
 		}
 	}
 	latest_decoded_frame_index.store(0);
