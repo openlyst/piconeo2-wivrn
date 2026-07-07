@@ -12,6 +12,7 @@
  - Resualtion slider is now based on res's not %'s
  - Adds WiVRn icon
  - Fix close button not working in the lobby for pairing 
+ - Servers are now remembered after pairing with autoconnect support
  
 # RC3
 
