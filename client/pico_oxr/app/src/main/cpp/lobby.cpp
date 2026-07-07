@@ -493,147 +493,12 @@ static bool ray_plane_intersect(
 
 void pico_lobby::recenter()
 {
-	panel_placed = false;
-	recentering_controller = -1;
 	LOGI("Lobby recentered");
 }
 
 void pico_lobby::update_interaction(const float head_orient[4], const float head_pos[3],
                                     const controller_sample controllers[2])
 {
-	if (!panel_placed)
-	{
-		neo2::quat hq = neo2::normalize_quat({head_orient[0], head_orient[1], head_orient[2], head_orient[3]});
-		float fwd[3] = {0, 0, -1};
-		float fwd_world[3];
-		neo2::rotate_vector(hq, fwd, fwd_world);
-		panel_pos[0] = head_pos[0] + fwd_world[0] * 2.5f;
-		panel_pos[1] = head_pos[1];
-		panel_pos[2] = head_pos[2] + fwd_world[2] * 2.5f;
-		panel_yaw = atan2f(fwd_world[0], fwd_world[2]);
-		panel_placed = true;
-	}
-
-	if (recentering_controller >= 0)
-	{
-		int h = recentering_controller;
-		if (controllers[h].connected && controllers[h].grip)
-		{
-			float cpos[3] = {
-				controllers[h].position[0] * 0.001f,
-				controllers[h].position[1] * 0.001f,
-				controllers[h].position[2] * 0.001f,
-			};
-			neo2::quat cq = neo2::normalize_quat({
-				-controllers[h].orientation[0],
-				-controllers[h].orientation[1],
-				controllers[h].orientation[2],
-				controllers[h].orientation[3],
-			});
-
-			float rotated_offset[3];
-			neo2::rotate_vector(cq, recenter_offset_pos, rotated_offset);
-			panel_pos[0] = cpos[0] + rotated_offset[0];
-			panel_pos[1] = cpos[1] + rotated_offset[1];
-			panel_pos[2] = cpos[2] + rotated_offset[2];
-
-			float fwd[3] = {0, 0, -1};
-			float fwd_world[3];
-			neo2::rotate_vector(cq, fwd, fwd_world);
-			float controller_yaw = atan2f(fwd_world[0], fwd_world[2]);
-			panel_yaw = controller_yaw + recenter_offset_yaw;
-		}
-		else
-		{
-			recentering_controller = -1;
-		}
-	}
-	else
-	{
-		for (int h = 0; h < 2; h++)
-		{
-			if (controllers[h].connected && controllers[h].grip && !prev_grip[h])
-			{
-				float cpos[3] = {
-					controllers[h].position[0] * 0.001f,
-					controllers[h].position[1] * 0.001f,
-					controllers[h].position[2] * 0.001f,
-				};
-				neo2::quat cq = neo2::normalize_quat({
-					-controllers[h].orientation[0],
-					-controllers[h].orientation[1],
-					controllers[h].orientation[2],
-					controllers[h].orientation[3],
-				});
-
-				float fwd[3] = {0, 0, -1};
-				float fwd_world[3];
-				neo2::rotate_vector(cq, fwd, fwd_world);
-
-				float cy = cosf(panel_yaw), sy = sinf(panel_yaw);
-				float normal[3] = {sy, 0, cy};
-
-				float to_panel[3] = {
-					panel_pos[0] - cpos[0],
-					panel_pos[1] - cpos[1],
-					panel_pos[2] - cpos[2],
-				};
-				float denom = normal[0] * fwd_world[0] + normal[1] * fwd_world[1] + normal[2] * fwd_world[2];
-
-				bool hit = false;
-				if (fabsf(denom) > 1e-6f)
-				{
-					float lambda = (to_panel[0] * normal[0] + to_panel[1] * normal[1] + to_panel[2] * normal[2]) / denom;
-					if (lambda > 0)
-					{
-						float hit_pt[3] = {
-							cpos[0] + lambda * fwd_world[0],
-							cpos[1] + lambda * fwd_world[1],
-							cpos[2] + lambda * fwd_world[2],
-						};
-						float local[3] = {
-							hit_pt[0] - panel_pos[0],
-							hit_pt[1] - panel_pos[1],
-							hit_pt[2] - panel_pos[2],
-						};
-						float u_axis[3] = {-cy, 0, sy};
-						float u = local[0] * u_axis[0] + local[1] * u_axis[1] + local[2] * u_axis[2];
-						float v = local[1];
-						if (fabsf(u) <= panel_w * 0.5f && fabsf(v) <= panel_h * 0.5f)
-							hit = true;
-					}
-				}
-
-				if (hit)
-				{
-					float delta[3] = {
-						panel_pos[0] - cpos[0],
-						panel_pos[1] - cpos[1],
-						panel_pos[2] - cpos[2],
-					};
-					neo2::quat inv_cq = {cq.x, cq.y, cq.z, -cq.w};
-					neo2::rotate_vector(inv_cq, delta, recenter_offset_pos);
-
-					float fwd2[3] = {0, 0, -1};
-					float fwd_world2[3];
-					neo2::rotate_vector(cq, fwd2, fwd_world2);
-					float controller_yaw = atan2f(fwd_world2[0], fwd_world2[2]);
-					recenter_offset_yaw = panel_yaw - controller_yaw;
-				}
-				else
-				{
-					recenter_offset_pos[0] = 0;
-					recenter_offset_pos[1] = 0;
-					recenter_offset_pos[2] = -1;
-					recenter_offset_yaw = 0;
-				}
-
-				recentering_controller = h;
-				break;
-			}
-		}
-	}
-
 	float cy = cosf(panel_yaw), sy = sinf(panel_yaw);
 	float normal[3] = {sy, 0, cy};
 	float u_axis[3] = {-cy, 0, sy};
@@ -702,8 +567,4 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 		prev_trigger[h] = trigger_pressed;
 	}
 
-	for (int h = 0; h < 2; h++)
-	{
-		prev_grip[h] = controllers[h].grip;
-	}
 }
