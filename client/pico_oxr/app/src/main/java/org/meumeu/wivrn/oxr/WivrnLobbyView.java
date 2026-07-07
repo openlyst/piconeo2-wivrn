@@ -231,20 +231,33 @@ public class WivrnLobbyView {
     }
 
     public void setAutoconnect(String hostname, int port) {
-        boolean found = false;
+        boolean currentlyOn = false;
         for (ServerEntry s : servers) {
-            boolean match = s.hostname.equals(hostname) && s.port == port;
-            s.autoconnect = match;
-            if (match) found = true;
+            if (s.hostname.equals(hostname) && s.port == port && s.autoconnect) {
+                currentlyOn = true;
+                break;
+            }
         }
-        if (!found) {
-            synchronized (discoveredServers) {
-                for (ServerEntry s : discoveredServers.values()) {
-                    if (s.hostname.equals(hostname) && s.port == port) {
-                        ServerEntry persisted = new ServerEntry(s.name, s.hostname, s.port, s.tcpOnly, true, false, true);
-                        servers.add(persisted);
-                        found = true;
-                        break;
+
+        if (currentlyOn) {
+            for (ServerEntry s : servers) {
+                s.autoconnect = false;
+            }
+        } else {
+            boolean found = false;
+            for (ServerEntry s : servers) {
+                boolean match = s.hostname.equals(hostname) && s.port == port;
+                s.autoconnect = match;
+                if (match) found = true;
+            }
+            if (!found) {
+                synchronized (discoveredServers) {
+                    for (ServerEntry s : discoveredServers.values()) {
+                        if (s.hostname.equals(hostname) && s.port == port) {
+                            ServerEntry persisted = new ServerEntry(s.name, s.hostname, s.port, s.tcpOnly, true, false, true);
+                            servers.add(persisted);
+                            break;
+                        }
                     }
                 }
             }
