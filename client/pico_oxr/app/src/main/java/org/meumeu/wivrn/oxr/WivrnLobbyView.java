@@ -65,6 +65,8 @@ public class WivrnLobbyView {
     private String[] availableAppNames = new String[0];
     private Map<String, Bitmap> appIcons = new HashMap<>();
     private boolean appListRequested = false;
+    private String launchingAppName = null;
+    private long launchingStartTime = 0;
     private int streamBitrateSetting = 50;
     private int streamResolutionScale = 100;
     private boolean streamMicEnabled = false;
@@ -76,6 +78,10 @@ public class WivrnLobbyView {
     private float dragStartScroll = 0;
     private float prevTouchY = -1;
     private float thumbstickAccum = 0;
+    private float pressStartX = -1;
+    private float pressStartY = -1;
+    private boolean pressDragged = false;
+    private static final float DRAG_THRESHOLD = 20f;
 
     private final Context context;
     private final Bitmap bitmap;
@@ -738,6 +744,7 @@ public class WivrnLobbyView {
         this.runningAppIds = ids != null ? ids : new int[0];
         this.runningAppOverlays = overlays != null ? overlays : new boolean[0];
         this.runningAppActives = actives != null ? actives : new boolean[0];
+        launchingAppName = null;
         if (connectionState == STATE_CONNECTED) {
             markDirty();
         }
@@ -1538,6 +1545,48 @@ public class WivrnLobbyView {
             barPaint.setColor(Color.rgb(60, 70, 85));
             canvas.drawRoundRect(new RectF(barX, barY, barX + 4, barY + barH), 2, 2, barPaint);
         }
+
+        if (launchingAppName != null) {
+            long elapsed = (System.currentTimeMillis() - launchingStartTime) / 1000;
+            Paint overlayPaint = new Paint();
+            overlayPaint.setAntiAlias(true);
+            overlayPaint.setColor(Color.argb(200, 10, 14, 20));
+            canvas.drawRect(x - 5, 40, x + w + 5, height, overlayPaint);
+
+            float boxW = 500;
+            float boxH = 160;
+            float boxX = x + (w - boxW) / 2;
+            float boxY = 40 + (height - 40 - boxH) / 2;
+            Paint boxPaint = new Paint();
+            boxPaint.setAntiAlias(true);
+            boxPaint.setColor(Color.rgb(30, 38, 52));
+            canvas.drawRoundRect(new RectF(boxX, boxY, boxX + boxW, boxY + boxH), 16, 16, boxPaint);
+
+            textPaint.setColor(Color.rgb(230, 235, 245));
+            textPaint.setTextSize(28);
+            canvas.drawText("Launching " + launchingAppName + "...", boxX + 30, boxY + 55, textPaint);
+            textPaint.setTextSize(20);
+            textPaint.setColor(Color.rgb(140, 150, 165));
+            canvas.drawText("Waiting for server response (" + elapsed + "s)", boxX + 30, boxY + 95, textPaint);
+
+            float spinnerCx = boxX + boxW - 50;
+            float spinnerCy = boxY + boxH / 2;
+            float spinnerR = 20;
+            float angle = (System.currentTimeMillis() % 1000) / 1000f * 360;
+            Paint spinnerPaint = new Paint();
+            spinnerPaint.setAntiAlias(true);
+            spinnerPaint.setColor(Color.rgb(80, 140, 220));
+            spinnerPaint.setStyle(Paint.Style.STROKE);
+            spinnerPaint.setStrokeWidth(4);
+            spinnerPaint.setStrokeCap(Paint.Cap.ROUND);
+            android.graphics.RectF arcRect = new android.graphics.RectF(
+                spinnerCx - spinnerR, spinnerCy - spinnerR,
+                spinnerCx + spinnerR, spinnerCy + spinnerR);
+            canvas.drawArc(arcRect, angle, 270, false, spinnerPaint);
+
+            textPaint.setTextSize(28);
+            markDirty();
+        }
     }
 
     private void renderStreamStats(float x, float w) {
@@ -1710,6 +1759,9 @@ public class WivrnLobbyView {
                 }
                 launchScrollY = dragStartScroll + (dragStartY - y);
                 launchScrollY = Math.max(0, Math.min(launchMaxScroll, launchScrollY));
+                if (pressStartX >= 0 && Math.hypot(x - pressStartX, y - pressStartY) > DRAG_THRESHOLD) {
+                    pressDragged = true;
+                }
             }
             if (!down) {
                 dragStartY = -1;
@@ -1730,12 +1782,35 @@ public class WivrnLobbyView {
         prevTouchY = touchY;
 
         if (pressed) {
-            activeSlider = SLIDER_NONE;
-            handleClick(x, y);
-        } else if (down && activeSlider != SLIDER_NONE) {
-            handleSliderDrag(x, y);
-        } else if (!down) {
-            activeSlider = SLIDER_NONE;
+            pressStartX = x;
+            pressStartY = y;
+            pressDragged = false;
+        }
+
+        if (connectionState == STATE_CONNECTED && streamTab == STREAM_TAB_LAUNCH) {
+            if (pressed) {
+                activeSlider = SLIDER_NONE;
+            } else if (!down && prevDown && !pressDragged) {
+                activeSlider = SLIDER_NONE;
+                handleClick(x, y);
+            } else if (down && activeSlider != SLIDER_NONE) {
+                handleSliderDrag(x, y);
+            }
+        } else {
+            if (pressed) {
+                activeSlider = SLIDER_NONE;
+                handleClick(x, y);
+            } else if (down && activeSlider != SLIDER_NONE) {
+                handleSliderDrag(x, y);
+            } else if (!down) {
+                activeSlider = SLIDER_NONE;
+            }
+        }
+
+        if (!down) {
+            pressStartX = -1;
+            pressStartY = -1;
+            pressDragged = false;
         }
         markDirty();
     }
@@ -1938,6 +2013,8 @@ public class WivrnLobbyView {
                     RectF card = new RectF(contentX, cy, contentX + contentW, cy + cardH);
                     if (card.contains(x, y) && i < availableAppIds.length) {
                         ((MainActivity) context).onStartApp(availableAppIds[i]);
+                        launchingAppName = availableAppNames[i];
+                        launchingStartTime = System.currentTimeMillis();
                         markDirty();
                         return;
                     }

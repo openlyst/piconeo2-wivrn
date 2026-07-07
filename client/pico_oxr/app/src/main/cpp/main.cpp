@@ -303,6 +303,100 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeReady(JNIEnv * env, jobject thiz)
     return g_app != nullptr ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeRequestAppList(JNIEnv * env, jobject thiz)
+{
+    if (!g_app || !g_app->stream.session)
+        return;
+    LOGI("nativeRequestAppList");
+    try
+    {
+        g_app->stream.session->send_control(from_headset::get_application_list{
+            .language = "en",
+            .country = "US",
+            .variant = "",
+        });
+    }
+    catch (std::exception & e)
+    {
+        LOGE("Failed to request app list: %s", e.what());
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeStartApp(JNIEnv * env, jobject thiz, jstring appId)
+{
+    if (!g_app || !g_app->stream.session)
+        return;
+    const char * app_id_str = env->GetStringUTFChars(appId, nullptr);
+    if (app_id_str)
+    {
+        LOGI("nativeStartApp: %s", app_id_str);
+        try
+        {
+            g_app->stream.session->send_control(from_headset::start_app{
+                .app_id = app_id_str,
+            });
+        }
+        catch (std::exception & e)
+        {
+            LOGE("Failed to start app: %s", e.what());
+        }
+        env->ReleaseStringUTFChars(appId, app_id_str);
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeRequestRunningApps(JNIEnv * env, jobject thiz)
+{
+    if (!g_app || !g_app->stream.session)
+        return;
+    try
+    {
+        g_app->stream.session->send_control(from_headset::get_running_applications{});
+    }
+    catch (std::exception & e)
+    {
+        LOGE("Failed to request running apps: %s", e.what());
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetActiveApp(JNIEnv * env, jobject thiz, jint appId)
+{
+    if (!g_app || !g_app->stream.session)
+        return;
+    LOGI("nativeSetActiveApp: %d", (int)appId);
+    try
+    {
+        g_app->stream.session->send_control(from_headset::set_active_application{
+            .id = (uint32_t)appId,
+        });
+    }
+    catch (std::exception & e)
+    {
+        LOGE("Failed to set active app: %s", e.what());
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeStopApp(JNIEnv * env, jobject thiz, jint appId)
+{
+    if (!g_app || !g_app->stream.session)
+        return;
+    LOGI("nativeStopApp: %d", (int)appId);
+    try
+    {
+        g_app->stream.session->send_control(from_headset::stop_application{
+            .id = (uint32_t)appId,
+        });
+    }
+    catch (std::exception & e)
+    {
+        LOGE("Failed to stop app: %s", e.what());
+    }
+}
+
 } // extern "C"
 
 // ---------------------------------------------------------------------------
