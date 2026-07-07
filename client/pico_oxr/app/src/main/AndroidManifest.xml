@@ -14,14 +14,13 @@
         android:allowBackup="false"
         android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
         <meta-data android:name="pvr.app.type" android:value="vr" />
-        <meta-data android:name="pvr.2dtovr.mode" android:value="1" />
         <activity
             android:name="org.meumeu.wivrn.oxr.MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="landscape"
             android:configChanges="screenSize|screenLayout|orientation|keyboardHidden|keyboard|navigation|uiMode">
-            <meta-data android:name="pvr.app.type" android:value="2d" />
+            <meta-data android:name="android.app.lib_name" android:value="pico_oxr" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -33,15 +32,6 @@
                 <data android:scheme="wivrn" />
                 <data android:scheme="wivrn+tcp" />
             </intent-filter>
-        </activity>
-        <activity
-            android:name="org.meumeu.wivrn.oxr.StreamingActivity"
-            android:exported="false"
-            android:screenOrientation="landscape"
-            android:configChanges="screenSize|screenLayout|orientation|keyboardHidden|keyboard|navigation|uiMode"
-            android:launchMode="singleInstance">
-            <meta-data android:name="pvr.app.type" android:value="vr" />
-            <meta-data android:name="android.app.lib_name" android:value="pico_oxr" />
         </activity>
     </application>
 </manifest>

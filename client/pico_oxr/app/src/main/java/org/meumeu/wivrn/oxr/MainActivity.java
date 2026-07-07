@@ -1,21 +1,42 @@
 package org.meumeu.wivrn.oxr;
 
-import android.app.Activity;
+import android.app.NativeActivity;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
+import android.os.BatteryManager;
 import android.os.Bundle;
 import android.util.Log;
-import android.view.MotionEvent;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
+import android.view.Surface;
+import android.graphics.SurfaceTexture;
 
-public class MainActivity extends Activity {
+import com.picovr.picovrlib.cvcontrollerclient.ControllerClient;
+import com.picovr.picovrlib.cvcontrollerclient.BindControllerCallback;
+
+public class MainActivity extends NativeActivity {
     private static final String TAG = "WiVRn-OXR";
+    private static final String CTRL_UNITY_VERSION = "2.8.6.9";
+
+    private final float[] mHeadData = new float[7];
+
+    private volatile boolean mCtrlRunning = false;
+    private Thread mCtrlThread;
+    private volatile boolean mConn0 = false;
+    private volatile boolean mConn1 = false;
+    private volatile boolean mCtrlThreadStarted = false;
+    private long mBothConnSinceMs = 0;
+    private static final long CTRL_SETTLE_MS = 1500;
+    private volatile boolean mForeground = false;
+
+    private volatile boolean mUiRenderRunning = false;
+    private Thread mUiRenderThread;
+    private SurfaceTexture lobbySurfaceTexture;
+    private Surface lobbySurface;
 
     private WivrnLobbyView lobbyView;
     private WifiManager.MulticastLock multicastLock;
@@ -26,13 +47,24 @@ public class MainActivity extends Activity {
     private String pendingPin;
     private boolean hasPendingConnection = false;
 
-    private String selectedHost;
-    private int selectedPort;
-    private boolean selectedTcpOnly;
+    private static final int EXT_JOY_X      = 0;
+    private static final int EXT_JOY_Y      = 5;
+    private static final int EXT_HOME       = 10;
+    private static final int EXT_MENU       = 15;
+    private static final int EXT_TRIGGER    = 35;
+    private static final int EXT_BATTERY    = 40;
+    private static final int EXT_AX         = 45;
+    private static final int EXT_BY         = 50;
+    private static final int EXT_GRIP_RIGHT = 55;
+    private static final int EXT_GRIP_LEFT  = 60;
+    private static final int EXT_JOY_CLICK  = 20;
+    private static final int LEGACY_TRIG    = 7;
+    private static int pick(int[] a, int i) { return (a != null && i < a.length) ? a[i] : 0; }
 
-    private LobbySurfaceView surfaceView;
-    private volatile boolean renderRunning = false;
-    private Thread renderThread;
+    static {
+        System.loadLibrary("openxr_loader");
+        System.loadLibrary("pico_oxr");
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -48,9 +80,6 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             Log.e(TAG, "Failed to acquire multicast lock", e);
         }
-
-        surfaceView = new LobbySurfaceView(this);
-        setContentView(surfaceView);
 
         handleWivrnIntent(getIntent());
     }
@@ -101,33 +130,43 @@ public class MainActivity extends Activity {
 
     private void flushPendingConnection() {
         if (!hasPendingConnection) return;
-        if (pendingPin != null && !pendingPin.isEmpty()) {
-            startStreaming(pendingHost, pendingPort, pendingTcpOnly, pendingPin);
-            hasPendingConnection = false;
-        } else {
-            selectedHost = pendingHost;
-            selectedPort = pendingPort;
-            selectedTcpOnly = pendingTcpOnly;
-            lobbyView.setConnectionState(WivrnLobbyView.STATE_PIN_ENTRY, "");
-            hasPendingConnection = false;
+        if (!nativeReady()) {
+            Log.d(TAG, "native not ready, waiting to flush pending connection");
+            new Thread(() -> {
+                for (int i = 0; i < 50 && !nativeReady(); i++) {
+                    try { Thread.sleep(100); } catch (InterruptedException e) { return; }
+                }
+                runOnUiThread(() -> flushPendingConnection());
+            }, "pending-conn").start();
+            return;
         }
+        Log.i(TAG, "flushing pending connection: " + pendingHost + ":" + pendingPort + " tcp=" + pendingTcpOnly);
+        nativeConnectServer(pendingHost, pendingPort, pendingTcpOnly);
+        if (pendingPin != null && !pendingPin.isEmpty()) {
+            nativeSetPin(pendingPin);
+        }
+        hasPendingConnection = false;
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        mForeground = true;
         if (lobbyView != null) {
             lobbyView.updateWifiStatus();
             lobbyView.startDiscovery();
         }
-        startRenderThread();
+        setupControllers();
         flushPendingConnection();
     }
 
     @Override
     protected void onPause() {
-        stopRenderThread();
+        mForeground = false;
+        stopControllerPoll();
+        stopUiRenderThread();
         if (lobbyView != null) lobbyView.stopDiscovery();
+        try { ControllerClient.unbindControllerService(this); } catch (Throwable t) {}
         super.onPause();
     }
 
@@ -139,12 +178,167 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
-    private void startRenderThread() {
-        if (renderRunning) return;
-        renderRunning = true;
-        renderThread = new Thread(() -> {
+    private void setupControllers() {
+        try {
+            ControllerClient.registerBindCallback(new BindControllerCallback() {
+                @Override public void bindSuccess() {
+                    try { ControllerClient.setUnityVersion(CTRL_UNITY_VERSION); } catch (Throwable t) {
+                        Log.e(TAG, "setUnityVersion failed", t);
+                    }
+                    Log.i(TAG, "controller service bound");
+                    startControllerPoll();
+                    startUiRenderThread();
+                }
+                @Override public void unbindSuccess() {
+                    Log.i(TAG, "controller service unbound");
+                    stopControllerPoll();
+                    stopUiRenderThread();
+                }
+                @Override public void controllerConnectStateChanged(int hand, int state) {
+                    Log.i(TAG, "controller " + hand + " connect state -> " + state);
+                    if (hand == 0) mConn0 = (state == 1);
+                    else if (hand == 1) mConn1 = (state == 1);
+                }
+                @Override public void onCVChannelChanged(int device, int channel) {}
+                @Override public void onHandNessChanged(int hand) {}
+                @Override public void onMainControllerSerialNumChanged(int serial) {}
+                @Override public void onControllerThreadStarted() {
+                    Log.i(TAG, "controller thread started");
+                }
+            });
+            ControllerClient.bindControllerService(this);
+            Log.i(TAG, "controller service bind requested");
+        } catch (Throwable t) {
+            Log.e(TAG, "setupControllers failed", t);
+        }
+    }
+
+    private synchronized void maybeStartControllerThread() {
+        if (mCtrlThreadStarted) return;
+        if (!(mConn0 && mConn1)) {
+            mBothConnSinceMs = 0;
+            return;
+        }
+        long now = android.os.SystemClock.uptimeMillis();
+        if (mBothConnSinceMs == 0) {
+            mBothConnSinceMs = now;
+            Log.i(TAG, "both controllers connected -> settling " + CTRL_SETTLE_MS + "ms");
+            return;
+        }
+        if (now - mBothConnSinceMs < CTRL_SETTLE_MS) return;
+        try {
+            try { ControllerClient.setUnityVersion(CTRL_UNITY_VERSION); } catch (Throwable t) {}
+            ControllerClient.startControllerThread(1, 1);
+            mCtrlThreadStarted = true;
+            Log.i(TAG, "controller link settled -> startControllerThread");
+        } catch (Throwable t) {
+            Log.e(TAG, "startControllerThread failed", t);
+        }
+    }
+
+    private void startControllerPoll() {
+        if (mCtrlRunning) return;
+        mCtrlRunning = true;
+        mCtrlThread = new Thread(() -> {
+            while (mCtrlRunning) {
+                if (!mCtrlThreadStarted) {
+                    try {
+                        mConn0 = (ControllerClient.getControllerConnectionState(0) == 1);
+                        mConn1 = (ControllerClient.getControllerConnectionState(1) == 1);
+                        maybeStartControllerThread();
+                    } catch (Throwable t) {}
+                }
+                int leftBatt = -1, rightBatt = -1;
+                boolean leftConn = false, rightConn = false;
+
+                for (int h = 0; h < 2; h++) {
+                    try {
+                        int conn = ControllerClient.getControllerConnectionState(h);
+                        nativeGetHeadData(mHeadData);
+                        float[] sensor = null;
+                        try { sensor = ControllerClient.getControllerSensorState(h, mHeadData); } catch (Throwable t) {}
+                        float[] angVel = null;
+                        try { angVel = ControllerClient.getControllerAngularVelocity(h); } catch (Throwable t) {}
+                        int[] ext = null;
+                        try { ext = ControllerClient.getControllerKeyEventUnityExt(h); } catch (Throwable t) {}
+                        int[] legacy = null;
+                        try { legacy = ControllerClient.getControllerKeyEvent(h); } catch (Throwable t) {}
+
+                        int[] keys = new int[12];
+                        keys[0] = pick(ext, EXT_JOY_X);
+                        keys[1] = pick(ext, EXT_JOY_Y);
+                        keys[2] = pick(ext, EXT_TRIGGER);
+                        keys[3] = pick(ext, h == 1 ? EXT_GRIP_RIGHT : EXT_GRIP_LEFT);
+                        keys[4] = pick(ext, EXT_JOY_CLICK);
+                        keys[5] = pick(ext, EXT_MENU);
+                        keys[6] = pick(ext, EXT_AX);
+                        keys[7] = pick(ext, EXT_BY);
+                        keys[8] = pick(legacy, LEGACY_TRIG);
+                        keys[9] = 0;
+                        keys[10] = pick(ext, EXT_BATTERY);
+                        keys[11] = pick(ext, EXT_HOME);
+
+                        int sendConn = mForeground ? conn : 0;
+                        nativeControllerState(h, sendConn, sensor, angVel, keys);
+
+                        if (conn == 1) {
+                            int batt = pick(ext, EXT_BATTERY);
+                            if (h == 0) {
+                                leftBatt = batt;
+                                leftConn = true;
+                            } else {
+                                rightBatt = batt;
+                                rightConn = true;
+                            }
+                        }
+                    } catch (Throwable t) {}
+                }
+
+                if (mForeground && lobbyView != null) {
+                    int hmdBatt = getHmdBatteryLevel();
+                    lobbyView.updateBatteryStatus(hmdBatt, leftBatt, leftConn, rightBatt, rightConn);
+                }
+
+                try { Thread.sleep(8); } catch (InterruptedException e) { break; }
+            }
+        }, "ctrl-poll");
+        mCtrlThread.start();
+        Log.i(TAG, "controller poll thread started");
+    }
+
+    private void stopControllerPoll() {
+        mCtrlRunning = false;
+        if (mCtrlThread != null) { mCtrlThread.interrupt(); mCtrlThread = null; }
+    }
+
+    private void startUiRenderThread() {
+        if (mUiRenderRunning) return;
+        mUiRenderRunning = true;
+
+        mUiRenderThread = new Thread(() -> {
+            int texId = 0;
+            for (int i = 0; i < 50 && texId == 0; i++) {
+                texId = nativeGetTextureId();
+                if (texId == 0) {
+                    try { Thread.sleep(100); } catch (InterruptedException e) { mUiRenderRunning = false; return; }
+                }
+            }
+            if (texId == 0) {
+                Log.e(TAG, "nativeGetTextureId returned 0 after retries");
+                mUiRenderRunning = false;
+                return;
+            }
+
+            lobbySurfaceTexture = new SurfaceTexture(texId);
+            lobbySurfaceTexture.setDefaultBufferSize(1400, 900);
+            lobbySurfaceTexture.setOnFrameAvailableListener(st -> nativeOnFrameAvailable());
+            nativeSetSurfaceTexture(lobbySurfaceTexture);
+            lobbySurface = new Surface(lobbySurfaceTexture);
+            Log.i(TAG, "SurfaceTexture created for texId=" + texId + " bufSize=1400x900");
+
+            int frameCount = 0;
             int wifiPollCount = 0;
-            while (renderRunning) {
+            while (mUiRenderRunning) {
                 try {
                     if (lobbyView != null) {
                         if (wifiPollCount++ % 200 == 0) {
@@ -152,128 +346,136 @@ public class MainActivity extends Activity {
                         }
                         if (lobbyView.isDirty()) {
                             lobbyView.render();
-                            SurfaceHolder holder = surfaceView.getHolder();
-                            Canvas canvas = holder.lockCanvas();
-                            if (canvas != null) {
-                                Rect src = new Rect(0, 0, 1400, 900);
-                                Rect dst = new Rect(0, 0, canvas.getWidth(), canvas.getHeight());
-                                canvas.drawBitmap(lobbyView.getBitmap(), src, dst, null);
-                                holder.unlockCanvasAndPost(canvas);
-                            }
+                            Canvas canvas = lobbySurface.lockCanvas(new Rect(0, 0, 1400, 900));
+                            canvas.drawBitmap(lobbyView.getBitmap(), null, new Rect(0, 0, 1400, 900), null);
+                            lobbySurface.unlockCanvasAndPost(canvas);
                             lobbyView.markClean();
+                            frameCount++;
+                            if (frameCount % 100 == 0)
+                                Log.i(TAG, "UI frame " + frameCount + " posted");
                         }
                     }
                 } catch (Throwable t) {
-                    Log.e(TAG, "render thread error", t);
+                    Log.e(TAG, "ui render thread error", t);
                 }
                 try { Thread.sleep(16); } catch (InterruptedException e) { break; }
             }
-        }, "lobby-render");
-        renderThread.start();
+        }, "ui-render");
+        mUiRenderThread.start();
+        Log.i(TAG, "ui render thread started");
     }
 
-    private void stopRenderThread() {
-        renderRunning = false;
-        if (renderThread != null) { renderThread.interrupt(); renderThread = null; }
+    private void stopUiRenderThread() {
+        mUiRenderRunning = false;
+        if (mUiRenderThread != null) { mUiRenderThread.interrupt(); mUiRenderThread = null; }
+        if (lobbySurface != null) { lobbySurface.release(); lobbySurface = null; }
+        if (lobbySurfaceTexture != null) { lobbySurfaceTexture.release(); lobbySurfaceTexture = null; }
     }
 
-    private void startStreaming(String host, int port, boolean tcpOnly, String pin) {
-        Log.i(TAG, "Starting streaming: " + host + ":" + port + " tcp=" + tcpOnly + " pin=" + (pin != null ? "yes" : "no"));
-        Intent intent = new Intent(this, StreamingActivity.class);
-        intent.putExtra("host", host);
-        intent.putExtra("port", port);
-        intent.putExtra("tcpOnly", tcpOnly);
-        if (pin != null) intent.putExtra("pin", pin);
-        startActivity(intent);
+    public void onLobbyTouch(float x, float y, boolean down, boolean pressed, float thumbstickY) {
+        if (lobbyView != null) {
+            lobbyView.handleTouch(x, y, down, pressed, thumbstickY);
+        }
     }
 
     public void onConnectionStateChanged(int state, String message) {
+        if (lobbyView != null) {
+            lobbyView.setConnectionState(state, message);
+        }
     }
 
     public void onApplicationList(String[] ids, String[] names) {
+        if (lobbyView != null) {
+            lobbyView.updateAvailableApps(ids, names);
+        }
     }
 
     public void onApplicationIcon(String appId, byte[] pngData) {
+        if (lobbyView != null) {
+            lobbyView.updateAppIcon(appId, pngData);
+        }
     }
 
     public void onRunningApplications(String[] names, int[] ids, boolean[] overlays, boolean[] actives) {
+        if (lobbyView != null) {
+            lobbyView.updateRunningApps(names, ids, overlays, actives);
+        }
     }
 
     public void onStreamStats(int fps, int latencyMs, int bandwidthRxBps, int bandwidthTxBps, int bitrateMbps) {
+        if (lobbyView != null) {
+            lobbyView.updateStreamStats(fps, latencyMs, bandwidthRxBps, bandwidthTxBps, bitrateMbps);
+        }
     }
 
     public void requestPinEntry() {
-        lobbyView.setConnectionState(WivrnLobbyView.STATE_PIN_ENTRY, "");
+        if (lobbyView != null) {
+            lobbyView.setConnectionState(WivrnLobbyView.STATE_PIN_ENTRY, "");
+        }
     }
 
     public void onServerConnect(String hostname, int port, boolean tcpOnly) {
         Log.d(TAG, "Connect requested: " + hostname + ":" + port + " tcp=" + tcpOnly);
-        selectedHost = hostname;
-        selectedPort = port;
-        selectedTcpOnly = tcpOnly;
-        lobbyView.setConnectionState(WivrnLobbyView.STATE_PIN_ENTRY, "");
+        nativeConnectServer(hostname, port, tcpOnly);
     }
 
     public void onPinEntered(String pin) {
         Log.d(TAG, "PIN entered: " + pin);
-        lobbyView.setConnectionState(WivrnLobbyView.STATE_CONNECTING, "Starting streaming...");
-        startStreaming(selectedHost, selectedPort, selectedTcpOnly, pin);
+        nativeSetPin(pin);
     }
 
     public void onPinCancelled() {
         Log.d(TAG, "PIN entry cancelled");
-        lobbyView.setConnectionState(WivrnLobbyView.STATE_IDLE, "");
     }
 
     public void onDisconnectRequested() {
         Log.d(TAG, "Disconnect requested");
+        nativeDisconnectServer();
     }
 
     public void onRequestAppList() {
+        Log.d(TAG, "Requesting app list");
     }
 
     public void onStartApp(String appId) {
+        Log.d(TAG, "Starting app: " + appId);
     }
 
     public void onRequestRunningApps() {
     }
 
     public void onSetActiveApp(int appId) {
+        Log.d(TAG, "Setting active app: " + appId);
     }
 
     public void onStopApp(int appId) {
+        Log.d(TAG, "Stopping app: " + appId);
     }
 
-    private class LobbySurfaceView extends SurfaceView implements SurfaceHolder.Callback {
-        public LobbySurfaceView(Context context) {
-            super(context);
-            getHolder().addCallback(this);
-            getHolder().setFixedSize(1400, 900);
+    private int getHmdBatteryLevel() {
+        try {
+            IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
+            Intent battery = registerReceiver(null, filter);
+            if (battery != null) {
+                int level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                int scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
+                if (level >= 0 && scale > 0) {
+                    return (level * 100) / scale;
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to read HMD battery", e);
         }
-
-        @Override
-        public boolean onTouchEvent(MotionEvent event) {
-            float scaleX = 1400.0f / getWidth();
-            float scaleY = 900.0f / getHeight();
-            float x = event.getX() * scaleX;
-            float y = event.getY() * scaleY;
-            int action = event.getActionMasked();
-            boolean down = action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_CANCEL;
-            boolean pressed = action == MotionEvent.ACTION_DOWN;
-            lobbyView.handleTouch(x, y, down, pressed, 0);
-            return true;
-        }
-
-        @Override
-        public void surfaceCreated(SurfaceHolder holder) {
-        }
-
-        @Override
-        public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-        }
-
-        @Override
-        public void surfaceDestroyed(SurfaceHolder holder) {
-        }
+        return -1;
     }
+
+    public native void nativeGetHeadData(float[] out);
+    public native void nativeControllerState(int hand, int conn, float[] sensor, float[] angVel, int[] keys);
+    public native int nativeGetTextureId();
+    public native void nativeSetSurfaceTexture(SurfaceTexture surfaceTexture);
+    public native void nativeOnFrameAvailable();
+    public native void nativeConnectServer(String host, int port, boolean tcpOnly);
+    public native void nativeDisconnectServer();
+    public native void nativeSetPin(String pin);
+    public native boolean nativeReady();
 }
