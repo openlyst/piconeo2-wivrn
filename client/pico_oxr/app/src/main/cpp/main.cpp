@@ -184,6 +184,9 @@ struct AppState {
     XrViewConfigurationView viewConfigs[NUM_EYES] = {};
 
     GLuint fbo = 0;
+    GLuint depth_rbo[NUM_EYES] = {};
+    int depth_rbo_w[NUM_EYES] = {};
+    int depth_rbo_h[NUM_EYES] = {};
 
     pico_lobby lobby;
 
@@ -942,6 +945,14 @@ static void render_frame(AppState* app) {
         glBindFramebuffer(GL_FRAMEBUFFER, app->fbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, glImg, 0);
 
+        if (app->depth_rbo_w[eye] != w || app->depth_rbo_h[eye] != h) {
+            glBindRenderbuffer(GL_RENDERBUFFER, app->depth_rbo[eye]);
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
+            app->depth_rbo_w[eye] = w;
+            app->depth_rbo_h[eye] = h;
+        }
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, app->depth_rbo[eye]);
+
         GLenum fbStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
         if (fbStatus != GL_FRAMEBUFFER_COMPLETE) {
             LOGE("Framebuffer incomplete: 0x%x (eye %u)", fbStatus, eye);
@@ -1235,6 +1246,7 @@ extern "C" void android_main(struct android_app* androidApp) {
     }
 
     glGenFramebuffers(1, &app.fbo);
+    glGenRenderbuffers(NUM_EYES, app.depth_rbo);
 
     int eye_w = app.swapchains[0].width;
     int eye_h = app.swapchains[0].height;
@@ -1277,6 +1289,7 @@ extern "C" void android_main(struct android_app* androidApp) {
 
     g_stream = nullptr;
     if (app.fbo) glDeleteFramebuffers(1, &app.fbo);
+    glDeleteRenderbuffers(NUM_EYES, app.depth_rbo);
     openxr_destroy_session(&app);
     if (app.instance)
         xrDestroyInstance(app.instance);
