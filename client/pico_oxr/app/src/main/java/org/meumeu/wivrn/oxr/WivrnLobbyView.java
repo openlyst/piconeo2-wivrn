@@ -160,18 +160,24 @@ public class WivrnLobbyView {
         boolean tcpOnly;
         boolean manual;
         boolean discovered;
+        boolean autoconnect;
 
         ServerEntry(String name, String hostname, int port, boolean tcpOnly, boolean manual) {
-            this(name, hostname, port, tcpOnly, manual, false);
+            this(name, hostname, port, tcpOnly, manual, false, false);
         }
 
         ServerEntry(String name, String hostname, int port, boolean tcpOnly, boolean manual, boolean discovered) {
+            this(name, hostname, port, tcpOnly, manual, discovered, false);
+        }
+
+        ServerEntry(String name, String hostname, int port, boolean tcpOnly, boolean manual, boolean discovered, boolean autoconnect) {
             this.name = name;
             this.hostname = hostname;
             this.port = port;
             this.tcpOnly = tcpOnly;
             this.manual = manual;
             this.discovered = discovered;
+            this.autoconnect = autoconnect;
         }
     }
 
@@ -186,6 +192,8 @@ public class WivrnLobbyView {
     private int rightBattery = -1;
     private boolean rightConnected = false;
 
+    private boolean autoconnectAttempted = false;
+
     public WivrnLobbyView(Context context) {
         this.context = context;
         this.bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
@@ -197,6 +205,65 @@ public class WivrnLobbyView {
         loadSettings();
         startDiscovery();
         updateWifiStatus();
+    }
+
+    public void tryAutoconnect() {
+        if (autoconnectAttempted) return;
+        autoconnectAttempted = true;
+        for (ServerEntry s : servers) {
+            if (s.autoconnect) {
+                Log.i(TAG, "Autoconnecting to " + s.hostname + ":" + s.port);
+                ((MainActivity) context).onServerConnect(s.hostname, s.port, s.tcpOnly);
+                return;
+            }
+        }
+    }
+
+    public void addOrUpdateServer(String name, String hostname, int port, boolean tcpOnly) {
+        for (ServerEntry s : servers) {
+            if (s.hostname.equals(hostname) && s.port == port) {
+                return;
+            }
+        }
+        servers.add(new ServerEntry(name, hostname, port, tcpOnly, true));
+        saveServers();
+        markDirty();
+    }
+
+    public void setAutoconnect(String hostname, int port) {
+        boolean currentlyOn = false;
+        for (ServerEntry s : servers) {
+            if (s.hostname.equals(hostname) && s.port == port && s.autoconnect) {
+                currentlyOn = true;
+                break;
+            }
+        }
+
+        if (currentlyOn) {
+            for (ServerEntry s : servers) {
+                s.autoconnect = false;
+            }
+        } else {
+            boolean found = false;
+            for (ServerEntry s : servers) {
+                boolean match = s.hostname.equals(hostname) && s.port == port;
+                s.autoconnect = match;
+                if (match) found = true;
+            }
+            if (!found) {
+                synchronized (discoveredServers) {
+                    for (ServerEntry s : discoveredServers.values()) {
+                        if (s.hostname.equals(hostname) && s.port == port) {
+                            ServerEntry persisted = new ServerEntry(s.name, s.hostname, s.port, s.tcpOnly, true, false, true);
+                            servers.add(persisted);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        saveServers();
+        markDirty();
     }
 
     public void updateWifiStatus() {
@@ -567,7 +634,9 @@ public class WivrnLobbyView {
                     obj.optString("hostname", ""),
                     obj.optInt("port", 9757),
                     obj.optBoolean("tcpOnly", false),
-                    true
+                    true,
+                    false,
+                    obj.optBoolean("autoconnect", false)
                 ));
             }
         } catch (Exception e) {
@@ -588,6 +657,7 @@ public class WivrnLobbyView {
                 obj.put("hostname", s.hostname);
                 obj.put("port", s.port);
                 obj.put("tcpOnly", s.tcpOnly);
+                obj.put("autoconnect", s.autoconnect);
                 arr.put(obj);
             }
             prefs.edit().putString("servers", arr.toString()).apply();
@@ -819,13 +889,26 @@ public class WivrnLobbyView {
                 textSmallPaint.setColor(Color.rgb(160, 170, 185));
             }
 
+            if (s.autoconnect) {
+                textSmallPaint.setColor(Color.rgb(255, 200, 60));
+                canvas.drawText("★ autoconnect", x + 20, cardY + 88, textSmallPaint);
+                textSmallPaint.setColor(Color.rgb(160, 170, 185));
+            }
+
             RectF connectBtn = new RectF(x + w - BUTTON_WIDTH - 20, cardY + 20, x + w - 20, cardY + 20 + BUTTON_HEIGHT);
             boolean connectHover = touchDown && connectBtn.contains(touchX, touchY);
             canvas.drawRoundRect(connectBtn, 10, 10, buttonConnectBgPaint);
             drawCenteredText("Connect", connectBtn, textPaint);
 
+            float starX = connectBtn.left - 50;
+            RectF starBtn = new RectF(starX, cardY + 20, starX + 40, cardY + 20 + BUTTON_HEIGHT);
+            boolean starHover = touchDown && starBtn.contains(touchX, touchY);
+            textPaint.setColor(s.autoconnect ? Color.rgb(255, 200, 60) : Color.rgb(100, 110, 125));
+            drawCenteredText("★", starBtn, textPaint);
+            textPaint.setColor(Color.rgb(230, 235, 245));
+
             if (s.manual) {
-                RectF delBtn = new RectF(connectBtn.left - 60, cardY + 20, connectBtn.left - 10, cardY + 20 + BUTTON_HEIGHT);
+                RectF delBtn = new RectF(starBtn.left - 60, cardY + 20, starBtn.left - 10, cardY + 20 + BUTTON_HEIGHT);
                 boolean delHover = touchDown && delBtn.contains(touchX, touchY);
                 canvas.drawRoundRect(delBtn, 10, 10, buttonDangerBgPaint);
                 drawCenteredText("X", delBtn, textPaint);
@@ -1950,8 +2033,16 @@ public class WivrnLobbyView {
                 return;
             }
 
+            float starX = connectBtn.left - 50;
+            RectF starBtn = new RectF(starX, cardY + 20, starX + 40, cardY + 20 + BUTTON_HEIGHT);
+            if (starBtn.contains(x, y)) {
+                setAutoconnect(s.hostname, s.port);
+                markDirty();
+                return;
+            }
+
             if (s.manual) {
-                RectF delBtn = new RectF(connectBtn.left - 60, cardY + 20, connectBtn.left - 10, cardY + 20 + BUTTON_HEIGHT);
+                RectF delBtn = new RectF(starBtn.left - 60, cardY + 20, starBtn.left - 10, cardY + 20 + BUTTON_HEIGHT);
                 if (delBtn.contains(x, y)) {
                     servers.remove(s);
                     saveServers();
