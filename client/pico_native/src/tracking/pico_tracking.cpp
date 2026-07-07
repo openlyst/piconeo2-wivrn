@@ -598,6 +598,16 @@ void pico_native_tracker::transmit_inputs(int64_t headset_ns)
 	from_headset::inputs pkt{};
 	XrTime now = to_xr_time(headset_ns);
 
+	// Index into prev_inputs[c]: 0=trigger_value, 1=trigger_click, 2=stick_x, 3=stick_y,
+	// 4=stick_click, 5=button_a/x, 6=button_b/y, 7=menu/system, 8=squeeze_value, 9=squeeze_click
+	auto add = [&](int c, int idx, device_id id, float value) {
+		auto & prev = prev_inputs[c][idx];
+		if (prev.last_change_time == 0 || prev.value != value)
+			prev.last_change_time = now;
+		prev.value = value;
+		pkt.values.push_back({.id = id, .value = value, .last_change_time = prev.last_change_time});
+	};
+
 	for (int c = 0; c < 2; c++)
 	{
 		if (!cs[c].connected)
@@ -605,39 +615,37 @@ void pico_native_tracker::transmit_inputs(int64_t headset_ns)
 
 		bool is_left = (c == 0);
 
-		auto add = [&](device_id id, float value) {
-			pkt.values.push_back({.id = id, .value = value, .last_change_time = now});
-		};
-
 		float trigger_val = cs[c].trigger / 255.0f;
 		float touch_x = (cs[c].touch[0] - 128) / 128.0f;
 		float touch_y = (128 - cs[c].touch[1]) / 128.0f;
+		float trigger_click = trigger_val > 0.5f ? 1.0f : 0.0f;
+		float squeeze = cs[c].grip ? 1.0f : 0.0f;
 
 		if (is_left)
 		{
-			add(device_id::LEFT_TRIGGER_VALUE, trigger_val);
-			add(device_id::LEFT_TRIGGER_CLICK, trigger_val > 0.9f ? 1.0f : 0.0f);
-			add(device_id::LEFT_THUMBSTICK_X, touch_x);
-			add(device_id::LEFT_THUMBSTICK_Y, touch_y);
-			add(device_id::LEFT_THUMBSTICK_CLICK, cs[c].thumbstick_click ? 1.0f : 0.0f);
-			add(device_id::X_CLICK, cs[c].button_a ? 1.0f : 0.0f);
-			add(device_id::Y_CLICK, cs[c].button_b ? 1.0f : 0.0f);
-			add(device_id::MENU_CLICK, cs[c].menu ? 1.0f : 0.0f);
-			add(device_id::LEFT_SQUEEZE_VALUE, cs[c].grip ? 1.0f : 0.0f);
-			add(device_id::LEFT_SQUEEZE_CLICK, cs[c].grip ? 1.0f : 0.0f);
+			add(c, 0, device_id::LEFT_TRIGGER_VALUE, trigger_val);
+			add(c, 1, device_id::LEFT_TRIGGER_CLICK, trigger_click);
+			add(c, 2, device_id::LEFT_THUMBSTICK_X, touch_x);
+			add(c, 3, device_id::LEFT_THUMBSTICK_Y, touch_y);
+			add(c, 4, device_id::LEFT_THUMBSTICK_CLICK, cs[c].thumbstick_click ? 1.0f : 0.0f);
+			add(c, 5, device_id::X_CLICK, cs[c].button_a ? 1.0f : 0.0f);
+			add(c, 6, device_id::Y_CLICK, cs[c].button_b ? 1.0f : 0.0f);
+			add(c, 7, device_id::MENU_CLICK, cs[c].menu ? 1.0f : 0.0f);
+			add(c, 8, device_id::LEFT_SQUEEZE_VALUE, squeeze);
+			add(c, 9, device_id::LEFT_SQUEEZE_CLICK, squeeze);
 		}
 		else
 		{
-			add(device_id::RIGHT_TRIGGER_VALUE, trigger_val);
-			add(device_id::RIGHT_TRIGGER_CLICK, trigger_val > 0.9f ? 1.0f : 0.0f);
-			add(device_id::RIGHT_THUMBSTICK_X, touch_x);
-			add(device_id::RIGHT_THUMBSTICK_Y, touch_y);
-			add(device_id::RIGHT_THUMBSTICK_CLICK, cs[c].thumbstick_click ? 1.0f : 0.0f);
-			add(device_id::A_CLICK, cs[c].button_a ? 1.0f : 0.0f);
-			add(device_id::B_CLICK, cs[c].button_b ? 1.0f : 0.0f);
-			add(device_id::SYSTEM_CLICK, cs[c].menu ? 1.0f : 0.0f);
-			add(device_id::RIGHT_SQUEEZE_VALUE, cs[c].grip ? 1.0f : 0.0f);
-			add(device_id::RIGHT_SQUEEZE_CLICK, cs[c].grip ? 1.0f : 0.0f);
+			add(c, 0, device_id::RIGHT_TRIGGER_VALUE, trigger_val);
+			add(c, 1, device_id::RIGHT_TRIGGER_CLICK, trigger_click);
+			add(c, 2, device_id::RIGHT_THUMBSTICK_X, touch_x);
+			add(c, 3, device_id::RIGHT_THUMBSTICK_Y, touch_y);
+			add(c, 4, device_id::RIGHT_THUMBSTICK_CLICK, cs[c].thumbstick_click ? 1.0f : 0.0f);
+			add(c, 5, device_id::A_CLICK, cs[c].button_a ? 1.0f : 0.0f);
+			add(c, 6, device_id::B_CLICK, cs[c].button_b ? 1.0f : 0.0f);
+			add(c, 7, device_id::SYSTEM_CLICK, cs[c].menu ? 1.0f : 0.0f);
+			add(c, 8, device_id::RIGHT_SQUEEZE_VALUE, squeeze);
+			add(c, 9, device_id::RIGHT_SQUEEZE_CLICK, squeeze);
 		}
 	}
 
