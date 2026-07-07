@@ -128,18 +128,17 @@ void streaming_client::setup_decoders()
 				{
 					std::lock_guard lock(decoded_frame_mutex);
 					auto & buf = decoded_frame_buffers[i];
-					for (auto & slot : buf)
+					size_t oldest = 0;
+					uint64_t oldest_fi = UINT64_MAX;
+					for (size_t j = 0; j < buf.size(); j++)
 					{
-						if (!slot || slot->frame_index <= frame->frame_index)
-						{
-							slot = frame;
-							break;
-						}
+						if (!buf[j])
+						{ oldest = j; break; }
+						if (buf[j]->frame_index < oldest_fi)
+						{ oldest_fi = buf[j]->frame_index; oldest = j; }
 					}
-					uint64_t max_fi = 0;
-					for (auto & slot : buf)
-						if (slot) max_fi = std::max(max_fi, slot->frame_index);
-					latest_decoded_frame_index = max_fi;
+					buf[oldest] = frame;
+					latest_decoded_frame_index = frame->frame_index;
 				}
 				if (session)
 				{
@@ -418,28 +417,6 @@ void streaming_client::reset_stream_state()
 	}
 	latest_decoded_frame_index = 0;
 	last_shard_ns.store(0);
-}
-
-std::shared_ptr<pico_decoded_frame> streaming_client::get_latest_frame(int stream)
-{
-	std::lock_guard lock(decoded_frame_mutex);
-	auto & buf = decoded_frame_buffers[stream];
-	std::shared_ptr<pico_decoded_frame> best;
-	uint64_t best_fi = 0;
-	for (auto & slot : buf)
-	{
-		if (slot && slot->valid && slot->frame_index >= best_fi)
-		{
-			best = slot;
-			best_fi = slot->frame_index;
-		}
-	}
-	return best;
-}
-
-std::shared_ptr<pico_decoded_frame> streaming_client::get_frame_for_display_time(XrTime display_time)
-{
-	return {};
 }
 
 void streaming_client::network_loop()

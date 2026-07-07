@@ -97,16 +97,6 @@ struct streaming_client
 	std::array<std::shared_ptr<pico_decoded_frame>, FRAME_BUFFER_SIZE> decoded_frame_buffers[3];
 	uint64_t latest_decoded_frame_index{0};
 
-	std::shared_ptr<pico_decoded_frame> get_latest_frame(int stream);
-	std::shared_ptr<pico_decoded_frame> get_frame_for_display_time(XrTime display_time);
-
-	GLuint eye_textures[3]{0, 0, 0};
-	EGLImageKHR eye_egl_images[3]{EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR};
-	EGLImageKHR eye_prev_egl_images[3]{EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR};
-	AHardwareBuffer * last_hb[3]{nullptr, nullptr, nullptr};
-
-	GLuint stream_fbo = 0;
-
 	std::mutex audio_mutex;
 	std::optional<wivrn::to_headset::audio_stream_description> audio_desc;
 	std::unique_ptr<pico_audio> audio_handle;

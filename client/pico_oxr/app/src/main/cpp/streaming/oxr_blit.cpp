@@ -8,13 +8,11 @@ oxr_blit::~oxr_blit()
 	{
 		if (eye_textures[i])
 			glDeleteTextures(1, &eye_textures[i]);
+		if (eye_egl_images[i] != EGL_NO_IMAGE_KHR && g_eglDestroyImageKHR)
+			g_eglDestroyImageKHR(dpy, eye_egl_images[i]);
+		if (eye_prev_egl_images[i] != EGL_NO_IMAGE_KHR && g_eglDestroyImageKHR)
+			g_eglDestroyImageKHR(dpy, eye_prev_egl_images[i]);
 	}
-	for (auto & [hb, entry] : egl_image_cache)
-	{
-		if (entry.img != EGL_NO_IMAGE_KHR && g_eglDestroyImageKHR)
-			g_eglDestroyImageKHR(dpy, entry.img);
-	}
-	egl_image_cache.clear();
 	if (fbo)
 		glDeleteFramebuffers(1, &fbo);
 }
@@ -50,33 +48,26 @@ void oxr_blit::blit(pico_blit_pipeline * pipeline, std::shared_ptr<pico_decoded_
 	{
 		AHardwareBuffer * hb = frame->hardware_buffer;
 
-		if (current_hb[stream_idx] != hb)
+		if (last_hb[stream_idx] != hb)
 		{
-			current_hb[stream_idx] = hb;
+			if (eye_prev_egl_images[stream_idx] != EGL_NO_IMAGE_KHR && g_eglDestroyImageKHR)
+				g_eglDestroyImageKHR(dpy, eye_prev_egl_images[stream_idx]);
+			eye_prev_egl_images[stream_idx] = eye_egl_images[stream_idx];
+			eye_egl_images[stream_idx] = EGL_NO_IMAGE_KHR;
+			last_hb[stream_idx] = hb;
 
-			auto it = egl_image_cache.find(hb);
-			if (it == egl_image_cache.end())
+			EGLClientBuffer client_buffer = g_eglGetNativeClientBufferANDROID(hb);
+			if (client_buffer)
 			{
-				EGLClientBuffer client_buffer = g_eglGetNativeClientBufferANDROID(hb);
-				EGLImageKHR img = EGL_NO_IMAGE_KHR;
-				if (client_buffer)
-				{
-					EGLint attrs[] = { EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE };
-					img = g_eglCreateImageKHR(
-						dpy, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID, client_buffer, attrs);
-				}
-				egl_image_cache[hb] = { img, 1 };
-			}
-			else
-			{
-				it->second.ref_count++;
+				EGLint attrs[] = { EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE };
+				eye_egl_images[stream_idx] = g_eglCreateImageKHR(
+					dpy, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID, client_buffer, attrs);
 			}
 
-			EGLImageKHR egl_img = egl_image_cache[hb].img;
-			if (egl_img != EGL_NO_IMAGE_KHR)
+			if (eye_egl_images[stream_idx] != EGL_NO_IMAGE_KHR)
 			{
 				glBindTexture(GL_TEXTURE_EXTERNAL_OES, eye_textures[stream_idx]);
-				g_glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, egl_img);
+				g_glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, eye_egl_images[stream_idx]);
 				glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
 			}
 		}
