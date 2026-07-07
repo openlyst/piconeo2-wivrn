@@ -661,6 +661,20 @@ static void poll_events(AppState* app) {
                 XrResult rr = g_pfnXrResetSensorPICO(app->session, XR_RESET_ALL);
                 LOGI("xrResetSensorPICO result: %d", rr);
             }
+            if (app->localSpace) {
+                xrDestroySpace(app->localSpace);
+                app->localSpace = XR_NULL_HANDLE;
+            }
+            XrReferenceSpaceCreateInfo rsci = {};
+            rsci.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
+            rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+            rsci.poseInReferenceSpace.orientation.w = 1.f;
+            rsci.poseInReferenceSpace.position.y = 0.f;
+            XrResult rr = xrCreateReferenceSpace(app->session, &rsci, &app->localSpace);
+            if (rr != XR_SUCCESS)
+                LOGE("xrCreateReferenceSpace after recenter failed: %d", rr);
+            else
+                LOGI("Reference space recreated after recenter");
             app->lobby.recenter();
             break;
         }
