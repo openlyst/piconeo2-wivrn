@@ -165,7 +165,7 @@ void pico_blit_pipeline::draw(int eye, GLuint src_texture,
 
 		float * v = vertex_data.data();
 		uint32_t in_y = 0;
-		float out_y = -0.5f * out_h;
+		float out_y = 0.5f * out_h;
 		for (size_t iy = 0; iy < foveation.y.size(); ++iy)
 		{
 			const int ratio_y = std::abs(n_ratio_y - (int)iy) + 1;
@@ -184,7 +184,7 @@ void pico_blit_pipeline::draw(int eye, GLuint src_texture,
 				*v++ = (float)in_y;
 
 				*v++ = out_x * out_pixel_w;
-				*v++ = (out_y + n_out_y * ratio_y) * out_pixel_h;
+				*v++ = (out_y - n_out_y * ratio_y) * out_pixel_h;
 				*v++ = (float)in_x;
 				*v++ = (float)(in_y + n_out_y);
 
@@ -198,7 +198,7 @@ void pico_blit_pipeline::draw(int eye, GLuint src_texture,
 			*v++ = (float)in_y;
 
 			in_y += n_out_y;
-			out_y += n_out_y * ratio_y;
+			out_y -= n_out_y * ratio_y;
 
 			*v++ = out_x * out_pixel_w;
 			*v++ = out_y * out_pixel_h;
