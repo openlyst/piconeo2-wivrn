@@ -879,8 +879,8 @@ public class WivrnLobbyView {
         y = drawSlider(x, y, w, "Foveated Encoding", foveationScale, 0, 80, "%");
         y = drawSlider(x, y, w, "Bitrate", bitrate, 5, 100, "Mbit/s");
 
-        y = drawDropdown(x, y, w, "Codec", new String[]{"Automatic", "H.264", "H.265", "AV1"},
-            codec.equals("auto") ? 0 : codec.equals("h264") ? 1 : codec.equals("h265") ? 2 : 3);
+        y = drawDropdown(x, y, w, "Codec", new String[]{"Automatic", "H.264", "H.265"},
+            codec.equals("auto") ? 0 : codec.equals("h264") ? 1 : 2);
 
         y = drawCheckbox(x, y, w, "TCP only", tcpOnly);
         y = drawCheckbox(x, y, w, "Enable microphone", microphoneEnabled);
@@ -1917,7 +1917,7 @@ public class WivrnLobbyView {
 
         RectF codecBox = new RectF(contentX, sy, contentX + 300, sy + 40);
         if (codecBox.contains(x, y)) {
-            String[] codecs = {"auto", "h264", "h265", "av1"};
+            String[] codecs = {"auto", "h264", "h265"};
             int idx = 0;
             for (int i = 0; i < codecs.length; i++) {
                 if (codecs[i].equals(codec)) { idx = i; break; }

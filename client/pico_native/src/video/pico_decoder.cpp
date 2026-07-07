@@ -604,7 +604,7 @@ void pico_video_decoder::on_image_available(AImageReader * reader)
 
 void pico_video_decoder::supported_codecs(std::vector<wivrn::video_codec> & result)
 {
-	for (auto codec : {wivrn::video_codec::av1, wivrn::video_codec::h265, wivrn::video_codec::h264})
+	for (auto codec : {wivrn::video_codec::h265, wivrn::video_codec::h264})
 	{
 		AMediaCodec * mc = AMediaCodec_createDecoderByType(mime(codec));
 		bool supported = mc != nullptr;
