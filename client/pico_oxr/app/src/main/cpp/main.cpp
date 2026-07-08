@@ -1389,15 +1389,10 @@ static void render_frame(AppState* app) {
         }
 
         GLuint glImg = app->swapchains[eye].images[imgIndex].image;
-        int target_w = app->swapchains[eye].width;
-        int target_h = app->swapchains[eye].height;
-        int render_w = std::clamp(app->stream.eye_width.load(), 256, target_w);
-        int render_h = std::clamp(app->stream.eye_height.load(), 256, target_h);
-        app->lobby.set_resolution(render_w, render_h);
-        app->lobby.set_target_resolution(target_w, target_h);
-        app->stream.blit_pipeline.set_resolution(target_w, target_h);
-        int32_t w = target_w;
-        int32_t h = target_h;
+        int32_t w = app->swapchains[eye].width;
+        int32_t h = app->swapchains[eye].height;
+        app->lobby.set_resolution(w, h);
+        app->stream.blit_pipeline.set_resolution(w, h);
 
         glBindFramebuffer(GL_FRAMEBUFFER, app->fbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, glImg, 0);
@@ -1792,10 +1787,8 @@ extern "C" void android_main(struct android_app* androidApp) {
     glGenFramebuffers(1, &app.fbo);
     glGenRenderbuffers(NUM_EYES, app.depth_rbo);
 
-    int max_w = app.swapchains[0].width;
-    int max_h = app.swapchains[0].height;
-    int eye_w = std::clamp(app.stream.eye_width.load(), 256, max_w);
-    int eye_h = std::clamp(app.stream.eye_height.load(), 256, max_h);
+    int eye_w = app.swapchains[0].width;
+    int eye_h = app.swapchains[0].height;
     app.lobby.init(eye_w, eye_h);
     app.blit.init(app.display, eye_w, eye_h);
     app.stream.blit_pipeline.init(eye_w, eye_h);

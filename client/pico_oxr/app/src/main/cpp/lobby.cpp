@@ -49,27 +49,6 @@ void main()
 }
 )";
 
-static const char * blit_vert_src = R"(
-attribute vec2 a_pos;
-attribute vec2 a_uv;
-varying vec2 v_uv;
-void main()
-{
-    gl_Position = vec4(a_pos, 0.0, 1.0);
-    v_uv = vec2(a_uv.x, 1.0 - a_uv.y);
-}
-)";
-
-static const char * blit_frag_src = R"(
-precision mediump float;
-varying vec2 v_uv;
-uniform sampler2D u_tex;
-void main()
-{
-    gl_FragColor = texture2D(u_tex, v_uv);
-}
-)";
-
 static GLuint compile_shader(GLenum type, const char * src)
 {
 	GLuint shader = glCreateShader(type);
@@ -197,14 +176,10 @@ pico_lobby::~pico_lobby()
 {
 	if (program) glDeleteProgram(program);
 	if (tex_program) glDeleteProgram(tex_program);
-	if (blit_program) glDeleteProgram(blit_program);
 	if (controller_vbo) glDeleteBuffers(1, &controller_vbo);
 	if (ray_vbo) glDeleteBuffers(1, &ray_vbo);
 	if (quad_vbo) glDeleteBuffers(1, &quad_vbo);
 	if (ui_texture) glDeleteTextures(1, &ui_texture);
-	if (fbo) glDeleteFramebuffers(1, &fbo);
-	if (color_texture) glDeleteTextures(1, &color_texture);
-	if (fbo_depth_rbo) glDeleteRenderbuffers(1, &fbo_depth_rbo);
 }
 
 static void generate_placeholder_texture(GLuint tex, int w, int h)
@@ -315,29 +290,6 @@ void pico_lobby::init(int w, int h)
 	tex_mvp_uniform = glGetUniformLocation(tex_program, "u_mvp");
 	tex_sampler_uniform = glGetUniformLocation(tex_program, "u_tex");
 
-	GLuint bvert = compile_shader(GL_VERTEX_SHADER, blit_vert_src);
-	GLuint bfrag = compile_shader(GL_FRAGMENT_SHADER, blit_frag_src);
-	if (bvert && bfrag)
-	{
-		blit_program = glCreateProgram();
-		glAttachShader(blit_program, bvert);
-		glAttachShader(blit_program, bfrag);
-		glLinkProgram(blit_program);
-		GLint bstatus = GL_FALSE;
-		glGetProgramiv(blit_program, GL_LINK_STATUS, &bstatus);
-		if (bstatus != GL_TRUE)
-		{
-			char log[1024];
-			glGetProgramInfoLog(blit_program, sizeof(log), nullptr, log);
-			LOGE("Lobby blit program link error: %s", log);
-		}
-		blit_pos_attrib = glGetAttribLocation(blit_program, "a_pos");
-		blit_uv_attrib = glGetAttribLocation(blit_program, "a_uv");
-		blit_sampler_uniform = glGetUniformLocation(blit_program, "u_tex");
-	}
-	glDeleteShader(bvert);
-	glDeleteShader(bfrag);
-
 	glGenTextures(1, &ui_texture);
 	glBindTexture(GL_TEXTURE_EXTERNAL_OES, ui_texture);
 	glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -378,12 +330,6 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	int h = eye_height.load();
 	if (w <= 0 || h <= 0)
 		return;
-
-	ensure_fbo(w, h);
-
-	GLint prev_fbo = 0;
-	glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prev_fbo);
-	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 
 	glViewport(0, 0, w, h);
 	glEnable(GL_DEPTH_TEST);
@@ -478,9 +424,6 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	glUseProgram(0);
 
 	draw_quad(head_orient, head_pos, fov, ipd, eye);
-
-	glBindFramebuffer(GL_FRAMEBUFFER, prev_fbo);
-	blit_to_target();
 }
 
 GLuint pico_lobby::get_external_texture()
@@ -605,75 +548,6 @@ void pico_lobby::set_resolution(int w, int h)
 {
 	eye_width.store(w);
 	eye_height.store(h);
-}
-
-void pico_lobby::set_target_resolution(int w, int h)
-{
-	target_width = w;
-	target_height = h;
-}
-
-void pico_lobby::ensure_fbo(int w, int h)
-{
-	if (fbo_width == w && fbo_height == h && fbo != 0)
-		return;
-
-	if (fbo == 0)
-	{
-		glGenFramebuffers(1, &fbo);
-		glGenTextures(1, &color_texture);
-		glGenRenderbuffers(1, &fbo_depth_rbo);
-	}
-
-	glBindTexture(GL_TEXTURE_2D, color_texture);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glBindTexture(GL_TEXTURE_2D, 0);
-
-	glBindRenderbuffer(GL_RENDERBUFFER, fbo_depth_rbo);
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
-	glBindRenderbuffer(GL_RENDERBUFFER, 0);
-
-	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color_texture, 0);
-	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, fbo_depth_rbo);
-	GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-	if (status != GL_FRAMEBUFFER_COMPLETE)
-		LOGE("Lobby FBO incomplete: %d", status);
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-	fbo_width = w;
-	fbo_height = h;
-}
-
-void pico_lobby::blit_to_target()
-{
-	if (!blit_program || !color_texture)
-		return;
-
-	glViewport(0, 0, target_width, target_height);
-	glDisable(GL_DEPTH_TEST);
-	glDisable(GL_CULL_FACE);
-	glDepthMask(GL_FALSE);
-
-	glUseProgram(blit_program);
-	glUniform1i(blit_sampler_uniform, 0);
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, color_texture);
-	glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
-	glEnableVertexAttribArray(blit_pos_attrib);
-	glVertexAttribPointer(blit_pos_attrib, 3, GL_FLOAT, GL_FALSE, 20, (void *)0);
-	glEnableVertexAttribArray(blit_uv_attrib);
-	glVertexAttribPointer(blit_uv_attrib, 2, GL_FLOAT, GL_FALSE, 20, (void *)12);
-	glDrawArrays(GL_TRIANGLES, 0, 6);
-	glDisableVertexAttribArray(blit_pos_attrib);
-	glDisableVertexAttribArray(blit_uv_attrib);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
-	glBindTexture(GL_TEXTURE_2D, 0);
-	glUseProgram(0);
 }
 
 void pico_lobby::recenter()
