@@ -980,17 +980,17 @@ public class WivrnLobbyView {
         canvas.drawText("Settings", x, y + 30, textLargePaint);
         y += 70;
 
-        y = drawResolutionSlider(x, y, w, "Resolution", resWidth, 1024, 2048);
-        y = drawSlider(x, y, w, "Foveated Encoding", foveationScale, 0, 80, "%");
-        y = drawSlider(x, y, w, "Bitrate", bitrate, 5, 100, "Mbit/s");
-        y = drawSlider(x, y, w, "IPD", ipdMm, 58, 72, "mm");
+        y = drawResolutionSlider(x, y, w, "Resolution", resWidth, 1024, 2048, true);
+        y = drawSlider(x, y, w, "Foveated Encoding", foveationScale, 0, 80, "%", true);
+        y = drawSlider(x, y, w, "Bitrate", bitrate, 5, 100, "Mbit/s", true);
+        y = drawSlider(x, y, w, "IPD", ipdMm, 58, 72, "mm", true);
 
         y = drawDropdown(x, y, w, "Codec", new String[]{"Automatic", "H.264", "H.265"},
-            codec.equals("auto") ? 0 : codec.equals("h264") ? 1 : 2);
+            codec.equals("auto") ? 0 : codec.equals("h264") ? 1 : 2, true);
 
-        y = drawCheckbox(x, y, w, "TCP only", tcpOnly);
-        y = drawCheckbox(x, y, w, "Enable microphone", microphoneEnabled);
-        y = drawCheckbox(x, y, w, "High power mode", highPowerMode);
+        y = drawCheckbox(x, y, w, "TCP only", tcpOnly, true);
+        y = drawCheckbox(x, y, w, "Enable microphone", microphoneEnabled, true);
+        y = drawCheckbox(x, y, w, "High power mode", highPowerMode, true);
 
         y += 20;
         RectF resetBtn = new RectF(x, y, x + 200, y + BUTTON_HEIGHT);
@@ -1026,59 +1026,106 @@ public class WivrnLobbyView {
     }
 
     private float drawSlider(float x, float y, float w, String label, int value, int min, int max, String unit) {
+        return drawSlider(x, y, w, label, value, min, max, unit, false);
+    }
+
+    private float drawSlider(float x, float y, float w, String label, int value, int min, int max, String unit, boolean disabled) {
+        int prevTextColor = textPaint.getColor();
+        int prevSmallColor = textSmallPaint.getColor();
+        if (disabled) {
+            textPaint.setColor(Color.rgb(90, 95, 105));
+            textSmallPaint.setColor(Color.rgb(70, 75, 85));
+        }
         canvas.drawText(label, x, y + 20, textPaint);
         y += 35;
 
         float sliderW = w - 100;
         RectF track = new RectF(x, y, x + sliderW, y + 8);
-        canvas.drawRoundRect(track, 4, 4, sliderTrackPaint);
+        canvas.drawRoundRect(track, 4, 4, disabled ? dimPaint : sliderTrackPaint);
 
         float pct = (float)(value - min) / (max - min);
         RectF fill = new RectF(x, y, x + sliderW * pct, y + 8);
-        canvas.drawRoundRect(fill, 4, 4, sliderFillPaint);
+        if (!disabled)
+            canvas.drawRoundRect(fill, 4, 4, sliderFillPaint);
 
         float handleX = x + sliderW * pct;
-        canvas.drawCircle(handleX, y + 4, 14, sliderHandlePaint);
+        Paint handlePaint = disabled ? new Paint() {{ setAntiAlias(true); setColor(Color.rgb(80, 85, 95)); }} : sliderHandlePaint;
+        canvas.drawCircle(handleX, y + 4, 14, handlePaint);
 
         canvas.drawText(value + unit, x + sliderW + 15, y + 12, textSmallPaint);
 
         y += 30;
+        textPaint.setColor(prevTextColor);
+        textSmallPaint.setColor(prevSmallColor);
         return y + 20;
     }
 
     private float drawResolutionSlider(float x, float y, float w, String label, int resW, int minW, int maxW) {
+        return drawResolutionSlider(x, y, w, label, resW, minW, maxW, false);
+    }
+
+    private float drawResolutionSlider(float x, float y, float w, String label, int resW, int minW, int maxW, boolean disabled) {
         int resH = resW * 2160 / 2048;
+        int prevTextColor = textPaint.getColor();
+        int prevSmallColor = textSmallPaint.getColor();
+        if (disabled) {
+            textPaint.setColor(Color.rgb(90, 95, 105));
+            textSmallPaint.setColor(Color.rgb(70, 75, 85));
+        }
         canvas.drawText(label, x, y + 20, textPaint);
         y += 35;
 
         float sliderW = w - 130;
         RectF track = new RectF(x, y, x + sliderW, y + 8);
-        canvas.drawRoundRect(track, 4, 4, sliderTrackPaint);
+        canvas.drawRoundRect(track, 4, 4, disabled ? dimPaint : sliderTrackPaint);
 
         float pct = (float)(resW - minW) / (maxW - minW);
         RectF fill = new RectF(x, y, x + sliderW * pct, y + 8);
-        canvas.drawRoundRect(fill, 4, 4, sliderFillPaint);
+        if (!disabled)
+            canvas.drawRoundRect(fill, 4, 4, sliderFillPaint);
 
         float handleX = x + sliderW * pct;
-        canvas.drawCircle(handleX, y + 4, 14, sliderHandlePaint);
+        Paint handlePaint = disabled ? new Paint() {{ setAntiAlias(true); setColor(Color.rgb(80, 85, 95)); }} : sliderHandlePaint;
+        canvas.drawCircle(handleX, y + 4, 14, handlePaint);
 
         canvas.drawText(resW + "x" + resH, x + sliderW + 15, y + 12, textSmallPaint);
 
         y += 30;
+        textPaint.setColor(prevTextColor);
+        textSmallPaint.setColor(prevSmallColor);
         return y + 20;
     }
 
     private float drawCheckbox(float x, float y, float w, String label, boolean checked) {
+        return drawCheckbox(x, y, w, label, checked, false);
+    }
+
+    private float drawCheckbox(float x, float y, float w, String label, boolean checked, boolean disabled) {
+        int prevTextColor = textPaint.getColor();
+        if (disabled) {
+            textPaint.setColor(Color.rgb(90, 95, 105));
+        }
         RectF box = new RectF(x, y, x + 24, y + 24);
-        canvas.drawRoundRect(box, 4, 4, checked ? accentPaint : dimPaint);
-        if (checked) {
+        canvas.drawRoundRect(box, 4, 4, disabled ? dimPaint : (checked ? accentPaint : dimPaint));
+        if (checked && !disabled) {
             canvas.drawText("X", x + 6, y + 18, textPaint);
         }
         canvas.drawText(label, x + 35, y + 20, textPaint);
+        textPaint.setColor(prevTextColor);
         return y + 40;
     }
 
     private float drawDropdown(float x, float y, float w, String label, String[] options, int selected) {
+        return drawDropdown(x, y, w, label, options, selected, false);
+    }
+
+    private float drawDropdown(float x, float y, float w, String label, String[] options, int selected, boolean disabled) {
+        int prevTextColor = textPaint.getColor();
+        int prevSmallColor = textSmallPaint.getColor();
+        if (disabled) {
+            textPaint.setColor(Color.rgb(90, 95, 105));
+            textSmallPaint.setColor(Color.rgb(70, 75, 85));
+        }
         canvas.drawText(label, x, y + 20, textPaint);
         y += 35;
 
@@ -1088,6 +1135,8 @@ public class WivrnLobbyView {
         canvas.drawText(selectedText, x + 15, y + 28, textPaint);
         canvas.drawText("v", x + 280, y + 28, textSmallPaint);
 
+        textPaint.setColor(prevTextColor);
+        textSmallPaint.setColor(prevSmallColor);
         return y + 50;
     }
 
@@ -1624,19 +1673,20 @@ public class WivrnLobbyView {
         canvas.drawRect(x, y, x + w, y + 1, sepPaint);
         y += 20;
 
+        textSmallPaint.setColor(Color.rgb(90, 95, 105));
         canvas.drawText("Resolution", x, y, textSmallPaint);
-        textPaint.setColor(Color.rgb(230, 235, 245));
+        textPaint.setColor(Color.rgb(90, 95, 105));
         canvas.drawText(streamResolutionScale + "%", valueX, y, textPaint);
         y += 42;
 
         canvas.drawText("Microphone", x, y, textSmallPaint);
-        textPaint.setColor(streamMicEnabled ? Color.rgb(120, 200, 120) : Color.rgb(200, 120, 120));
-        canvas.drawText(streamMicEnabled ? "Enabled" : "Disabled", valueX, y, textPaint);
+        textPaint.setColor(Color.rgb(90, 95, 105));
+        canvas.drawText("Disabled", valueX, y, textPaint);
         y += 42;
 
         canvas.drawText("High Power Mode", x, y, textSmallPaint);
-        textPaint.setColor(streamHighPower ? Color.rgb(120, 200, 120) : Color.rgb(200, 120, 120));
-        canvas.drawText(streamHighPower ? "Enabled" : "Disabled", valueX, y, textPaint);
+        textPaint.setColor(Color.rgb(90, 95, 105));
+        canvas.drawText("Disabled", valueX, y, textPaint);
         y += 42;
 
         y += 30;
@@ -1647,6 +1697,12 @@ public class WivrnLobbyView {
 
     private void renderStreamSettings(float x, float w) {
         float y = 40;
+        int prevTextColor = textPaint.getColor();
+        int dimText = Color.rgb(90, 95, 105);
+        int dimTrack = Color.rgb(45, 50, 60);
+        int dimHandle = Color.rgb(80, 85, 95);
+        textPaint.setColor(dimText);
+
         canvas.drawText("Stream Settings", x, y + 30, textLargePaint);
         y += 70;
 
@@ -1655,12 +1711,10 @@ public class WivrnLobbyView {
         y += 35;
 
         RectF track = new RectF(x, y, x + w - 150, y + 8);
-        canvas.drawRoundRect(track, 4, 4, sliderTrackPaint);
+        canvas.drawRoundRect(track, 4, 4, new Paint() {{ setColor(dimTrack); }});
         float fillW = (w - 150) * (streamBitrateSetting / 100f);
-        RectF fill = new RectF(x, y, x + fillW, y + 8);
-        canvas.drawRoundRect(fill, 4, 4, sliderFillPaint);
         float handleX = x + fillW;
-        canvas.drawCircle(handleX, y + 4, 12, sliderHandlePaint);
+        canvas.drawCircle(handleX, y + 4, 12, new Paint() {{ setAntiAlias(true); setColor(dimHandle); }});
         y += 50;
 
         canvas.drawText("Resolution Scale", x, y, textPaint);
@@ -1668,39 +1722,36 @@ public class WivrnLobbyView {
         y += 35;
 
         RectF track2 = new RectF(x, y, x + w - 150, y + 8);
-        canvas.drawRoundRect(track2, 4, 4, sliderTrackPaint);
+        canvas.drawRoundRect(track2, 4, 4, new Paint() {{ setColor(dimTrack); }});
         float fillW2 = (w - 150) * (streamResolutionScale / 200f);
-        RectF fill2 = new RectF(x, y, x + fillW2, y + 8);
-        canvas.drawRoundRect(fill2, 4, 4, sliderFillPaint);
         float handleX2 = x + fillW2;
-        canvas.drawCircle(handleX2, y + 4, 12, sliderHandlePaint);
+        canvas.drawCircle(handleX2, y + 4, 12, new Paint() {{ setAntiAlias(true); setColor(dimHandle); }});
         y += 50;
 
         canvas.drawText("Microphone", x, y + 10, textPaint);
         RectF micToggle = new RectF(x + w - 80, y, x + w - 20, y + 40);
         Paint togglePaint = new Paint();
         togglePaint.setAntiAlias(true);
-        togglePaint.setColor(streamMicEnabled ? Color.rgb(30, 140, 60) : Color.rgb(50, 55, 65));
+        togglePaint.setColor(Color.rgb(50, 55, 65));
         canvas.drawRoundRect(micToggle, 20, 20, togglePaint);
-        float knobX = streamMicEnabled ? micToggle.right - 20 : micToggle.left + 20;
-        canvas.drawCircle(knobX, micToggle.centerY(), 16, new Paint());
         Paint knobPaint = new Paint();
         knobPaint.setAntiAlias(true);
-        knobPaint.setColor(Color.WHITE);
-        canvas.drawCircle(knobX, micToggle.centerY(), 16, knobPaint);
+        knobPaint.setColor(Color.rgb(100, 105, 115));
+        canvas.drawCircle(micToggle.left + 20, micToggle.centerY(), 16, knobPaint);
         y += 60;
 
         canvas.drawText("High Power Mode", x, y + 10, textPaint);
         RectF powerToggle = new RectF(x + w - 80, y, x + w - 20, y + 40);
         Paint powerPaint = new Paint();
         powerPaint.setAntiAlias(true);
-        powerPaint.setColor(streamHighPower ? Color.rgb(30, 140, 60) : Color.rgb(50, 55, 65));
+        powerPaint.setColor(Color.rgb(50, 55, 65));
         canvas.drawRoundRect(powerToggle, 20, 20, powerPaint);
-        float knobX2 = streamHighPower ? powerToggle.right - 20 : powerToggle.left + 20;
         Paint knobPaint2 = new Paint();
         knobPaint2.setAntiAlias(true);
-        knobPaint2.setColor(Color.WHITE);
-        canvas.drawCircle(knobX2, powerToggle.centerY(), 16, knobPaint2);
+        knobPaint2.setColor(Color.rgb(100, 105, 115));
+        canvas.drawCircle(powerToggle.left + 20, powerToggle.centerY(), 16, knobPaint2);
+
+        textPaint.setColor(prevTextColor);
     }
 
     private void renderTouchCursor() {
@@ -2026,42 +2077,7 @@ public class WivrnLobbyView {
         }
 
         if (streamTab == STREAM_TAB_SETTINGS) {
-            float sy = 40 + 70;
-            float sliderY = sy + 35;
-            RectF bitrateTrack = new RectF(contentX, sliderY, contentX + contentW - 150, sliderY + 20);
-            if (bitrateTrack.contains(x, y)) {
-                activeSlider = SLIDER_STREAM_BITRATE;
-                float pct = Math.max(0, Math.min(1, (x - contentX) / (contentW - 150)));
-                streamBitrateSetting = (int)Math.max(1, Math.min(100, pct * 100));
-                markDirty();
-                return;
-            }
-
-            sliderY += 85;
-            RectF resTrack = new RectF(contentX, sliderY, contentX + contentW - 150, sliderY + 20);
-            if (resTrack.contains(x, y)) {
-                activeSlider = SLIDER_STREAM_RESOLUTION;
-                float pct = Math.max(0, Math.min(1, (x - contentX) / (contentW - 150)));
-                streamResolutionScale = (int)Math.max(10, Math.min(200, pct * 200));
-                markDirty();
-                return;
-            }
-
-            sliderY += 50;
-            RectF micToggle = new RectF(contentX + contentW - 80, sliderY, contentX + contentW - 20, sliderY + 40);
-            if (micToggle.contains(x, y)) {
-                streamMicEnabled = !streamMicEnabled;
-                markDirty();
-                return;
-            }
-
-            sliderY += 60;
-            RectF powerToggle = new RectF(contentX + contentW - 80, sliderY, contentX + contentW - 20, sliderY + 40);
-            if (powerToggle.contains(x, y)) {
-                streamHighPower = !streamHighPower;
-                markDirty();
-                return;
-            }
+            return;
         }
     }
 
@@ -2182,94 +2198,20 @@ public class WivrnLobbyView {
     private void handleSettingsClick(float x, float y) {
         float contentX = SIDEBAR_WIDTH + 20;
         float contentW = width - contentX - 20;
+
+        // All settings below are not yet wired to the streaming pipeline.
+        // Only the "Restore Defaults" button and reset confirm dialog are functional.
+
         float sy = 100;
-
-        float sliderW = contentW - 100;
-        float resSliderW = contentW - 130;
-        sy += 35;
-        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + resSliderW) {
-            activeSlider = SLIDER_RESOLUTION;
-            float pct = Math.max(0, Math.min(1, (x - contentX) / resSliderW));
-            resWidth = Math.max(1024, Math.min(2048, (int)(1024 + pct * 1024)));
-            saveSettings();
-            markDirty();
-            return;
-        }
-        sy += 50;
-
-        sy += 35;
-        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
-            activeSlider = SLIDER_FOVEATION;
-            float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
-            foveationScale = Math.max(0, Math.min(80, (int)(pct * 80)));
-            saveSettings();
-            markDirty();
-            return;
-        }
-        sy += 50;
-
-        sy += 35;
-        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
-            activeSlider = SLIDER_BITRATE;
-            float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
-            bitrate = Math.max(5, Math.min(100, (int)(5 + pct * 95)));
-            saveSettings();
-            markDirty();
-            return;
-        }
-        sy += 50;
-
-        sy += 35;
-        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
-            activeSlider = SLIDER_IPD;
-            float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
-            ipdMm = Math.max(58, Math.min(72, (int)(58 + pct * 14)));
-            saveSettings();
-            markDirty();
-            return;
-        }
-        sy += 50;
-
-        RectF codecBox = new RectF(contentX, sy, contentX + 300, sy + 40);
-        if (codecBox.contains(x, y)) {
-            String[] codecs = {"auto", "h264", "h265"};
-            int idx = 0;
-            for (int i = 0; i < codecs.length; i++) {
-                if (codecs[i].equals(codec)) { idx = i; break; }
-            }
-            idx = (idx + 1) % codecs.length;
-            codec = codecs[idx];
-            saveSettings();
-            markDirty();
-            return;
-        }
-        sy += 50;
-
-        RectF tcpBox = new RectF(contentX, sy, contentX + 24, sy + 24);
-        if (tcpBox.contains(x, y) || (x > contentX && x < contentX + 200 && y > sy && y < sy + 30)) {
-            tcpOnly = !tcpOnly;
-            saveSettings();
-            markDirty();
-            return;
-        }
-        sy += 40;
-
-        RectF micBox = new RectF(contentX, sy, contentX + 24, sy + 24);
-        if (micBox.contains(x, y) || (x > contentX && x < contentX + 250 && y > sy && y < sy + 30)) {
-            microphoneEnabled = !microphoneEnabled;
-            saveSettings();
-            markDirty();
-            return;
-        }
-        sy += 40;
-
-        RectF hpBox = new RectF(contentX, sy, contentX + 24, sy + 24);
-        if (hpBox.contains(x, y) || (x > contentX && x < contentX + 250 && y > sy && y < sy + 30)) {
-            highPowerMode = !highPowerMode;
-            saveSettings();
-            markDirty();
-            return;
-        }
+        // Skip past all disabled sliders/checkboxes/dropdown to find the reset button position
+        sy += 35 + 50; // resolution
+        sy += 35 + 50; // foveation
+        sy += 35 + 50; // bitrate
+        sy += 35 + 50; // IPD
+        sy += 50;       // codec dropdown
+        sy += 40;       // TCP
+        sy += 40;       // mic
+        sy += 40;       // high power
 
         // Restore Defaults button
         sy += 40;
