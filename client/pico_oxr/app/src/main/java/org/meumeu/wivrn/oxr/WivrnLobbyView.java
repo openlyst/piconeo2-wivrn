@@ -1010,7 +1010,7 @@ public class WivrnLobbyView {
 
         y = drawResolutionSlider(x, y, w, "Resolution", resWidth, 1024, 2048);
         y = drawSlider(x, y, w, "Foveated Encoding", foveationScale, 0, 80, "%", true);
-        y = drawSlider(x, y, w, "Bitrate", bitrate, 5, 100, "Mbit/s", true);
+        y = drawSlider(x, y, w, "Bitrate", bitrate, 5, 100, "Mbit/s", false);
         y = drawSlider(x, y, w, "IPD", ipdMm, 58, 72, "mm", false);
 
         y = drawDropdown(x, y, w, "Codec", new String[]{"Automatic", "H.264", "H.265"},
