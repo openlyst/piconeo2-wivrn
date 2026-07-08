@@ -797,7 +797,7 @@ void streaming_client::send_headset_info()
 	info.settings.preferred_refresh_rate = 72.0f;
 	info.settings.minimum_refresh_rate = 72.0f;
 	info.settings.fps_divider = 1;
-	info.settings.bitrate_bps = 20000000;
+	info.settings.bitrate_bps = 50000000;
 
 	pico_audio::get_audio_description(info);
 
