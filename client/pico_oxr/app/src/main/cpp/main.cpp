@@ -330,7 +330,7 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetPin(JNIEnv * env, jobject thiz, 
 }
 
 JNIEXPORT void JNICALL
-Java_org_meumeu_wivrn_oxr_StreamingActivity_nativeSetIpd(JNIEnv * env, jobject thiz, jint ipdMm)
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetIpd(JNIEnv * env, jobject thiz, jint ipdMm)
 {
     if (!g_app) return;
     float ipd_m = ipdMm * 0.001f;
@@ -1097,7 +1097,9 @@ static void render_frame(AppState* app) {
     float dx = views[0].pose.position.x - views[1].pose.position.x;
     float dy = views[0].pose.position.y - views[1].pose.position.y;
     float dz = views[0].pose.position.z - views[1].pose.position.z;
-    float ipd = sqrtf(dx*dx + dy*dy + dz*dz);
+    float hw_ipd = sqrtf(dx*dx + dy*dy + dz*dz);
+    float ipd = app->stream.tracker.soft_ipd.load();
+    if (ipd <= 0.001f) ipd = hw_ipd;
 
     app->stream.tracker.set_head_pose(head_orient, head_pos);
 
