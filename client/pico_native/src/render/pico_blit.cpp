@@ -126,89 +126,88 @@ void pico_blit_pipeline::draw(int eye, GLuint src_texture,
 	// Trivial foveation (no compression): fall back to a fullscreen quad.
 	const bool trivial = foveation.x.size() <= 1 && foveation.y.size() <= 1;
 	const size_t needed = trivial ? 4 : required_vertices(foveation);
-	if (vertex_data.size() < needed * 4)
-		vertex_data.resize(needed * 4);
 
-	if (trivial)
+	bool foveation_changed = vertex_dirty ||
+		foveation.x != last_foveation.x ||
+		foveation.y != last_foveation.y ||
+		src_width != last_src_width ||
+		src_height != last_src_height;
+
+	if (foveation_changed)
 	{
-		static int trivial_log = 0;
-		if (trivial_log++ < 5 || trivial_log % 300 == 0)
+		if (vertex_data.size() < needed * 4)
+			vertex_data.resize(needed * 4);
+
+		if (trivial)
 		{
-			spdlog::warn("blit eye={}: TRIVIAL path src={}x{} eye={}x{} foveation.x.size()={} foveation.y.size()={}",
-				eye, src_width, src_height, eye_width, eye_height,
-				foveation.x.size(), foveation.y.size());
+			float * v = vertex_data.data();
+			v[0] = -1.0f; v[1] = -1.0f; v[2] = 0.0f;          v[3] = (float)src_height;
+			v[4] =  1.0f; v[5] = -1.0f; v[6] = (float)src_width; v[7] = (float)src_height;
+			v[8] = -1.0f; v[9] =  1.0f; v[10] = 0.0f;          v[11] = 0.0f;
+			v[12] = 1.0f; v[13] = 1.0f; v[14] = (float)src_width; v[15] = 0.0f;
 		}
-
-		float * v = vertex_data.data();
-		v[0] = -1.0f; v[1] = -1.0f; v[2] = 0.0f;          v[3] = (float)src_height;
-		v[4] =  1.0f; v[5] = -1.0f; v[6] = (float)src_width; v[7] = (float)src_height;
-		v[8] = -1.0f; v[9] =  1.0f; v[10] = 0.0f;          v[11] = 0.0f;
-		v[12] = 1.0f; v[13] = 1.0f; v[14] = (float)src_width; v[15] = 0.0f;
-	}
-	else
-	{
-		const int n_ratio_x = (int)(foveation.x.size() - 1) / 2;
-		const int n_ratio_y = (int)(foveation.y.size() - 1) / 2;
-		const int out_w = count_pixels(foveation.x);
-		const int out_h = count_pixels(foveation.y);
-
-		const float out_pixel_w = 2.0f / std::max(1, out_w);
-		const float out_pixel_h = 2.0f / std::max(1, out_h);
-
-		if (out_w != eye_width || out_h != eye_height)
+		else
 		{
-			static int warn_count = 0;
-			if (++warn_count <= 5)
-				spdlog::warn("blit: defoveated size {}x{} differs from eye size {}x{}",
-					out_w, out_h, eye_width, eye_height);
-		}
+			const int n_ratio_x = (int)(foveation.x.size() - 1) / 2;
+			const int n_ratio_y = (int)(foveation.y.size() - 1) / 2;
+			const int out_w = count_pixels(foveation.x);
+			const int out_h = count_pixels(foveation.y);
 
-		float * v = vertex_data.data();
-		uint32_t in_y = 0;
-		float out_y = 0.5f * out_h;
-		for (size_t iy = 0; iy < foveation.y.size(); ++iy)
-		{
-			const int ratio_y = std::abs(n_ratio_y - (int)iy) + 1;
-			const uint16_t n_out_y = foveation.y[iy];
+			const float out_pixel_w = 2.0f / std::max(1, out_w);
+			const float out_pixel_h = 2.0f / std::max(1, out_h);
 
-			uint32_t in_x = 0;
-			float out_x = -0.5f * out_w;
-			for (size_t ix = 0; ix < foveation.x.size(); ++ix)
+			float * v = vertex_data.data();
+			uint32_t in_y = 0;
+			float out_y = 0.5f * out_h;
+			for (size_t iy = 0; iy < foveation.y.size(); ++iy)
 			{
-				const int ratio_x = std::abs(n_ratio_x - (int)ix) + 1;
-				const uint16_t n_out_x = foveation.x[ix];
+				const int ratio_y = std::abs(n_ratio_y - (int)iy) + 1;
+				const uint16_t n_out_y = foveation.y[iy];
 
+				uint32_t in_x = 0;
+				float out_x = -0.5f * out_w;
+				for (size_t ix = 0; ix < foveation.x.size(); ++ix)
+				{
+					const int ratio_x = std::abs(n_ratio_x - (int)ix) + 1;
+					const uint16_t n_out_x = foveation.x[ix];
+
+					*v++ = out_x * out_pixel_w;
+					*v++ = out_y * out_pixel_h;
+					*v++ = (float)in_x;
+					*v++ = (float)in_y;
+
+					*v++ = out_x * out_pixel_w;
+					*v++ = (out_y - n_out_y * ratio_y) * out_pixel_h;
+					*v++ = (float)in_x;
+					*v++ = (float)(in_y + n_out_y);
+
+					in_x += n_out_x;
+					out_x += n_out_x * ratio_x;
+				}
 				*v++ = out_x * out_pixel_w;
 				*v++ = out_y * out_pixel_h;
 				*v++ = (float)in_x;
 				*v++ = (float)in_y;
 
+				in_y += n_out_y;
+				out_y -= n_out_y * ratio_y;
+
 				*v++ = out_x * out_pixel_w;
-				*v++ = (out_y - n_out_y * ratio_y) * out_pixel_h;
+				*v++ = out_y * out_pixel_h;
 				*v++ = (float)in_x;
-				*v++ = (float)(in_y + n_out_y);
-
-				in_x += n_out_x;
-				out_x += n_out_x * ratio_x;
+				*v++ = (float)in_y;
+				*v++ = out_x * out_pixel_w;
+				*v++ = out_y * out_pixel_h;
+				*v++ = (float)in_x;
+				*v++ = (float)in_y;
 			}
-			// Degenerate vertices to break the strip.
-			*v++ = out_x * out_pixel_w;
-			*v++ = out_y * out_pixel_h;
-			*v++ = (float)in_x;
-			*v++ = (float)in_y;
-
-			in_y += n_out_y;
-			out_y -= n_out_y * ratio_y;
-
-			*v++ = out_x * out_pixel_w;
-			*v++ = out_y * out_pixel_h;
-			*v++ = (float)in_x;
-			*v++ = (float)in_y;
-			*v++ = out_x * out_pixel_w;
-			*v++ = out_y * out_pixel_h;
-			*v++ = (float)in_x;
-			*v++ = (float)in_y;
 		}
+
+		last_foveation = foveation;
+		last_src_width = src_width;
+		last_src_height = src_height;
+		last_vertex_count = needed;
+		vertex_dirty = false;
 	}
 
 	glViewport(0, 0, eye_width, eye_height);
@@ -223,7 +222,8 @@ void pico_blit_pipeline::draw(int eye, GLuint src_texture,
 	glUniform2f(tex_size_uniform, (float)src_width, (float)src_height);
 
 	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
-	glBufferData(GL_ARRAY_BUFFER, needed * 4 * sizeof(float), vertex_data.data(), GL_DYNAMIC_DRAW);
+	if (foveation_changed)
+		glBufferData(GL_ARRAY_BUFFER, needed * 4 * sizeof(float), vertex_data.data(), GL_DYNAMIC_DRAW);
 	glEnableVertexAttribArray(pos_attrib);
 	glVertexAttribPointer(pos_attrib, 2, GL_FLOAT, GL_FALSE, 16, (void *)0);
 	glEnableVertexAttribArray(uv_attrib);
