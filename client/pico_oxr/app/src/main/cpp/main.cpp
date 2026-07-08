@@ -1283,6 +1283,7 @@ static void render_frame(AppState* app) {
 
     struct timespec tfl0, tfl1;
     clock_gettime(CLOCK_MONOTONIC, &tfl0);
+    if (!app->stream.streaming.load() || app->stream.stream_ui_visible.load())
     {
         JNIEnv * env = nullptr;
         bool attached = false;
@@ -1300,9 +1301,10 @@ static void render_frame(AppState* app) {
     struct timespec tf;
     clock_gettime(CLOCK_MONOTONIC, &tf);
 
-    // Late frame selection — pick decoded frames as late as possible in the
-    // render cycle to minimize rend_wait. Frames arriving during tracking/
-    // controller/lobby work above get picked up this cycle instead of next.
+    // Late frame selection — try to pick matching frames from both streams
+    // using the oldest available index, falling back to independent per-eye
+    // selection if the matched frame isn't in the buffer. This keeps eyes
+    // in sync while avoiding the expensive search loop and render_wait spikes.
     if (app->stream.streaming.load())
     {
         was_streaming = true;
@@ -1311,45 +1313,30 @@ static void render_frame(AppState* app) {
         uint64_t idx0 = app->stream.latest_decoded_frame_index_per_stream[0].load(std::memory_order_acquire);
         uint64_t idx1 = app->stream.latest_decoded_frame_index_per_stream[1].load(std::memory_order_acquire);
 
-        if (idx0 > 0 && idx0 == idx1)
-        {
-            auto f0 = app->stream.get_frame(idx0, 0);
-            auto f1 = app->stream.get_frame(idx1, 1);
-            if (f0 && f1)
-            {
-                render_frames[0] = f0;
-                render_frames[1] = f1;
-            }
-        }
-        else if (idx0 > 0 && idx1 > 0)
+        bool got_pair = false;
+        if (idx0 > 0 && idx1 > 0)
         {
             uint64_t chosen = std::min(idx0, idx1);
             auto f0 = app->stream.get_frame(chosen, 0);
             auto f1 = app->stream.get_frame(chosen, 1);
-            if (f0 && f1)
+            if (f0 && f0->valid && f1 && f1->valid)
             {
                 render_frames[0] = f0;
                 render_frames[1] = f1;
+                got_pair = true;
             }
-            else
+        }
+
+        if (!got_pair)
+        {
+            for (int e = 0; e < 2; e++)
             {
-                auto &buf0 = app->stream.decoded_frame_buffers[0];
-                auto &buf1 = app->stream.decoded_frame_buffers[1];
-                uint64_t best = 0;
-                for (auto &s0 : buf0)
+                uint64_t idx = app->stream.latest_decoded_frame_index_per_stream[e].load(std::memory_order_acquire);
+                if (idx > 0)
                 {
-                    if (!s0 || !s0->valid) continue;
-                    for (auto &s1 : buf1)
-                    {
-                        if (!s1 || !s1->valid) continue;
-                        if (s0->frame_index == s1->frame_index && s0->frame_index > best)
-                            best = s0->frame_index;
-                    }
-                }
-                if (best > 0)
-                {
-                    render_frames[0] = app->stream.get_frame(best, 0);
-                    render_frames[1] = app->stream.get_frame(best, 1);
+                    auto f = app->stream.get_frame(idx, e);
+                    if (f && f->valid)
+                        render_frames[e] = f;
                 }
             }
         }
