@@ -12,6 +12,7 @@
 #include <mutex>
 #include <atomic>
 #include <algorithm>
+#include <thread>
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/android_sink.h>
@@ -317,19 +318,24 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeDisconnectServer(JNIEnv * env, jobj
 {
     if (!g_app) return;
     LOGI("nativeDisconnectServer");
-    g_app->stream.auto_reconnect.store(false);
-    g_app->stream.shutdown = true;
-    if (g_app->stream.session)
+    auto & s = g_app->stream;
+    s.auto_reconnect.store(false);
+    s.shutdown = true;
+    if (s.session)
     {
-        int fd = g_app->stream.session->get_control_fd();
+        int fd = s.session->get_control_fd();
         ::shutdown(fd, SHUT_RDWR);
     }
-    if (g_app->stream.network_thread.joinable())
-        g_app->stream.network_thread.join();
-    if (g_app->stream.connect_thread.joinable())
-        g_app->stream.connect_thread.join();
-    g_app->stream.session.reset();
-    g_app->stream.reset_stream_state();
+    std::thread([&s] {
+        std::lock_guard lock(s.connect_mutex);
+        if (s.connect_thread.joinable())
+            s.connect_thread.join();
+        if (s.network_thread.joinable())
+            s.network_thread.join();
+        s.session.reset();
+        s.reset_stream_state();
+        s.shutdown = false;
+    }).detach();
 }
 
 JNIEXPORT void JNICALL
