@@ -884,9 +884,9 @@ void streaming_client::try_connect()
 			int fd = session->get_control_fd();
 			::shutdown(fd, SHUT_RDWR);
 		}
+		connect_thread.join();
 		if (network_thread.joinable())
 			network_thread.join();
-		connect_thread.join();
 		session.reset();
 		shutdown = false;
 	}
