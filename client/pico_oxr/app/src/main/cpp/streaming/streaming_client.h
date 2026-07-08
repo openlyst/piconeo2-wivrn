@@ -97,12 +97,25 @@ struct streaming_client
 	std::mutex decoded_frame_mutex;
 	std::array<std::shared_ptr<pico_decoded_frame>, FRAME_BUFFER_SIZE> decoded_frame_buffers[3];
 	std::atomic<uint64_t> latest_decoded_frame_index{0};
+	std::atomic<uint64_t> latest_decoded_frame_index_per_stream[3]{};
 
 	std::shared_ptr<pico_decoded_frame> get_frame(uint64_t frame_index, int stream) const
 	{
 		auto &buf = decoded_frame_buffers[stream];
 		auto &slot = buf[frame_index % buf.size()];
 		if (slot && slot->valid && slot->frame_index == frame_index)
+			return slot;
+		return nullptr;
+	}
+
+	std::shared_ptr<pico_decoded_frame> get_latest_frame(int stream) const
+	{
+		uint64_t idx = latest_decoded_frame_index_per_stream[stream].load(std::memory_order_acquire);
+		if (idx == 0)
+			return nullptr;
+		auto &buf = decoded_frame_buffers[stream];
+		auto &slot = buf[idx % buf.size()];
+		if (slot && slot->valid && slot->frame_index == idx)
 			return slot;
 		return nullptr;
 	}

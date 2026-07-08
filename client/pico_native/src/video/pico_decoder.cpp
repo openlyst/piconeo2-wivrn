@@ -221,7 +221,7 @@ pico_video_decoder::pico_video_decoder(
 		      height,
 		      AIMAGE_FORMAT_PRIVATE,
 		      AHARDWAREBUFFER_USAGE_CPU_READ_NEVER | AHARDWAREBUFFER_USAGE_CPU_WRITE_NEVER | AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE,
-		      9,
+		      4,
 		      &ir),
 	      "AImageReader_newWithUsage");
 	image_reader.reset(ir, [](AImageReader * r) { AImageReader_delete(r); });
@@ -242,6 +242,8 @@ pico_video_decoder::pico_video_decoder(
 #endif
 	AMediaFormat_setInt32(format, "vendor.qti-ext-dec-low-latency.enable", 1);
 	AMediaFormat_setInt32(format, "low-latency", 1);
+	AMediaFormat_setInt32(format, "vendor.qti-ext-dec-pb-reorder-frames", 0);
+	AMediaFormat_setInt32(format, "vendor.qti-ext-dec-enable-ds", 0);
 
 	media_codec = AMediaCodec_createDecoderByType(mime(codec_type));
 	if (!media_codec)
@@ -388,7 +390,7 @@ void pico_video_decoder::output_loop()
 		}
 
 		AMediaCodecBufferInfo info;
-		ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(media_codec, &info, 500);
+		ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(media_codec, &info, 100);
 		if (out_idx >= 0)
 		{
 			int64_t dequeue_time = now_ns();

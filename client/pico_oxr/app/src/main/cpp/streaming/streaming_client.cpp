@@ -263,6 +263,7 @@ void streaming_client::setup_decoders()
 				auto &buf = decoded_frame_buffers[i];
 				buf[fi % buf.size()] = std::move(frame);
 				latest_decoded_frame_index.store(fi);
+				latest_decoded_frame_index_per_stream[i].store(fi, std::memory_order_release);
 			});
 		spdlog::warn("Created decoder for stream {}", i);
 	}
@@ -795,7 +796,7 @@ void streaming_client::send_headset_info()
 	info.settings.preferred_refresh_rate = 72.0f;
 	info.settings.minimum_refresh_rate = 72.0f;
 	info.settings.fps_divider = 1;
-	info.settings.bitrate_bps = 50000000;
+	info.settings.bitrate_bps = 20000000;
 
 	pico_audio::get_audio_description(info);
 

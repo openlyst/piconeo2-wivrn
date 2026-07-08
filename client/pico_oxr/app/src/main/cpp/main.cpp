@@ -1047,56 +1047,10 @@ static void render_frame(AppState* app) {
         }
     }
 
-    // Early frame selection — pick decoded frames right after xrBeginFrame
-    // to minimize rend_wait. Tracking/controller work below doesn't affect selection.
     static std::shared_ptr<pico_decoded_frame> render_frames[3];
     static bool was_streaming = false;
 
-    if (app->stream.streaming.load())
-    {
-        was_streaming = true;
-        std::lock_guard lock(app->stream.decoded_frame_mutex);
-
-        auto &buf0 = app->stream.decoded_frame_buffers[0];
-        auto &buf1 = app->stream.decoded_frame_buffers[1];
-
-        // Collect all common frame indices
-        uint64_t common_indices[streaming_client::FRAME_BUFFER_SIZE * 2];
-        int common_count = 0;
-
-        for (auto &s0 : buf0)
-        {
-            if (!s0 || !s0->valid) continue;
-            for (auto &s1 : buf1)
-            {
-                if (!s1 || !s1->valid) continue;
-                if (s0->frame_index == s1->frame_index)
-                {
-                    common_indices[common_count++] = s0->frame_index;
-                }
-            }
-        }
-
-        if (common_count > 0)
-        {
-            // Pick latest common frame
-            uint64_t chosen = common_indices[0];
-            for (int i = 1; i < common_count; i++)
-                if (common_indices[i] > chosen)
-                    chosen = common_indices[i];
-
-            render_frames[0] = app->stream.get_frame(chosen, 0);
-            render_frames[1] = app->stream.get_frame(chosen, 1);
-        }
-        // If no common frame, keep previous render_frames
-
-        for (int e = 0; e < 2; e++)
-        {
-            if (render_frames[e] && render_frames[e]->valid)
-                g_latency.on_frame_rendered(render_frames[e]->frame_index, e);
-        }
-    }
-    else if (was_streaming)
+    if (!app->stream.streaming.load() && was_streaming)
     {
         render_frames[0].reset();
         render_frames[1].reset();
@@ -1308,6 +1262,67 @@ static void render_frame(AppState* app) {
 
     struct timespec tf;
     clock_gettime(CLOCK_MONOTONIC, &tf);
+
+    // Late frame selection — pick decoded frames as late as possible in the
+    // render cycle to minimize rend_wait. Frames arriving during tracking/
+    // controller/lobby work above get picked up this cycle instead of next.
+    if (app->stream.streaming.load())
+    {
+        was_streaming = true;
+        std::lock_guard lock(app->stream.decoded_frame_mutex);
+
+        uint64_t idx0 = app->stream.latest_decoded_frame_index_per_stream[0].load(std::memory_order_acquire);
+        uint64_t idx1 = app->stream.latest_decoded_frame_index_per_stream[1].load(std::memory_order_acquire);
+
+        if (idx0 > 0 && idx0 == idx1)
+        {
+            auto f0 = app->stream.get_frame(idx0, 0);
+            auto f1 = app->stream.get_frame(idx1, 1);
+            if (f0 && f1)
+            {
+                render_frames[0] = f0;
+                render_frames[1] = f1;
+            }
+        }
+        else if (idx0 > 0 && idx1 > 0)
+        {
+            uint64_t chosen = std::min(idx0, idx1);
+            auto f0 = app->stream.get_frame(chosen, 0);
+            auto f1 = app->stream.get_frame(chosen, 1);
+            if (f0 && f1)
+            {
+                render_frames[0] = f0;
+                render_frames[1] = f1;
+            }
+            else
+            {
+                auto &buf0 = app->stream.decoded_frame_buffers[0];
+                auto &buf1 = app->stream.decoded_frame_buffers[1];
+                uint64_t best = 0;
+                for (auto &s0 : buf0)
+                {
+                    if (!s0 || !s0->valid) continue;
+                    for (auto &s1 : buf1)
+                    {
+                        if (!s1 || !s1->valid) continue;
+                        if (s0->frame_index == s1->frame_index && s0->frame_index > best)
+                            best = s0->frame_index;
+                    }
+                }
+                if (best > 0)
+                {
+                    render_frames[0] = app->stream.get_frame(best, 0);
+                    render_frames[1] = app->stream.get_frame(best, 1);
+                }
+            }
+        }
+
+        for (int e = 0; e < 2; e++)
+        {
+            if (render_frames[e] && render_frames[e]->valid)
+                g_latency.on_frame_rendered(render_frames[e]->frame_index, e);
+        }
+    }
 
     XrCompositionLayerProjection layers[1];
     XrCompositionLayerProjectionView layerViews[NUM_EYES];
