@@ -1,5 +1,6 @@
 #include "streaming_client.h"
 #include "pico_stutter.h"
+#include "latency_tracker.h"
 
 #include <spdlog/spdlog.h>
 
@@ -15,6 +16,7 @@ using namespace std::chrono_literals;
 using namespace wivrn;
 
 stutter_detector g_stutter;
+latency_tracker g_latency;
 
 streaming_client * g_stream = nullptr;
 
@@ -256,6 +258,7 @@ void streaming_client::setup_decoders()
 			[this, i](std::shared_ptr<pico_decoded_frame> frame) {
 				uint64_t fi = frame->frame_index;
 				g_stutter.on_frame_decoded(fi, i);
+				g_latency.on_frame_decoded(fi, i);
 				std::lock_guard lock(decoded_frame_mutex);
 				auto &buf = decoded_frame_buffers[i];
 				buf[fi % buf.size()] = std::move(frame);
@@ -336,6 +339,17 @@ void streaming_client::handle_video_shard(to_headset::video_stream_data_shard &&
 
 	bool is_last_shard = shard.timing_info.has_value();
 	bool is_first_shard = (shard.shard_idx == 0);
+
+	if (is_last_shard && shard.timing_info)
+	{
+		g_latency.on_server_timing(frame_idx, idx,
+			shard.timing_info->encode_begin,
+			shard.timing_info->encode_end,
+			shard.timing_info->send_begin,
+			shard.timing_info->send_end);
+	}
+	g_latency.on_shard_received(frame_idx, idx, is_first_shard, is_last_shard);
+
 	target->shards[shard.shard_idx] = std::move(shard);
 
 	g_stutter.on_shard_arrived(frame_idx, idx, is_first_shard, is_last_shard);
@@ -373,6 +387,7 @@ void streaming_client::handle_video_shard(to_headset::video_stream_data_shard &&
 	feedback.received_last_packet = to_xr_time(now);
 	feedback.sent_to_decoder = to_xr_time(now);
 
+	g_latency.on_pushed_to_decoder(frame_idx, idx);
 	decoders[idx]->push_data(data, frame_idx, false);
 	g_stutter.on_pushed_to_decoder(frame_idx, idx);
 
