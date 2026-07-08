@@ -721,6 +721,9 @@ public class WivrnLobbyView {
             if (state == STATE_IDLE || state == STATE_CONNECTING) {
                 pinBuffer = "";
             }
+            if (state == STATE_DISCONNECTED) {
+                errorMessage = message != null ? message : "";
+            }
             if (state == STATE_CONNECTED) {
                 streamTab = STREAM_TAB_APPLICATIONS;
             }
