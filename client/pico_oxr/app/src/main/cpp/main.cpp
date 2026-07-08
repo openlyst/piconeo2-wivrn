@@ -4,6 +4,7 @@
 #include <android/input.h>
 #include <android/keycodes.h>
 #include <unistd.h>
+#include <sys/socket.h>
 #include <vector>
 #include <cstring>
 #include <cmath>
@@ -307,6 +308,7 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeConnectServer(JNIEnv * env, jobject
     g_app->stream.tcp_only = tcpOnly;
     env->ReleaseStringUTFChars(host, h);
     g_app->stream.shutdown = false;
+    g_app->stream.auto_reconnect.store(true);
     g_app->stream.try_connect();
 }
 
@@ -315,9 +317,19 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeDisconnectServer(JNIEnv * env, jobj
 {
     if (!g_app) return;
     LOGI("nativeDisconnectServer");
+    g_app->stream.auto_reconnect.store(false);
     g_app->stream.shutdown = true;
     if (g_app->stream.session)
-        g_app->stream.session.reset();
+    {
+        int fd = g_app->stream.session->get_control_fd();
+        ::shutdown(fd, SHUT_RDWR);
+    }
+    if (g_app->stream.network_thread.joinable())
+        g_app->stream.network_thread.join();
+    if (g_app->stream.connect_thread.joinable())
+        g_app->stream.connect_thread.join();
+    g_app->stream.session.reset();
+    g_app->stream.reset_stream_state();
 }
 
 JNIEXPORT void JNICALL

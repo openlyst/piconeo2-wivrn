@@ -141,6 +141,7 @@ struct streaming_client
 	rumble_slot rumble[2];
 
 	std::atomic<bool> microphone_enabled{false};
+	std::atomic<bool> auto_reconnect{false};
 	std::atomic<int64_t> time_offset_ns{0};
 
 	std::string server_host;
