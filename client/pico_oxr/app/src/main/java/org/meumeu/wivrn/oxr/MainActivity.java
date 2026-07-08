@@ -174,7 +174,6 @@ public class MainActivity extends NativeActivity {
         if (pendingPin != null && !pendingPin.isEmpty()) {
             nativeSetPin(pendingPin);
         }
-        hasPendingConnection = false;
     }
 
     @Override
@@ -489,6 +488,18 @@ public class MainActivity extends NativeActivity {
     public void onDisconnectRequested() {
         Log.d(TAG, "Disconnect requested");
         nativeDisconnectServer();
+    }
+
+    public void onReconnectRequested() {
+        Log.d(TAG, "Reconnect requested");
+        if (!hasPendingConnection) {
+            Log.w(TAG, "Reconnect: no pending connection info");
+            return;
+        }
+        if (lobbyView != null) {
+            nativeSetBitrate(lobbyView.getBitrate());
+        }
+        nativeConnectServer(pendingHost, pendingPort, pendingTcpOnly);
     }
 
     public void onIpdChanged(int ipdMm) {

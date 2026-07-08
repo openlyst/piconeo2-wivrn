@@ -146,6 +146,8 @@ public:
 	TCP() = default;
 	TCP(in6_addr address, int port);
 	TCP(in_addr address, int port);
+	TCP(in6_addr address, int port, int timeout_ms);
+	TCP(in_addr address, int port, int timeout_ms);
 	explicit TCP(int fd);
 
 	deserialization_packet receive_raw();
