@@ -21,7 +21,7 @@
  - Adds the abilty to change software IPD
  - Fixed sliders in settings
  - Streams at native 2048x2160 resolution
- - Resualtion slider is now based on res's not %'s
+ - Resolution slider is now based on res's not %'s
  - Adds WiVRn icon
  - Fix close button not working in the lobby for pairing 
  - Servers are now remembered after pairing with autoconnect support
