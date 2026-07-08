@@ -134,6 +134,7 @@ struct streaming_client
 	int server_port = 0;
 	bool tcp_only = false;
 	std::string pairing_pin;
+	std::string last_error;
 
 	crypto::key headset_keypair;
 

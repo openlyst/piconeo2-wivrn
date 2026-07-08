@@ -603,6 +603,7 @@ void streaming_client::network_loop()
 bool streaming_client::connect_to_server()
 {
 	spdlog::info("Connecting to server {}:{}", server_host, server_port);
+	last_error.clear();
 
 	try
 	{
@@ -692,6 +693,12 @@ bool streaming_client::connect_to_server()
 
 		for (struct addrinfo * rp = result; rp; rp = rp->ai_next)
 		{
+			if (shutdown)
+			{
+				spdlog::info("connect: shutdown requested, aborting");
+				freeaddrinfo(result);
+				return false;
+			}
 			try
 			{
 				if (rp->ai_family == AF_INET)
@@ -703,11 +710,11 @@ bool streaming_client::connect_to_server()
 					try
 					{
 						session = std::make_unique<wivrn_session_pico>(
-							ip, server_port, tcp_only, headset_keypair, model_name, pin_enter);
+							ip, server_port, tcp_only, headset_keypair, model_name, pin_enter, shutdown);
 					}
 					catch (std::exception & e)
 					{
-						spdlog::warn("connect: session creation failed: {}", e.what());
+						spdlog::warn("connect: session creation failed: {}", e.what()); last_error = e.what();
 					}
 					if (session && session->is_handshake_ok())
 					{
@@ -725,11 +732,11 @@ bool streaming_client::connect_to_server()
 					try
 					{
 						session = std::make_unique<wivrn_session_pico>(
-							ip, server_port, tcp_only, headset_keypair, model_name, pin_enter);
+							ip, server_port, tcp_only, headset_keypair, model_name, pin_enter, shutdown);
 					}
 					catch (std::exception & e)
 					{
-						spdlog::warn("connect: IPv6 session creation failed: {}", e.what());
+						spdlog::warn("connect: IPv6 session creation failed: {}", e.what()); last_error = e.what();
 					}
 					if (session && session->is_handshake_ok())
 					{
@@ -743,7 +750,7 @@ bool streaming_client::connect_to_server()
 			}
 			catch (std::exception & e)
 			{
-				spdlog::warn("Connection attempt failed: {}", e.what());
+				spdlog::warn("Connection attempt failed: {}", e.what()); last_error = e.what();
 			}
 		}
 
@@ -825,76 +832,62 @@ void streaming_client::try_connect()
 	std::lock_guard lock(connect_mutex);
 	if (connect_thread.joinable())
 	{
+		spdlog::info("try_connect: stopping previous connection");
+		shutdown = true;
 		if (session)
 		{
-			spdlog::info("try_connect: already connected, disconnecting first");
-			shutdown = true;
-			connect_thread.join();
-			session.reset();
-			shutdown = false;
+			int fd = session->get_control_fd();
+			::shutdown(fd, SHUT_RDWR);
 		}
-		else
-		{
-			spdlog::info("try_connect: stopping previous connection attempt");
-			shutdown = true;
-			connect_thread.join();
-			shutdown = false;
-		}
+		if (network_thread.joinable())
+			network_thread.join();
+		connect_thread.join();
+		session.reset();
+		shutdown = false;
 	}
 
 	connect_thread = std::thread([this] {
-		int attempt = 0;
-		while (!shutdown)
+		spdlog::info("Connection attempt");
+		notify_connection_state(1, "Connecting...");
+
+		if (connect_to_server())
 		{
-			++attempt;
-			spdlog::info("Connection attempt {}", attempt);
-			notify_connection_state(1, "Connecting (attempt " + std::to_string(attempt) + ")");
-
-			if (connect_to_server())
+			notify_connection_state(1, "Connected, starting stream...");
+			try
 			{
-				notify_connection_state(1, "Connected, starting stream...");
-				try
-				{
-					int fd = session->get_control_fd();
-					int keepalive = 1;
-					setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
-					int idle = 3;
-					setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
-					int intvl = 1;
-					setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
-					int cnt = 3;
-					setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
+				int fd = session->get_control_fd();
+				int keepalive = 1;
+				setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+				int idle = 3;
+				setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+				int intvl = 1;
+				setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
+				int cnt = 3;
+				setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
 
-					send_headset_info();
-					connected_ns.store(get_timestamp_ns());
-					last_shard_ns.store(0);
-					network_thread = std::thread([this] { network_loop(); });
-					tracker.session = session.get();
-					tracker.start();
+				send_headset_info();
+				connected_ns.store(get_timestamp_ns());
+				last_shard_ns.store(0);
+				network_thread = std::thread([this] { network_loop(); });
+				tracker.session = session.get();
+				tracker.start();
 
-					notify_connection_state(4, "Streaming");
-					network_thread.join();
-				}
-				catch (std::exception & e)
-				{
-					spdlog::error("Failed to start client: {}", e.what());
-					notify_connection_state(3, e.what());
-					session.reset();
-				}
-				attempt = 0;
-				continue;
+				notify_connection_state(4, "Streaming");
+				network_thread.join();
 			}
-
+			catch (std::exception & e)
+			{
+				spdlog::error("Failed to start client: {}", e.what());
+				notify_connection_state(3, e.what());
+				session.reset();
+			}
+		}
+		else
+		{
 			if (session)
 				session.reset();
-
 			if (!shutdown)
-			{
-				int delay_s = std::min(1 << std::min(attempt - 1, 2), 4);
-				spdlog::info("Retrying in {} seconds...", delay_s);
-				for (int i = 0; i < delay_s * 10 && !shutdown; ++i)
-					std::this_thread::sleep_for(100ms);
-			}
+				notify_connection_state(3, last_error.empty() ? "Connection failed" : last_error);
 		}
 
 		notify_connection_state(0, "");

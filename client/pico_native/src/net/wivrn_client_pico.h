@@ -53,7 +53,8 @@ private:
 	template <typename T>
 	void handshake(T address, bool tcp_only, crypto::key & headset_keypair,
 	               const std::string & model_name,
-	               std::function<std::string(int fd)> pin_enter);
+	               std::function<std::string(int fd)> pin_enter,
+	               std::atomic<bool> & shutdown_flag);
 
 public:
 	std::variant<in_addr, in6_addr> address;
@@ -61,11 +62,13 @@ public:
 	wivrn_session_pico(in6_addr address, int port, bool tcp_only,
 	                   crypto::key & headset_keypair,
 	                   const std::string & model_name,
-	                   std::function<std::string(int fd)> pin_enter);
+	                   std::function<std::string(int fd)> pin_enter,
+	                   std::atomic<bool> & shutdown_flag);
 	wivrn_session_pico(in_addr address, int port, bool tcp_only,
 	                   crypto::key & headset_keypair,
 	                   const std::string & model_name,
-	                   std::function<std::string(int fd)> pin_enter);
+	                   std::function<std::string(int fd)> pin_enter,
+	                   std::atomic<bool> & shutdown_flag);
 	wivrn_session_pico(const wivrn_session_pico &) = delete;
 	wivrn_session_pico & operator=(const wivrn_session_pico &) = delete;
 

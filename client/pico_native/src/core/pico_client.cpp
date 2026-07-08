@@ -712,7 +712,7 @@ bool pico_client::connect_to_server()
 					try
 					{
 						session = std::make_unique<wivrn_session_pico>(
-							ip, server_port, tcp_only, headset_keypair, model_name, pin_enter);
+							ip, server_port, tcp_only, headset_keypair, model_name, pin_enter, shutdown);
 					}
 					catch (std::exception & e)
 					{
@@ -742,7 +742,7 @@ bool pico_client::connect_to_server()
 					try
 					{
 						session = std::make_unique<wivrn_session_pico>(
-							ip, server_port, tcp_only, headset_keypair, model_name, pin_enter);
+							ip, server_port, tcp_only, headset_keypair, model_name, pin_enter, shutdown);
 					}
 					catch (std::exception & e)
 					{
