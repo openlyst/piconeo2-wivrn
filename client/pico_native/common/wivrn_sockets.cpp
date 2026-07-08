@@ -20,6 +20,7 @@
 #include "wivrn_sockets.h"
 
 #include "crypto.h"
+#include <spdlog/spdlog.h>
 #include <algorithm>
 #include <arpa/inet.h>
 #include <cassert>
@@ -72,6 +73,12 @@ wivrn::UDP::UDP()
 	if (fd < 0)
 		throw std::system_error{errno, std::generic_category()};
 	fcntl(fd, F_SETFD, FD_CLOEXEC);
+
+	int zero = 0;
+	if (setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &zero, sizeof(zero)) < 0)
+	{
+		spdlog::warn("Failed to disable IPV6_V6ONLY: {}", strerror(errno));
+	}
 }
 
 wivrn::UDP::UDP(int fd)
@@ -98,10 +105,15 @@ void wivrn::UDP::connect(in6_addr address, int port)
 
 void wivrn::UDP::connect(in_addr address, int port)
 {
-	sockaddr_in sa;
-	sa.sin_family = AF_INET;
-	sa.sin_addr = address;
-	sa.sin_port = htons(port);
+	in6_addr v6_addr{};
+	v6_addr.s6_addr[10] = 0xff;
+	v6_addr.s6_addr[11] = 0xff;
+	memcpy(v6_addr.s6_addr + 12, &address, sizeof(address));
+
+	sockaddr_in6 sa{};
+	sa.sin6_family = AF_INET6;
+	sa.sin6_addr = v6_addr;
+	sa.sin6_port = htons(port);
 
 	if (::connect(fd, (sockaddr *)&sa, sizeof(sa)) < 0)
 		throw std::system_error{errno, std::generic_category()};

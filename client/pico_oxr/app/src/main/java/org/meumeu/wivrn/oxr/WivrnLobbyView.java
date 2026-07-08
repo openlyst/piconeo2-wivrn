@@ -650,7 +650,7 @@ public class WivrnLobbyView {
         }
 
         if (servers.isEmpty()) {
-            servers.add(new ServerEntry("Local", "127.0.0.1", 9757, true, true));
+            servers.add(new ServerEntry("Local", "127.0.0.1", 9757, false, true));
         }
     }
 
@@ -897,7 +897,7 @@ public class WivrnLobbyView {
             canvas.drawRoundRect(card, 12, 12, cardBgPaint);
 
             canvas.drawText(s.name, x + 20, cardY + 35, textPaint);
-            canvas.drawText(s.hostname + ":" + s.port + (s.tcpOnly ? " (TCP)" : ""), x + 20, cardY + 65, textSmallPaint);
+            canvas.drawText(s.hostname + ":" + s.port + (s.tcpOnly ? " (TCP)" : " (UDP)"), x + 20, cardY + 65, textSmallPaint);
 
             if (s.discovered) {
                 textSmallPaint.setColor(Color.rgb(80, 200, 120));

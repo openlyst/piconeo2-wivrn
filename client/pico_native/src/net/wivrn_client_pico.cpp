@@ -51,6 +51,7 @@ template <typename T>
 void init_stream(T & stream)
 {
 	stream.set_receive_buffer_size(1024 * 1024 * 5);
+	stream.set_send_buffer_size(1024 * 1024 * 5);
 }
 } // namespace
 
