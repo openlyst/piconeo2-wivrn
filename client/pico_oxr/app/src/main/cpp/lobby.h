@@ -30,8 +30,21 @@ class pico_lobby
 	GLint tex_mvp_uniform = -1;
 	GLint tex_sampler_uniform = -1;
 
+	GLuint blit_program = 0;
+	GLint blit_pos_attrib = -1;
+	GLint blit_uv_attrib = -1;
+	GLint blit_sampler_uniform = -1;
+
+	GLuint fbo = 0;
+	GLuint color_texture = 0;
+	GLuint fbo_depth_rbo = 0;
+	int fbo_width = 0;
+	int fbo_height = 0;
+
 	std::atomic<int> eye_width{0};
 	std::atomic<int> eye_height{0};
+	int target_width = 0;
+	int target_height = 0;
 	bool initialized = false;
 
 	std::mutex tex_mutex;
@@ -69,6 +82,8 @@ class pico_lobby
 	               const XrFovf & fov, float ipd, int eye);
 	void update_interaction(const float head_orient[4], const float head_pos[3],
 	                        const controller_sample controllers[2]);
+	void ensure_fbo(int w, int h);
+	void blit_to_target();
 
 public:
 	float lobby_touch_x[2] = {-1, -1};
@@ -81,6 +96,7 @@ public:
 
 	void init(int w, int h);
 	void set_resolution(int w, int h);
+	void set_target_resolution(int w, int h);
 	void draw(int eye, const float head_orient[4], const float head_pos[3],
 	          const controller_sample controllers[2],
 	          const XrFovf & fov, float ipd);

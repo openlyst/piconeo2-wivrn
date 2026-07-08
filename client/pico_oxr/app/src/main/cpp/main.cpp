@@ -1389,12 +1389,15 @@ static void render_frame(AppState* app) {
         }
 
         GLuint glImg = app->swapchains[eye].images[imgIndex].image;
-        int max_w = app->swapchains[eye].width;
-        int max_h = app->swapchains[eye].height;
-        int32_t w = std::clamp(app->stream.eye_width.load(), 256, max_w);
-        int32_t h = std::clamp(app->stream.eye_height.load(), 256, max_h);
-        app->lobby.set_resolution(w, h);
-        app->stream.blit_pipeline.set_resolution(w, h);
+        int target_w = app->swapchains[eye].width;
+        int target_h = app->swapchains[eye].height;
+        int render_w = std::clamp(app->stream.eye_width.load(), 256, target_w);
+        int render_h = std::clamp(app->stream.eye_height.load(), 256, target_h);
+        app->lobby.set_resolution(render_w, render_h);
+        app->lobby.set_target_resolution(target_w, target_h);
+        app->stream.blit_pipeline.set_resolution(target_w, target_h);
+        int32_t w = target_w;
+        int32_t h = target_h;
 
         glBindFramebuffer(GL_FRAMEBUFFER, app->fbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, glImg, 0);
