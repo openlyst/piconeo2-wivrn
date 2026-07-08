@@ -1105,9 +1105,7 @@ static void render_frame(AppState* app) {
         auto &buf0 = app->stream.decoded_frame_buffers[0];
         auto &buf1 = app->stream.decoded_frame_buffers[1];
 
-        // Collect valid frame indices from each buffer
         uint64_t best_common_idx = UINT64_MAX;
-        int64_t best_common_diff = INT64_MAX;
 
         for (auto &s0 : buf0)
         {
@@ -1117,13 +1115,8 @@ static void render_frame(AppState* app) {
                 if (!s1 || !s1->valid) continue;
                 if (s0->frame_index == s1->frame_index)
                 {
-                    int64_t diff = (int64_t)s0->display_time - (int64_t)fs.predictedDisplayTime;
-                    if (diff < 0) diff = -diff;
-                    if (diff < best_common_diff)
-                    {
-                        best_common_diff = diff;
+                    if (s0->frame_index > best_common_idx)
                         best_common_idx = s0->frame_index;
-                    }
                 }
             }
         }
@@ -1135,7 +1128,6 @@ static void render_frame(AppState* app) {
         }
         else
         {
-            // No common frame — fall back to latest valid per eye
             render_frames[0].reset();
             render_frames[1].reset();
             for (auto &s : buf0)
@@ -1189,15 +1181,17 @@ static void render_frame(AppState* app) {
         glBindFramebuffer(GL_FRAMEBUFFER, app->fbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, glImg, 0);
 
-        if (app->depth_rbo_w[eye] != w || app->depth_rbo_h[eye] != h) {
-            glBindRenderbuffer(GL_RENDERBUFFER, app->depth_rbo[eye]);
-            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
-            app->depth_rbo_w[eye] = w;
-            app->depth_rbo_h[eye] = h;
-        }
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, app->depth_rbo[eye]);
+        bool is_streaming_blit = app->stream.streaming.load() && !app->stream.stream_ui_visible.load();
 
-        GLenum fbStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (!is_streaming_blit) {
+            if (app->depth_rbo_w[eye] != w || app->depth_rbo_h[eye] != h) {
+                glBindRenderbuffer(GL_RENDERBUFFER, app->depth_rbo[eye]);
+                glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
+                app->depth_rbo_w[eye] = w;
+                app->depth_rbo_h[eye] = h;
+            }
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, app->depth_rbo[eye]);
+        }
 
         std::shared_ptr<pico_decoded_frame> decoded;
         if (app->stream.streaming.load())
@@ -1205,9 +1199,7 @@ static void render_frame(AppState* app) {
             decoded = render_frames[eye];
         }
 
-        if (fbStatus != GL_FRAMEBUFFER_COMPLETE) {
-            LOGE("Framebuffer incomplete: 0x%x (eye %u)", fbStatus, eye);
-        } else if (app->stream.streaming.load() && !app->stream.stream_ui_visible.load()) {
+        if (is_streaming_blit) {
             static int blit_log_count = 0;
             if (eye == 0 && (blit_log_count++ % 300 == 0)) LOGI("STREAMING: blit path active");
 
@@ -1381,11 +1373,6 @@ static void render_frame(AppState* app) {
     fe.layerCount = 1;
     fe.layers = layerHeaders;
 
-    r = xrEndFrame(app->session, &fe);
-    if (r != XR_SUCCESS) {
-        LOGE("xrEndFrame failed: %d", r);
-    }
-
     if (app->stream.streaming.load() && !app->stream.stream_ui_visible.load())
     {
         struct timespec submit_ts;
@@ -1396,6 +1383,11 @@ static void render_frame(AppState* app) {
             if (render_frames[e] && render_frames[e]->valid)
                 g_latency.on_frame_submitted(render_frames[e]->frame_index, e, submit_ns);
         }
+    }
+
+    r = xrEndFrame(app->session, &fe);
+    if (r != XR_SUCCESS) {
+        LOGE("xrEndFrame failed: %d", r);
     }
 
     clock_gettime(CLOCK_MONOTONIC, &t3);

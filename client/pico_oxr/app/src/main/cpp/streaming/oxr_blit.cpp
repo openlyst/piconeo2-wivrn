@@ -94,8 +94,6 @@ void oxr_blit::blit(pico_blit_pipeline * pipeline, std::shared_ptr<pico_decoded_
 			GL_TEXTURE_2D, swapchain_tex, 0);
 
 		glViewport(0, 0, eye_w, eye_h);
-		glClearColor(0, 0, 0, 1);
-		glClear(GL_COLOR_BUFFER_BIT);
 
 		pipeline->draw(eye, eye_textures[stream_idx],
 			frame->foveation[eye],
