@@ -152,14 +152,12 @@ public:
 		rec->rendered = t;
 	}
 
-	void on_frame_submitted(uint64_t frame_index, int stream, int64_t predicted_display)
+	void on_frame_submitted(uint64_t frame_index, int stream, int64_t submit_time)
 	{
-		int64_t t = now_ns();
 		std::lock_guard lock(mutex);
 		frame_timing * rec = find(frame_index, stream);
 		if (!rec) return;
-		rec->submitted = t;
-		rec->predicted_display = predicted_display;
+		rec->submitted = submit_time;
 		rec->complete = true;
 
 		int count = completed_count.fetch_add(1) + 1;
@@ -204,19 +202,18 @@ private:
 		float decode_ms = (r.decoded - r.decoder_in) / 1e6f;
 		float render_wait_ms = (r.rendered - r.decoded) / 1e6f;
 		float blit_ms = (r.submitted - r.rendered) / 1e6f;
-		float display_wait_ms = (r.predicted_display - r.submitted) / 1e6f;
-		float total_ms = (r.predicted_display - r.encode_begin) / 1e6f;
+		float total_ms = (r.submitted - r.encode_begin) / 1e6f;
 
-		spdlog::warn("[LATENCY] f={} s={} | TOTAL={:.1f}ms | enc={:.1f} send={:.1f} net={:.1f} asm={:.1f} queue={:.1f} dec={:.1f} rend_wait={:.1f} blit={:.1f} disp_wait={:.1f}",
+		spdlog::warn("[LATENCY] f={} s={} | TOTAL={:.1f}ms | enc={:.1f} send={:.1f} net={:.1f} asm={:.1f} queue={:.1f} dec={:.1f} rend_wait={:.1f} blit={:.1f}",
 			r.frame_index, r.stream, total_ms,
 			encode_ms, send_ms, network_ms, assembly_ms,
 			queue_ms, decode_ms, render_wait_ms,
-			blit_ms, display_wait_ms);
+			blit_ms);
 	}
 
 	void log_summary_locked()
 	{
-		stage_stats encode, send, network, assembly, queue, decode, render_wait, blit, display_wait, total;
+		stage_stats encode, send, network, assembly, queue, decode, render_wait, blit, total;
 
 		for (const auto & r : records)
 		{
@@ -232,8 +229,7 @@ private:
 			decode.add((r.decoded - r.decoder_in) / 1e6f);
 			render_wait.add((r.rendered - r.decoded) / 1e6f);
 			blit.add((r.submitted - r.rendered) / 1e6f);
-			display_wait.add((r.predicted_display - r.submitted) / 1e6f);
-			total.add((r.predicted_display - r.encode_begin) / 1e6f);
+			total.add((r.submitted - r.encode_begin) / 1e6f);
 		}
 
 		if (total.count == 0)
@@ -244,7 +240,7 @@ private:
 
 		spdlog::warn("[LATENCY SUMMARY] n={} | TOTAL avg={:.1f} min={:.1f} max={:.1f} | "
 			"encode={:.1f} send={:.1f} net={:.1f}(max={:.1f}) asm={:.1f} queue={:.1f} "
-			"decode={:.1f}(max={:.1f}) rend_wait={:.1f}(max={:.1f}) blit={:.1f} disp_wait={:.1f}(max={:.1f})",
+			"decode={:.1f}(max={:.1f}) rend_wait={:.1f}(max={:.1f}) blit={:.1f}(max={:.1f})",
 			total.count,
 			total.avg(), total.min, total.max,
 			encode.avg(), send.avg(),
@@ -252,8 +248,7 @@ private:
 			assembly.avg(), queue.avg(),
 			decode.avg(), decode.max,
 			render_wait.avg(), render_wait.max,
-			blit.avg(),
-			display_wait.avg(), display_wait.max);
+			blit.avg(), blit.max);
 	}
 };
 

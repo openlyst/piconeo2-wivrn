@@ -1388,10 +1388,13 @@ static void render_frame(AppState* app) {
 
     if (app->stream.streaming.load() && !app->stream.stream_ui_visible.load())
     {
+        struct timespec submit_ts;
+        clock_gettime(CLOCK_MONOTONIC, &submit_ts);
+        int64_t submit_ns = (int64_t)submit_ts.tv_sec * 1000000000LL + submit_ts.tv_nsec;
         for (int e = 0; e < 2; e++)
         {
             if (render_frames[e] && render_frames[e]->valid)
-                g_latency.on_frame_submitted(render_frames[e]->frame_index, e, (int64_t)fs.predictedDisplayTime);
+                g_latency.on_frame_submitted(render_frames[e]->frame_index, e, submit_ns);
         }
     }
 
