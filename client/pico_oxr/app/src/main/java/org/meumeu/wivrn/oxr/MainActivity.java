@@ -73,6 +73,16 @@ public class MainActivity extends NativeActivity {
 
         lobbyView = new WivrnLobbyView(this);
 
+        new Thread(() -> {
+            for (int i = 0; i < 50 && !nativeReady(); i++) {
+                try { Thread.sleep(100); } catch (InterruptedException e) { return; }
+            }
+            if (nativeReady()) {
+                int savedIpd = getSharedPreferences("wivrn_settings", MODE_PRIVATE).getInt("ipd_mm", 64);
+                runOnUiThread(() -> onIpdChanged(savedIpd));
+            }
+        }).start();
+
         try {
             WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
             multicastLock = wifi.createMulticastLock("wivrn-mdns");
@@ -462,6 +472,11 @@ public class MainActivity extends NativeActivity {
         nativeDisconnectServer();
     }
 
+    public void onIpdChanged(int ipdMm) {
+        Log.i(TAG, "IPD changed: " + ipdMm + " mm");
+        nativeSetIpd(ipdMm);
+    }
+
     public void onRequestAppList() {
         Log.i(TAG, "Requesting app list");
         nativeRequestAppList();
@@ -518,4 +533,5 @@ public class MainActivity extends NativeActivity {
     public native void nativeRequestRunningApps();
     public native void nativeSetActiveApp(int appId);
     public native void nativeStopApp(int appId);
+    public native void nativeSetIpd(int ipdMm);
 }
