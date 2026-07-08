@@ -92,7 +92,7 @@ struct streaming_client
 	shard_set current_shards[3];
 	shard_set next_shards[3];
 
-	static constexpr size_t FRAME_BUFFER_SIZE = 3;
+	static constexpr size_t FRAME_BUFFER_SIZE = 5;
 
 	std::mutex decoded_frame_mutex;
 	std::array<std::shared_ptr<pico_decoded_frame>, FRAME_BUFFER_SIZE> decoded_frame_buffers[3];

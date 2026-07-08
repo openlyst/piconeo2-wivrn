@@ -221,7 +221,7 @@ pico_video_decoder::pico_video_decoder(
 		      height,
 		      AIMAGE_FORMAT_PRIVATE,
 		      AHARDWAREBUFFER_USAGE_CPU_READ_NEVER | AHARDWAREBUFFER_USAGE_CPU_WRITE_NEVER | AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE,
-		      8,
+		      9,
 		      &ir),
 	      "AImageReader_newWithUsage");
 	image_reader.reset(ir, [](AImageReader * r) { AImageReader_delete(r); });
@@ -319,7 +319,7 @@ void pico_video_decoder::input_loop()
 		int dequeue_retries = 0;
 		while (!exiting && !flushing.load() && in_idx < 0)
 		{
-			in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 5000);
+			in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 500);
 			if (in_idx < 0)
 				dequeue_retries++;
 		}
@@ -388,7 +388,7 @@ void pico_video_decoder::output_loop()
 		}
 
 		AMediaCodecBufferInfo info;
-		ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(media_codec, &info, 5000);
+		ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(media_codec, &info, 500);
 		if (out_idx >= 0)
 		{
 			int64_t dequeue_time = now_ns();
@@ -463,6 +463,39 @@ void pico_video_decoder::push_data(std::span<std::span<const uint8_t>> data, uin
 
 	if (!partial)
 	{
+		// Try fast path: directly queue into MediaCodec if input buffer is ready
+		ssize_t in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 0);
+		if (in_idx >= 0)
+		{
+			size_t buf_size;
+			uint8_t * buf = AMediaCodec_getInputBuffer(media_codec, in_idx, &buf_size);
+			if (buf)
+			{
+				size_t copy_size = std::min(pf->data.size(), buf_size);
+				memcpy(buf, pf->data.data(), copy_size);
+				uint64_t timestamp = frame_index * 10'000;
+				int64_t queue_time = now_ns();
+				AMediaCodec_queueInputBuffer(media_codec, in_idx, 0, copy_size, timestamp, 0);
+
+				std::lock_guard lock(frame_info_mutex);
+				for (auto & fi : pending_frame_infos)
+				{
+					if (fi.frame_index == frame_index)
+					{
+						fi.t_pushed_to_decoder_ns = queue_time;
+						break;
+					}
+				}
+
+				// Remove this frame from the pending queue since it's been submitted
+				if (!pending_frames.empty() && pending_frames.back().frame_index == frame_index)
+					pending_frames.pop_back();
+
+				return;
+			}
+		}
+
+		// Fallback: queue for input_loop to handle
 		pending_cv.notify_one();
 	}
 }
@@ -524,7 +557,9 @@ void pico_video_decoder::on_image_available(AImageReader * reader)
 		spdlog::warn("SCHED_DIAG s={} image_cb tid={} count={}", stream_index, (int)cb_tid, cb_count[stream_index]);
 
 	AImage * tmp;
-	check(AImageReader_acquireNextImage(image_reader.get(), &tmp), "AImageReader_acquireNextImage");
+	media_status_t status = AImageReader_acquireLatestImage(image_reader.get(), &tmp);
+	if (status != AMEDIA_OK)
+		return;
 	std::shared_ptr<AImage> image(tmp, [](AImage * img) { AImage_delete(img); });
 
 	int64_t fake_timestamp_ns;

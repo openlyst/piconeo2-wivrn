@@ -881,6 +881,63 @@ static void render_frame(AppState* app) {
     }
     clock_gettime(CLOCK_MONOTONIC, &ta);
 
+    // Early frame selection — pick decoded frames right after xrBeginFrame
+    // to minimize rend_wait. Tracking/controller work below doesn't affect selection.
+    static std::shared_ptr<pico_decoded_frame> render_frames[3];
+    static bool was_streaming = false;
+
+    if (app->stream.streaming.load())
+    {
+        was_streaming = true;
+        std::lock_guard lock(app->stream.decoded_frame_mutex);
+
+        auto &buf0 = app->stream.decoded_frame_buffers[0];
+        auto &buf1 = app->stream.decoded_frame_buffers[1];
+
+        // Collect all common frame indices
+        uint64_t common_indices[streaming_client::FRAME_BUFFER_SIZE * 2];
+        int common_count = 0;
+
+        for (auto &s0 : buf0)
+        {
+            if (!s0 || !s0->valid) continue;
+            for (auto &s1 : buf1)
+            {
+                if (!s1 || !s1->valid) continue;
+                if (s0->frame_index == s1->frame_index)
+                {
+                    common_indices[common_count++] = s0->frame_index;
+                }
+            }
+        }
+
+        if (common_count > 0)
+        {
+            // Pick latest common frame
+            uint64_t chosen = common_indices[0];
+            for (int i = 1; i < common_count; i++)
+                if (common_indices[i] > chosen)
+                    chosen = common_indices[i];
+
+            render_frames[0] = app->stream.get_frame(chosen, 0);
+            render_frames[1] = app->stream.get_frame(chosen, 1);
+        }
+        // If no common frame, keep previous render_frames
+
+        for (int e = 0; e < 2; e++)
+        {
+            if (render_frames[e] && render_frames[e]->valid)
+                g_latency.on_frame_rendered(render_frames[e]->frame_index, e);
+        }
+    }
+    else if (was_streaming)
+    {
+        render_frames[0].reset();
+        render_frames[1].reset();
+        render_frames[2].reset();
+        was_streaming = false;
+    }
+
     XrViewState vstate = {};
     vstate.type = XR_TYPE_VIEW_STATE;
 
@@ -1091,75 +1148,6 @@ static void render_frame(AppState* app) {
 
     float sc_wait_ms = 0, gl_draw_ms = 0, sc_rel_ms = 0;
 
-    // Common frame selection — match upstream WiVRn's common_frame() approach.
-    // Find a frame index present in both eyes' rolling buffers, closest to predictedDisplayTime.
-    // Falls back to per-eye latest if no common frame exists.
-    static std::shared_ptr<pico_decoded_frame> render_frames[3];
-    static bool was_streaming = false;
-
-    if (app->stream.streaming.load())
-    {
-        was_streaming = true;
-        std::lock_guard lock(app->stream.decoded_frame_mutex);
-
-        auto &buf0 = app->stream.decoded_frame_buffers[0];
-        auto &buf1 = app->stream.decoded_frame_buffers[1];
-
-        // Collect valid frame indices from each buffer
-        uint64_t best_common_idx = UINT64_MAX;
-        int64_t best_common_diff = INT64_MAX;
-
-        for (auto &s0 : buf0)
-        {
-            if (!s0 || !s0->valid) continue;
-            for (auto &s1 : buf1)
-            {
-                if (!s1 || !s1->valid) continue;
-                if (s0->frame_index == s1->frame_index)
-                {
-                    int64_t diff = (int64_t)s0->display_time - (int64_t)fs.predictedDisplayTime;
-                    if (diff < 0) diff = -diff;
-                    if (diff < best_common_diff)
-                    {
-                        best_common_diff = diff;
-                        best_common_idx = s0->frame_index;
-                    }
-                }
-            }
-        }
-
-        if (best_common_idx != UINT64_MAX)
-        {
-            render_frames[0] = app->stream.get_frame(best_common_idx, 0);
-            render_frames[1] = app->stream.get_frame(best_common_idx, 1);
-        }
-        else
-        {
-            // No common frame — fall back to latest valid per eye
-            render_frames[0].reset();
-            render_frames[1].reset();
-            for (auto &s : buf0)
-                if (s && s->valid && (!render_frames[0] || s->frame_index > render_frames[0]->frame_index))
-                    render_frames[0] = s;
-            for (auto &s : buf1)
-                if (s && s->valid && (!render_frames[1] || s->frame_index > render_frames[1]->frame_index))
-                    render_frames[1] = s;
-        }
-
-        for (int e = 0; e < 2; e++)
-        {
-            if (render_frames[e] && render_frames[e]->valid)
-                g_latency.on_frame_rendered(render_frames[e]->frame_index, e);
-        }
-    }
-    else if (was_streaming)
-    {
-        render_frames[0].reset();
-        render_frames[1].reset();
-        render_frames[2].reset();
-        was_streaming = false;
-    }
-
     for (uint32_t eye = 0; eye < NUM_EYES; eye++) {
         uint32_t imgIndex = 0;
         XrSwapchainImageAcquireInfo ai = {};
@@ -1172,7 +1160,7 @@ static void render_frame(AppState* app) {
 
         XrSwapchainImageWaitInfo wi = {};
         wi.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
-        wi.timeout = XR_INFINITE_DURATION;
+        wi.timeout = 10000000000; // 10s in ns
         clock_gettime(CLOCK_MONOTONIC, &tc);
         r = xrWaitSwapchainImage(app->swapchains[eye].handle, &wi);
         clock_gettime(CLOCK_MONOTONIC, &td);
@@ -1189,15 +1177,17 @@ static void render_frame(AppState* app) {
         glBindFramebuffer(GL_FRAMEBUFFER, app->fbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, glImg, 0);
 
-        if (app->depth_rbo_w[eye] != w || app->depth_rbo_h[eye] != h) {
-            glBindRenderbuffer(GL_RENDERBUFFER, app->depth_rbo[eye]);
-            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
-            app->depth_rbo_w[eye] = w;
-            app->depth_rbo_h[eye] = h;
-        }
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, app->depth_rbo[eye]);
+        bool is_streaming_blit = app->stream.streaming.load() && !app->stream.stream_ui_visible.load();
 
-        GLenum fbStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (!is_streaming_blit) {
+            if (app->depth_rbo_w[eye] != w || app->depth_rbo_h[eye] != h) {
+                glBindRenderbuffer(GL_RENDERBUFFER, app->depth_rbo[eye]);
+                glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
+                app->depth_rbo_w[eye] = w;
+                app->depth_rbo_h[eye] = h;
+            }
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, app->depth_rbo[eye]);
+        }
 
         std::shared_ptr<pico_decoded_frame> decoded;
         if (app->stream.streaming.load())
@@ -1205,9 +1195,7 @@ static void render_frame(AppState* app) {
             decoded = render_frames[eye];
         }
 
-        if (fbStatus != GL_FRAMEBUFFER_COMPLETE) {
-            LOGE("Framebuffer incomplete: 0x%x (eye %u)", fbStatus, eye);
-        } else if (app->stream.streaming.load() && !app->stream.stream_ui_visible.load()) {
+        if (is_streaming_blit) {
             static int blit_log_count = 0;
             if (eye == 0 && (blit_log_count++ % 300 == 0)) LOGI("STREAMING: blit path active");
 
@@ -1381,11 +1369,6 @@ static void render_frame(AppState* app) {
     fe.layerCount = 1;
     fe.layers = layerHeaders;
 
-    r = xrEndFrame(app->session, &fe);
-    if (r != XR_SUCCESS) {
-        LOGE("xrEndFrame failed: %d", r);
-    }
-
     if (app->stream.streaming.load() && !app->stream.stream_ui_visible.load())
     {
         struct timespec submit_ts;
@@ -1396,6 +1379,11 @@ static void render_frame(AppState* app) {
             if (render_frames[e] && render_frames[e]->valid)
                 g_latency.on_frame_submitted(render_frames[e]->frame_index, e, submit_ns);
         }
+    }
+
+    r = xrEndFrame(app->session, &fe);
+    if (r != XR_SUCCESS) {
+        LOGE("xrEndFrame failed: %d", r);
     }
 
     clock_gettime(CLOCK_MONOTONIC, &t3);

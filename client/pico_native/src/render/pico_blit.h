@@ -24,6 +24,12 @@ class pico_blit_pipeline
 	std::vector<float> vertex_data;
 	bool initialized = false;
 
+	wivrn::to_headset::foveation_parameter last_foveation;
+	int last_src_width = 0;
+	int last_src_height = 0;
+	size_t last_vertex_count = 0;
+	bool vertex_dirty = true;
+
 	static size_t required_vertices(const wivrn::to_headset::foveation_parameter & p);
 
 public:
