@@ -324,12 +324,13 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeDisconnectServer(JNIEnv * env, jobj
         int fd = g_app->stream.session->get_control_fd();
         ::shutdown(fd, SHUT_RDWR);
     }
-    if (g_app->stream.network_thread.joinable())
-        g_app->stream.network_thread.join();
     if (g_app->stream.connect_thread.joinable())
         g_app->stream.connect_thread.join();
+    if (g_app->stream.network_thread.joinable())
+        g_app->stream.network_thread.join();
     g_app->stream.session.reset();
     g_app->stream.reset_stream_state();
+    g_app->stream.shutdown = false;
 }
 
 JNIEXPORT void JNICALL
