@@ -800,6 +800,9 @@ void streaming_client::send_headset_info()
 
 	pico_audio::get_audio_description(info);
 
+	if (!microphone_enabled.load())
+		info.microphone.reset();
+
 	info.fov[0] = eye_fov[0];
 	info.fov[1] = eye_fov[1];
 

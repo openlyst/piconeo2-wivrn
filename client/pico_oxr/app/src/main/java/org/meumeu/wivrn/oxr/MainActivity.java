@@ -4,6 +4,8 @@ import android.app.NativeActivity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Rect;
@@ -78,8 +80,13 @@ public class MainActivity extends NativeActivity {
                 try { Thread.sleep(100); } catch (InterruptedException e) { return; }
             }
             if (nativeReady()) {
-                int savedIpd = getSharedPreferences("wivrn_settings", MODE_PRIVATE).getInt("ipd_mm", 64);
-                runOnUiThread(() -> onIpdChanged(savedIpd));
+                SharedPreferences sp = getSharedPreferences("wivrn_settings", MODE_PRIVATE);
+                int savedIpd = sp.getInt("ipd_mm", 64);
+                boolean savedMic = sp.getBoolean("microphone", false);
+                runOnUiThread(() -> {
+                    onIpdChanged(savedIpd);
+                    if (savedMic) onMicrophoneChanged(true);
+                });
             }
         }).start();
 
@@ -477,6 +484,31 @@ public class MainActivity extends NativeActivity {
         nativeSetIpd(ipdMm);
     }
 
+    public void onMicrophoneChanged(boolean enabled) {
+        Log.i(TAG, "Microphone changed: " + enabled);
+        if (enabled) {
+            if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, 1001);
+                return;
+            }
+        }
+        nativeSetMicrophone(enabled);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 1001) {
+            boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            Log.i(TAG, "RECORD_AUDIO permission: " + (granted ? "granted" : "denied"));
+            if (granted && lobbyView != null) {
+                nativeSetMicrophone(true);
+            } else if (lobbyView != null) {
+                lobbyView.setMicrophoneEnabled(false);
+            }
+        }
+    }
+
     public void onRequestAppList() {
         Log.i(TAG, "Requesting app list");
         nativeRequestAppList();
@@ -534,4 +566,5 @@ public class MainActivity extends NativeActivity {
     public native void nativeSetActiveApp(int appId);
     public native void nativeStopApp(int appId);
     public native void nativeSetIpd(int ipdMm);
+    public native void nativeSetMicrophone(boolean enabled);
 }
