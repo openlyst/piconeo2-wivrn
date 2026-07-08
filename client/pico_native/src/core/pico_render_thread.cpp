@@ -400,15 +400,18 @@ void pico_render_thread::submit_to_warp(int slot_idx, uint64_t fence_wait_ns)
 			pose.orientation = last_good_q[e];
 		}
 
+		float ipd = client ? client->tracker.soft_ipd.load() : 0.064f;
+		float eye_offset = (e == 0 ? -ipd * 0.5f : ipd * 0.5f);
+
 		PvrPoseBlk blk;
 		memset(&blk, 0, sizeof(blk));
 		blk.v[0] = pose.orientation.x;
 		blk.v[1] = pose.orientation.y;
 		blk.v[2] = pose.orientation.z;
 		blk.v[3] = pose.orientation.w;
-		blk.v[4] = pose.position.x;
-		blk.v[5] = pose.position.y;
-		blk.v[6] = pose.position.z;
+		blk.v[4] = eye_offset;
+		blk.v[5] = 0;
+		blk.v[6] = 0;
 		PVR_ChangeRenderPose(e, 0, blk);
 	}
 

@@ -983,7 +983,7 @@ public class WivrnLobbyView {
         y = drawResolutionSlider(x, y, w, "Resolution", resWidth, 1024, 2048, true);
         y = drawSlider(x, y, w, "Foveated Encoding", foveationScale, 0, 80, "%", true);
         y = drawSlider(x, y, w, "Bitrate", bitrate, 5, 100, "Mbit/s", true);
-        y = drawSlider(x, y, w, "IPD", ipdMm, 58, 72, "mm", true);
+        y = drawSlider(x, y, w, "IPD", ipdMm, 58, 72, "mm", false);
 
         y = drawDropdown(x, y, w, "Codec", new String[]{"Automatic", "H.264", "H.265"},
             codec.equals("auto") ? 0 : codec.equals("h264") ? 1 : 2, true);
@@ -1918,6 +1918,7 @@ public class WivrnLobbyView {
             case SLIDER_IPD:
                 ipdMm = Math.max(58, Math.min(72, (int)(58 + pct * 14)));
                 saveSettings();
+                ((MainActivity) context).onIpdChanged(ipdMm);
                 markDirty();
                 break;
         }
@@ -2199,19 +2200,38 @@ public class WivrnLobbyView {
         float contentX = SIDEBAR_WIDTH + 20;
         float contentW = width - contentX - 20;
 
-        // All settings below are not yet wired to the streaming pipeline.
-        // Only the "Restore Defaults" button and reset confirm dialog are functional.
+        float sliderW = contentW - 100;
 
         float sy = 100;
-        // Skip past all disabled sliders/checkboxes/dropdown to find the reset button position
-        sy += 35 + 50; // resolution
-        sy += 35 + 50; // foveation
-        sy += 35 + 50; // bitrate
-        sy += 35 + 50; // IPD
-        sy += 50;       // codec dropdown
-        sy += 40;       // TCP
-        sy += 40;       // mic
-        sy += 40;       // high power
+        // Resolution (disabled)
+        sy += 35 + 50;
+        // Foveation (disabled)
+        sy += 35 + 50;
+        // Bitrate (disabled)
+        sy += 35 + 50;
+
+        // IPD (enabled)
+        sy += 35;
+        float resSliderW = contentW - 100;
+        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + resSliderW) {
+            activeSlider = SLIDER_IPD;
+            float pct = Math.max(0, Math.min(1, (x - contentX) / resSliderW));
+            ipdMm = Math.max(58, Math.min(72, (int)(58 + pct * 14)));
+            saveSettings();
+            ((MainActivity) context).onIpdChanged(ipdMm);
+            markDirty();
+            return;
+        }
+        sy += 50;
+
+        // Codec (disabled)
+        sy += 50;
+        // TCP (disabled)
+        sy += 40;
+        // Mic (disabled)
+        sy += 40;
+        // High power (disabled)
+        sy += 40;
 
         // Restore Defaults button
         sy += 40;
@@ -2245,6 +2265,7 @@ public class WivrnLobbyView {
             microphoneEnabled = false;
             highPowerMode = false;
             saveSettings();
+            ((MainActivity) context).onIpdChanged(ipdMm);
             showResetConfirm = false;
             markDirty();
             return;
