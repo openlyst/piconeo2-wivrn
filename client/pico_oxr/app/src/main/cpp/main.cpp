@@ -27,6 +27,7 @@
 #include "streaming/streaming_client.h"
 #include "streaming/oxr_blit.h"
 #include "pico_stutter.h"
+#include "latency_tracker.h"
 
 #define LOG_TAG "WiVRn-OXR"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
@@ -1144,6 +1145,12 @@ static void render_frame(AppState* app) {
                 if (s && s->valid && (!render_frames[1] || s->frame_index > render_frames[1]->frame_index))
                     render_frames[1] = s;
         }
+
+        for (int e = 0; e < 2; e++)
+        {
+            if (render_frames[e] && render_frames[e]->valid)
+                g_latency.on_frame_rendered(render_frames[e]->frame_index, e);
+        }
     }
     else if (was_streaming)
     {
@@ -1378,6 +1385,19 @@ static void render_frame(AppState* app) {
     if (r != XR_SUCCESS) {
         LOGE("xrEndFrame failed: %d", r);
     }
+
+    if (app->stream.streaming.load() && !app->stream.stream_ui_visible.load())
+    {
+        struct timespec submit_ts;
+        clock_gettime(CLOCK_MONOTONIC, &submit_ts);
+        int64_t submit_ns = (int64_t)submit_ts.tv_sec * 1000000000LL + submit_ts.tv_nsec;
+        for (int e = 0; e < 2; e++)
+        {
+            if (render_frames[e] && render_frames[e]->valid)
+                g_latency.on_frame_submitted(render_frames[e]->frame_index, e, submit_ns);
+        }
+    }
+
     clock_gettime(CLOCK_MONOTONIC, &t3);
     g_prev_end = t3;
 
