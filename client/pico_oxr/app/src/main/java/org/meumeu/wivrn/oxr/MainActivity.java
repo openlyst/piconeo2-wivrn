@@ -114,12 +114,16 @@ public class MainActivity extends NativeActivity {
         Uri uri = intent.getData();
         String scheme = uri.getScheme();
         if (scheme == null) return;
-        if (!scheme.equals("wivrn") && !scheme.equals("wivrn+tcp")) return;
+        if (!scheme.equals("wivrn") && !scheme.equals("wivrn+tcp") && !scheme.equals("wivrn+udp")) return;
 
         String host = uri.getHost();
         int port = uri.getPort();
         if (port <= 0) port = 9757;
         boolean tcpOnly = scheme.equals("wivrn+tcp");
+        String tcpOnlyParam = uri.getQueryParameter("tcp_only");
+        if (tcpOnlyParam != null && !tcpOnlyParam.isEmpty()) {
+            tcpOnly = tcpOnlyParam.equals("1") || tcpOnlyParam.equalsIgnoreCase("true");
+        }
 
         String pin = null;
         String userInfo = uri.getUserInfo();
