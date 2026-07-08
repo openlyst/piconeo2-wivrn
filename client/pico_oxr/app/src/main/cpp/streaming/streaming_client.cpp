@@ -573,7 +573,6 @@ void streaming_client::reset_stream_state()
 void streaming_client::network_loop()
 {
 	constexpr int64_t video_timeout_ns = 10'000'000'000LL;
-	constexpr int64_t initial_timeout_ns = 15'000'000'000LL;
 
 	while (!shutdown && session)
 	{
@@ -585,29 +584,23 @@ void streaming_client::network_loop()
 
 			int64_t now = get_timestamp_ns();
 			int64_t last = last_shard_ns.load();
-			int64_t conn = connected_ns.load();
-
-			if (last == 0 && conn > 0 && (now - conn) > initial_timeout_ns)
-			{
-				spdlog::warn("No video received within {}s of connection, reconnecting",
-					initial_timeout_ns / 1'000'000'000);
-				break;
-			}
 
 			if (last > 0 && (now - last) > video_timeout_ns)
 			{
-				spdlog::warn("No video shards for {}s, reconnecting",
-					video_timeout_ns / 1'000'000'000);
+				last_error = fmt::format("No video for {}s", video_timeout_ns / 1'000'000'000);
+				spdlog::warn("{}", last_error);
 				break;
 			}
 		}
 		catch (std::exception & e)
 		{
+			last_error = e.what();
 			spdlog::error("Network error: {}", e.what());
 			break;
 		}
 		catch (...)
 		{
+			last_error = "Unknown network error";
 			spdlog::error("Network error: unknown exception");
 			break;
 		}
@@ -879,7 +872,6 @@ void streaming_client::try_connect()
 	{
 		spdlog::info("try_connect: stopping previous connection");
 		shutdown = true;
-		auto_reconnect.store(false);
 		if (session)
 		{
 			int fd = session->get_control_fd();
@@ -894,6 +886,7 @@ void streaming_client::try_connect()
 			session.reset();
 			reset_stream_state();
 			shutdown = false;
+			auto_reconnect.store(true);
 
 			connect_thread = std::thread([this] {
 				run_connect_loop();
@@ -940,8 +933,14 @@ void streaming_client::run_connect_loop()
 		catch (std::exception & e)
 		{
 			spdlog::error("Failed to start client: {}", e.what());
+			last_error = e.what();
 			notify_connection_state(3, e.what());
+			if (network_thread.joinable())
+				network_thread.join();
+			tracker.stop();
+			tracker.session = nullptr;
 			session.reset();
+			reset_stream_state();
 		}
 	}
 	else
@@ -990,8 +989,14 @@ void streaming_client::run_connect_loop()
 			catch (std::exception & e)
 			{
 				spdlog::error("Auto-reconnect: failed to start client: {}", e.what());
+				last_error = e.what();
 				notify_connection_state(3, e.what());
+				if (network_thread.joinable())
+					network_thread.join();
+				tracker.stop();
+				tracker.session = nullptr;
 				session.reset();
+				reset_stream_state();
 			}
 		}
 		else
@@ -1003,6 +1008,16 @@ void streaming_client::run_connect_loop()
 	}
 
 	if (!auto_reconnect.load())
+	{
+		spdlog::info("Connection thread exiting: auto_reconnect is false");
 		notify_connection_state(0, "");
-	spdlog::info("Connection thread exiting");
+	}
+	else if (shutdown.load())
+	{
+		spdlog::info("Connection thread exiting: shutdown requested");
+	}
+	else
+	{
+		spdlog::info("Connection thread exiting");
+	}
 }
