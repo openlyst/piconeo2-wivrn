@@ -23,8 +23,9 @@ constexpr float k_grip_up_mm = 12.5f;
 constexpr float k_grip_back_mm = 40.0f;
 constexpr float k_rot_swing = 1.0f;
 
-constexpr float k_head_vel_tau = 0.02f;
-constexpr float k_ctrl_vel_tau = 0.02f;
+constexpr float k_head_vel_tau = 0.1f;
+constexpr float k_ctrl_vel_tau = 0.05f;
+constexpr float k_predict = 0.4f;
 
 neo2::quat apply_controller_orientation(const float raw_orient[4], int hand)
 {
@@ -140,7 +141,8 @@ void pico_native_tracker::get_controllers(controller_sample out[2])
 
 void pico_native_tracker::update_controller(int hand, const float orient[4], const float pos[3],
                                             int trigger, const int touch[2], int battery,
-                                            bool a, bool b, bool grip, bool click, bool menu)
+                                            bool a, bool b, bool grip, bool click, bool menu,
+                                            const float * ang_vel)
 {
 	if (hand < 0 || hand > 1)
 		return;
@@ -160,6 +162,17 @@ void pico_native_tracker::update_controller(int hand, const float orient[4], con
 	{
 		c.touch[0] = touch[0];
 		c.touch[1] = touch[1];
+	}
+	if (ang_vel)
+	{
+		c.angular_velocity[0] = ang_vel[0];
+		c.angular_velocity[1] = ang_vel[1];
+		c.angular_velocity[2] = ang_vel[2];
+		c.has_angular_velocity = true;
+	}
+	else
+	{
+		c.has_angular_velocity = false;
 	}
 }
 
@@ -197,6 +210,18 @@ void pico_native_tracker::update_controller_from_jni(int hand, int conn, const f
 		c.position[0] = sensor[4];
 		c.position[1] = sensor[5];
 		c.position[2] = sensor[6];
+	}
+
+	if (ang_vel)
+	{
+		c.angular_velocity[0] = ang_vel[0];
+		c.angular_velocity[1] = ang_vel[1];
+		c.angular_velocity[2] = ang_vel[2];
+		c.has_angular_velocity = true;
+	}
+	else
+	{
+		c.has_angular_velocity = false;
 	}
 
 	if (keys)
@@ -260,7 +285,7 @@ void pico_native_tracker::step_head_filter(const float pos[3], const neo2::quat 
 	head_filter_init = true;
 }
 
-void pico_native_tracker::step_ctrl_filter(int hand, const float pos_m[3], const neo2::quat & orient, uint64_t ts)
+void pico_native_tracker::step_ctrl_filter(int hand, const float pos_m[3], const neo2::quat & orient, uint64_t ts, const float * hw_ang_vel)
 {
 	if (ctrl_filter_init[hand])
 	{
@@ -275,21 +300,30 @@ void pico_native_tracker::step_ctrl_filter(int hand, const float pos_m[3], const
 			ctrl_lin_vel[hand][1] += (lvy - ctrl_lin_vel[hand][1]) * alpha;
 			ctrl_lin_vel[hand][2] += (lvz - ctrl_lin_vel[hand][2]) * alpha;
 
-			neo2::quat delta = neo2::normalize_quat(
-				neo2::multiply_quat(orient, neo2::conjugate_quat(ctrl_prev_orient[hand])));
-			if (delta.w < 0)
-			{
-				delta.x = -delta.x; delta.y = -delta.y;
-				delta.z = -delta.z; delta.w = -delta.w;
-			}
-			float w = delta.w > 1.0f ? 1.0f : delta.w;
-			float angle = 2.0f * std::acos(w);
-			float s = std::sqrt(1.0f - w * w);
 			float avx = 0, avy = 0, avz = 0;
-			if (s > 1e-6f)
+			if (hw_ang_vel)
 			{
-				float k = (angle / s) / (float)dt;
-				avx = delta.x * k; avy = delta.y * k; avz = delta.z * k;
+				avx = -hw_ang_vel[0];
+				avy = -hw_ang_vel[1];
+				avz = hw_ang_vel[2];
+			}
+			else
+			{
+				neo2::quat delta = neo2::normalize_quat(
+					neo2::multiply_quat(orient, neo2::conjugate_quat(ctrl_prev_orient[hand])));
+				if (delta.w < 0)
+				{
+					delta.x = -delta.x; delta.y = -delta.y;
+					delta.z = -delta.z; delta.w = -delta.w;
+				}
+				float w = delta.w > 1.0f ? 1.0f : delta.w;
+				float angle = 2.0f * std::acos(w);
+				float s = std::sqrt(1.0f - w * w);
+				if (s > 1e-6f)
+				{
+					float k = (angle / s) / (float)dt;
+					avx = delta.x * k; avy = delta.y * k; avz = delta.z * k;
+				}
 			}
 			ctrl_ang_vel[hand][0] += (avx - ctrl_ang_vel[hand][0]) * alpha;
 			ctrl_ang_vel[hand][1] += (avy - ctrl_ang_vel[hand][1]) * alpha;
@@ -327,11 +361,6 @@ void pico_native_tracker::run()
 		float h_orient[4], h_pos[3];
 		bool h_valid;
 
-		float qx, qy, qz, qw, px, py, pz, vfov, hfov;
-		int viewNum;
-		int rc = Pvr_GetMainSensorState(&qx, &qy, &qz, &qw, &px, &py, &pz, &vfov, &hfov, &viewNum);
-		h_valid = (rc >= 0);
-		if (!h_valid)
 		{
 			std::lock_guard lock(state_mutex);
 			h_valid = head_valid;
@@ -341,29 +370,32 @@ void pico_native_tracker::run()
 				std::memcpy(h_pos, head_pos, sizeof(h_pos));
 			}
 		}
+
+		if (!h_valid)
+		{
+			float qx, qy, qz, qw, px, py, pz, vfov, hfov;
+			int viewNum;
+			int rc = Pvr_GetMainSensorState(&qx, &qy, &qz, &qw, &px, &py, &pz, &vfov, &hfov, &viewNum);
+			if (rc >= 0)
+			{
+				std::lock_guard lock(state_mutex);
+				head_orient[0] = qx; head_orient[1] = qy; head_orient[2] = qz; head_orient[3] = qw;
+				head_pos[0] = px; head_pos[1] = py; head_pos[2] = pz;
+				head_valid = true;
+				h_valid = true;
+				std::memcpy(h_orient, head_orient, sizeof(h_orient));
+				std::memcpy(h_pos, head_pos, sizeof(h_pos));
+
+				neo2::quat hq = neo2::normalize_quat({qx, qy, qz, qw});
+				step_head_filter(h_pos, hq, ts);
+			}
+		}
+
 		static int sensor_log_count = 0;
 		if (sensor_log_count < 5 || (sensor_log_count % 300) == 0) {
-			spdlog::info("sensor rc={} valid={} q=({:.3f},{:.3f},{:.3f},{:.3f}) p=({:.3f},{:.3f},{:.3f})",
-				rc, h_valid, h_orient[0], h_orient[1], h_orient[2], h_orient[3], h_pos[0], h_pos[1], h_pos[2]);
+			spdlog::info("sensor valid={} q=({:.3f},{:.3f},{:.3f},{:.3f}) p=({:.3f},{:.3f},{:.3f})",
+				h_valid, h_orient[0], h_orient[1], h_orient[2], h_orient[3], h_pos[0], h_pos[1], h_pos[2]);
 			sensor_log_count++;
-		}
-		if (h_valid && rc >= 0)
-		{
-			h_orient[0] = qx; h_orient[1] = qy; h_orient[2] = qz; h_orient[3] = qw;
-			h_pos[0] = px; h_pos[1] = py; h_pos[2] = pz;
-
-			std::lock_guard lock(state_mutex);
-			std::memcpy(head_orient, h_orient, sizeof(head_orient));
-			std::memcpy(head_pos, h_pos, sizeof(h_pos));
-			head_valid = true;
-
-			neo2::quat hq = neo2::normalize_quat({qx, qy, qz, qw});
-			step_head_filter(h_pos, hq, ts);
-		}
-		else if (h_valid)
-		{
-			neo2::quat hq = neo2::normalize_quat({h_orient[0], h_orient[1], h_orient[2], h_orient[3]});
-			step_head_filter(h_pos, hq, ts);
 		}
 
 		if (!h_valid)
@@ -427,7 +459,8 @@ void pico_native_tracker::run()
 				cs[h].position[1] * 0.001f + grip_world[1],
 				cs[h].position[2] * 0.001f + grip_world[2],
 			};
-			step_ctrl_filter(h, pos_m, cq, ts);
+			const float * hw_ang = cs[h].has_angular_velocity ? cs[h].angular_velocity : nullptr;
+			step_ctrl_filter(h, pos_m, cq, ts, hw_ang);
 		}
 
 		bool do_uplink = (frame_counter % k_uplink_div) == 0;
@@ -515,13 +548,13 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 	                from_headset::tracking::linear_velocity_valid |
 	                from_headset::tracking::angular_velocity_valid;
 	head_tp.linear_velocity = {
-		head_lin_vel[0],
-		head_lin_vel[1],
-		head_lin_vel[2]};
+		head_lin_vel[0] * k_predict,
+		head_lin_vel[1] * k_predict,
+		head_lin_vel[2] * k_predict};
 	head_tp.angular_velocity = {
-		head_ang_vel[0],
-		head_ang_vel[1],
-		head_ang_vel[2]};
+		head_ang_vel[0] * k_predict,
+		head_ang_vel[1] * k_predict,
+		head_ang_vel[2] * k_predict};
 	pkt.device_poses.push_back(head_tp);
 
 	for (int h = 0; h < 2; h++)
@@ -558,13 +591,29 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 		grip_p.device = is_left ? device_id::LEFT_GRIP : device_id::RIGHT_GRIP;
 		grip_p.flags = pose_flags;
 		grip_p.linear_velocity = {
-			ctrl_lin_vel[h][0],
-			ctrl_lin_vel[h][1],
-			ctrl_lin_vel[h][2]};
+			ctrl_lin_vel[h][0] * k_predict,
+			ctrl_lin_vel[h][1] * k_predict,
+			ctrl_lin_vel[h][2] * k_predict};
 		grip_p.angular_velocity = {
-			ctrl_ang_vel[h][0],
-			ctrl_ang_vel[h][1],
-			ctrl_ang_vel[h][2]};
+			ctrl_ang_vel[h][0] * k_predict,
+			ctrl_ang_vel[h][1] * k_predict,
+			ctrl_ang_vel[h][2] * k_predict};
+
+		float lever_vel[3] = {0, 0, 0};
+		{
+			float av[3] = {
+				ctrl_ang_vel[h][0] * k_predict,
+				ctrl_ang_vel[h][1] * k_predict,
+				ctrl_ang_vel[h][2] * k_predict};
+			float lever[3] = {grip_world[0], grip_world[1], grip_world[2]};
+			lever_vel[0] = av[1] * lever[2] - av[2] * lever[1];
+			lever_vel[1] = av[2] * lever[0] - av[0] * lever[2];
+			lever_vel[2] = av[0] * lever[1] - av[1] * lever[0];
+		}
+		grip_p.linear_velocity.x += lever_vel[0];
+		grip_p.linear_velocity.y += lever_vel[1];
+		grip_p.linear_velocity.z += lever_vel[2];
+
 		pkt.device_poses.push_back(grip_p);
 
 		from_headset::tracking::pose aim_p{};

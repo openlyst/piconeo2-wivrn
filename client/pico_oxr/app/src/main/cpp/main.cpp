@@ -93,13 +93,19 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeControllerState(
         return;
 
     float sensor_buf[7] = {0};
+    float angvel_buf[3] = {0};
     int keys_buf[12] = {0};
-    bool has_sensor = false, has_keys = false;
+    bool has_sensor = false, has_angvel = false, has_keys = false;
 
     if (sensor && env->GetArrayLength(sensor) >= 7)
     {
         env->GetFloatArrayRegion(sensor, 0, 7, sensor_buf);
         has_sensor = true;
+    }
+    if (angVel && env->GetArrayLength(angVel) >= 3)
+    {
+        env->GetFloatArrayRegion(angVel, 0, 3, angvel_buf);
+        has_angvel = true;
     }
     if (keys && env->GetArrayLength(keys) >= 12)
     {
@@ -127,6 +133,17 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeControllerState(
                 c.position[0] = sensor_buf[4];
                 c.position[1] = sensor_buf[5];
                 c.position[2] = sensor_buf[6];
+            }
+            if (has_angvel)
+            {
+                c.angular_velocity[0] = angvel_buf[0];
+                c.angular_velocity[1] = angvel_buf[1];
+                c.angular_velocity[2] = angvel_buf[2];
+                c.has_angular_velocity = true;
+            }
+            else
+            {
+                c.has_angular_velocity = false;
             }
             if (has_keys)
             {
@@ -1027,7 +1044,8 @@ static void render_frame(AppState* app) {
                 h, cs[h].orientation, cs[h].position,
                 cs[h].trigger, cs[h].touch, cs[h].battery,
                 cs[h].button_a, cs[h].button_b, cs[h].grip,
-                cs[h].thumbstick_click, cs[h].menu);
+                cs[h].thumbstick_click, cs[h].menu,
+                cs[h].has_angular_velocity ? cs[h].angular_velocity : nullptr);
 
             static int fwd_log_count = 0;
             if (fwd_log_count++ % 120 == 0)
