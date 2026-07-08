@@ -342,6 +342,14 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetPin(JNIEnv * env, jobject thiz, 
 }
 
 JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetBitrate(JNIEnv * env, jobject thiz, jint bitrateMbps)
+{
+    if (!g_app) return;
+    LOGI("nativeSetBitrate: %d Mbps", bitrateMbps);
+    g_app->stream.bitrate_mbps.store(bitrateMbps);
+}
+
+JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetIpd(JNIEnv * env, jobject thiz, jint ipdMm)
 {
     if (!g_app) return;
