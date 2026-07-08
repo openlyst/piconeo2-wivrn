@@ -86,6 +86,7 @@ public class MainActivity extends NativeActivity {
                 runOnUiThread(() -> {
                     onIpdChanged(savedIpd);
                     if (savedMic) onMicrophoneChanged(true);
+                    lobbyView.applyResolution();
                 });
             }
         }).start();
@@ -462,6 +463,9 @@ public class MainActivity extends NativeActivity {
         pendingHost = hostname;
         pendingPort = port;
         pendingTcpOnly = tcpOnly;
+        if (lobbyView != null) {
+            lobbyView.applyResolution();
+        }
         nativeConnectServer(hostname, port, tcpOnly);
     }
 
@@ -497,6 +501,16 @@ public class MainActivity extends NativeActivity {
             }
         }
         nativeSetMicrophone(enabled);
+    }
+
+    public void onRenderResolutionChanged(int width, int height) {
+        Log.i(TAG, "Render resolution changed: " + width + "x" + height);
+        nativeSetRenderResolution(width, height);
+    }
+
+    public void onStreamResolutionChanged(int width, int height) {
+        Log.i(TAG, "Stream resolution changed: " + width + "x" + height);
+        nativeSetStreamResolution(width, height);
     }
 
     @Override
@@ -571,4 +585,6 @@ public class MainActivity extends NativeActivity {
     public native void nativeStopApp(int appId);
     public native void nativeSetIpd(int ipdMm);
     public native void nativeSetMicrophone(boolean enabled);
+    public native void nativeSetStreamResolution(int width, int height);
+    public native void nativeSetRenderResolution(int width, int height);
 }

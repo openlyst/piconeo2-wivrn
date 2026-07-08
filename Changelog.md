@@ -1,3 +1,8 @@
+# RC5
+
+ - Fix lobby flickering if your battery was low
+ - Fix lobby resolution scaling
+
 # [RC4](https://gitlab.com/HttpAnimations/piconeo2-wivrn/-/tree/13457b85ce3a656dd60ace3279cdf1a2d05f2313)
 
  - Harden rendering pipeline

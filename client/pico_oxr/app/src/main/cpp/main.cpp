@@ -361,12 +361,23 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetMicrophone(JNIEnv * env, jobject
 }
 
 JNIEXPORT void JNICALL
-Java_org_meumeu_wivrn_oxr_StreamingActivity_nativeSetStreamResolution(JNIEnv * env, jobject thiz, jint width, jint height)
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetStreamResolution(JNIEnv * env, jobject thiz, jint width, jint height)
 {
     if (!g_app) return;
     g_app->stream.stream_eye_width.store(width);
     g_app->stream.stream_eye_height.store(height);
     LOGI("Stream resolution set to %dx%d", width, height);
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetRenderResolution(JNIEnv * env, jobject thiz, jint width, jint height)
+{
+    if (!g_app) return;
+    g_app->stream.eye_width.store(width);
+    g_app->stream.eye_height.store(height);
+    g_app->lobby.set_resolution(width, height);
+    g_app->stream.blit_pipeline.set_resolution(width, height);
+    LOGI("Render resolution set to %dx%d", width, height);
 }
 
 JNIEXPORT jboolean JNICALL
@@ -1380,6 +1391,8 @@ static void render_frame(AppState* app) {
         GLuint glImg = app->swapchains[eye].images[imgIndex].image;
         int32_t w = app->swapchains[eye].width;
         int32_t h = app->swapchains[eye].height;
+        app->lobby.set_resolution(w, h);
+        app->stream.blit_pipeline.set_resolution(w, h);
 
         glBindFramebuffer(GL_FRAMEBUFFER, app->fbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, glImg, 0);
@@ -1779,8 +1792,8 @@ extern "C" void android_main(struct android_app* androidApp) {
     app.lobby.init(eye_w, eye_h);
     app.blit.init(app.display, eye_w, eye_h);
     app.stream.blit_pipeline.init(eye_w, eye_h);
-    app.stream.eye_width = eye_w;
-    app.stream.eye_height = eye_h;
+    app.stream.eye_width.store(eye_w);
+    app.stream.eye_height.store(eye_h);
     app.stream.vm = g_jvm;
     app.stream.activity = g_activity;
     g_stream = &app.stream;

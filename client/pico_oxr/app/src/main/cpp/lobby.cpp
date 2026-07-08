@@ -216,8 +216,8 @@ static void generate_placeholder_texture(GLuint tex, int w, int h)
 
 void pico_lobby::init(int w, int h)
 {
-	eye_width = w;
-	eye_height = h;
+	eye_width.store(w);
+	eye_height.store(h);
 
 	GLuint vert = compile_shader(GL_VERTEX_SHADER, vert_src);
 	GLuint frag = compile_shader(GL_FRAGMENT_SHADER, frag_src);
@@ -326,7 +326,12 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 		return;
 	}
 
-	glViewport(0, 0, eye_width, eye_height);
+	int w = eye_width.load();
+	int h = eye_height.load();
+	if (w <= 0 || h <= 0)
+		return;
+
+	glViewport(0, 0, w, h);
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LEQUAL);
 	glDisable(GL_CULL_FACE);
@@ -537,6 +542,12 @@ static bool ray_plane_intersect(
 	out_v = dv / plane_half_h;
 
 	return (out_u >= -1.0f && out_u <= 1.0f && out_v >= -1.0f && out_v <= 1.0f);
+}
+
+void pico_lobby::set_resolution(int w, int h)
+{
+	eye_width.store(w);
+	eye_height.store(h);
 }
 
 void pico_lobby::recenter()
