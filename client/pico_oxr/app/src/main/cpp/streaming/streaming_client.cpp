@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <fstream>
 #include <stdexcept>
+#include <thread>
 
 using namespace std::chrono_literals;
 using namespace wivrn;
@@ -909,6 +910,56 @@ void streaming_client::try_connect()
 				session.reset();
 			if (!shutdown)
 				notify_connection_state(3, last_error.empty() ? "Connection failed" : last_error);
+		}
+
+		while (auto_reconnect.load() && !shutdown.load())
+		{
+			spdlog::info("Auto-reconnect: waiting 2s before retrying...");
+			for (int i = 0; i < 20 && !shutdown.load(); i++)
+				std::this_thread::sleep_for(100ms);
+			if (shutdown.load())
+				break;
+
+			notify_connection_state(1, "Reconnecting...");
+			spdlog::info("Auto-reconnect: retrying connection to {}:{}", server_host, server_port);
+
+			if (connect_to_server())
+			{
+				try
+				{
+					int fd = session->get_control_fd();
+					int keepalive = 1;
+					setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+					int idle = 3;
+					setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+					int intvl = 1;
+					setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
+					int cnt = 3;
+					setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
+
+					send_headset_info();
+					connected_ns.store(get_timestamp_ns());
+					last_shard_ns.store(0);
+					network_thread = std::thread([this] { network_loop(); });
+					tracker.session = session.get();
+					tracker.start();
+
+					notify_connection_state(4, "Streaming");
+					network_thread.join();
+				}
+				catch (std::exception & e)
+				{
+					spdlog::error("Auto-reconnect: failed to start client: {}", e.what());
+					notify_connection_state(3, e.what());
+					session.reset();
+				}
+			}
+			else
+			{
+				if (session)
+					session.reset();
+				spdlog::warn("Auto-reconnect: connection failed: {}", last_error);
+			}
 		}
 
 		notify_connection_state(0, "");

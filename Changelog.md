@@ -15,6 +15,7 @@
  - Servers are now remembered after pairing with autoconnect support
  - Adds support for boundrys
  - Adds support for microphone input
+ - Harden pairing/connecting over usb
  
 # RC3
 
