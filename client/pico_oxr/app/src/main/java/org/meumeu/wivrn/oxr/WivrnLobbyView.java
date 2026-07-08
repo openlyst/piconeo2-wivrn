@@ -702,6 +702,12 @@ public class WivrnLobbyView {
         return bitmap;
     }
 
+    public void setMicrophoneEnabled(boolean enabled) {
+        microphoneEnabled = enabled;
+        saveSettings();
+        markDirty();
+    }
+
     public boolean isDirty() {
         return dirty;
     }
@@ -989,7 +995,7 @@ public class WivrnLobbyView {
             codec.equals("auto") ? 0 : codec.equals("h264") ? 1 : 2, true);
 
         y = drawCheckbox(x, y, w, "TCP only", tcpOnly, true);
-        y = drawCheckbox(x, y, w, "Enable microphone", microphoneEnabled, true);
+        y = drawCheckbox(x, y, w, "Enable microphone", microphoneEnabled, false);
         y = drawCheckbox(x, y, w, "High power mode", highPowerMode, true);
 
         y += 20;
@@ -2228,8 +2234,18 @@ public class WivrnLobbyView {
         sy += 50;
         // TCP (disabled)
         sy += 40;
-        // Mic (disabled)
+
+        // Microphone (enabled)
+        RectF micCheckbox = new RectF(contentX, sy, contentX + 30, sy + 30);
+        if (micCheckbox.contains(x, y) || (x >= contentX && x <= contentX + contentW && y >= sy - 5 && y <= sy + 35)) {
+            microphoneEnabled = !microphoneEnabled;
+            saveSettings();
+            ((MainActivity) context).onMicrophoneChanged(microphoneEnabled);
+            markDirty();
+            return;
+        }
         sy += 40;
+
         // High power (disabled)
         sy += 40;
 
@@ -2266,6 +2282,7 @@ public class WivrnLobbyView {
             highPowerMode = false;
             saveSettings();
             ((MainActivity) context).onIpdChanged(ipdMm);
+            ((MainActivity) context).onMicrophoneChanged(false);
             showResetConfirm = false;
             markDirty();
             return;

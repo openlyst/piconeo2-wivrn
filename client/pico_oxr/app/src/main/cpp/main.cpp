@@ -339,6 +339,16 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetIpd(JNIEnv * env, jobject thiz, 
 }
 
 JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetMicrophone(JNIEnv * env, jobject thiz, jboolean enabled)
+{
+    if (!g_app) return;
+    g_app->stream.microphone_enabled.store(enabled);
+    if (g_app->stream.audio_handle)
+        g_app->stream.audio_handle->set_mic_state(enabled);
+    LOGI("Microphone %s", enabled ? "enabled" : "disabled");
+}
+
+JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_oxr_StreamingActivity_nativeSetStreamResolution(JNIEnv * env, jobject thiz, jint width, jint height)
 {
     if (!g_app) return;
