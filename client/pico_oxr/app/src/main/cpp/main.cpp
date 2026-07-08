@@ -210,6 +210,10 @@ struct AppState {
     XrSessionState sessionState = XR_SESSION_STATE_UNKNOWN;
     bool sessionRunning = false;
 
+    XrActionSet hapticActionSet = XR_NULL_HANDLE;
+    XrAction hapticActions[2] = {XR_NULL_HANDLE, XR_NULL_HANDLE};
+    XrPath hapticSubactionPaths[2] = {XR_NULL_PATH, XR_NULL_PATH};
+
     SwapchainState swapchains[NUM_EYES];
     XrViewConfigurationView viewConfigs[NUM_EYES] = {};
 
@@ -231,6 +235,34 @@ struct AppState {
 // ---------------------------------------------------------------------------
 
 extern "C" {
+
+JNIEXPORT jboolean JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeDrainHaptic(
+    JNIEnv * env, jobject thiz, jint hand, jfloatArray out)
+{
+    if (!g_app || hand < 0 || hand > 1 || !out)
+        return JNI_FALSE;
+    if (env->GetArrayLength(out) < 2)
+        return JNI_FALSE;
+
+    float amp;
+    int ms;
+    {
+        std::lock_guard lock(g_app->stream.haptics_mutex);
+        auto & slot = g_app->stream.rumble[hand];
+        if (!slot.active)
+            return JNI_FALSE;
+        amp = slot.amplitude;
+        ms = slot.duration_ms;
+        slot.active = false;
+        slot.amplitude = 0.f;
+        slot.duration_ms = 0;
+    }
+
+    float vals[2] = {amp, static_cast<float>(ms)};
+    env->SetFloatArrayRegion(out, 0, 2, vals);
+    return JNI_TRUE;
+}
 
 JNIEXPORT jint JNICALL
 Java_org_meumeu_wivrn_oxr_MainActivity_nativeGetTextureId(JNIEnv * env, jobject thiz)
@@ -696,6 +728,81 @@ static bool openxr_create_session(AppState* app) {
         return false;
     }
 
+    // Create haptic action set for controller vibration
+    {
+        XrActionSetCreateInfo asci = {};
+        asci.type = XR_TYPE_ACTION_SET_CREATE_INFO;
+        strcpy(asci.actionSetName, "haptics");
+        strcpy(asci.localizedActionSetName, "Controller Haptics");
+        asci.priority = 0;
+        r = xrCreateActionSet(app->instance, &asci, &app->hapticActionSet);
+        if (r != XR_SUCCESS) {
+            LOGE("xrCreateActionSet failed: %d", r);
+        } else {
+            // Create subaction paths for left and right hands
+            xrStringToPath(app->instance, "/user/hand/left", &app->hapticSubactionPaths[0]);
+            xrStringToPath(app->instance, "/user/hand/right", &app->hapticSubactionPaths[1]);
+
+            // Single vibrate action with both subaction paths (matches Pico HelloXR sample)
+            XrActionCreateInfo aci = {};
+            aci.type = XR_TYPE_ACTION_CREATE_INFO;
+            strcpy(aci.actionName, "vibrate_hand");
+            strcpy(aci.localizedActionName, "Vibrate Hand");
+            aci.actionType = XR_ACTION_TYPE_VIBRATION_OUTPUT;
+            aci.countSubactionPaths = 2;
+            aci.subactionPaths = app->hapticSubactionPaths;
+            r = xrCreateAction(app->hapticActionSet, &aci, &app->hapticActions[0]);
+            if (r != XR_SUCCESS) {
+                LOGE("xrCreateAction vibrate_hand failed: %d", r);
+            } else {
+                app->hapticActions[1] = app->hapticActions[0]; // same action, different subaction path
+                LOGI("Vibrate action created successfully");
+            }
+
+            XrPath hapticLeftPath, hapticRightPath;
+            xrStringToPath(app->instance, "/user/hand/left/output/haptic", &hapticLeftPath);
+            xrStringToPath(app->instance, "/user/hand/right/output/haptic", &hapticRightPath);
+
+            // Suggest bindings for all relevant interaction profiles
+            const char* profilePaths[] = {
+                "/interaction_profiles/pico/cv2_controller",
+                "/interaction_profiles/khr/simple_controller",
+                "/interaction_profiles/oculus/touch_controller",
+            };
+
+            for (auto profilePath : profilePaths) {
+                XrActionSuggestedBinding suggestedBindings[2] = {
+                    {app->hapticActions[0], hapticLeftPath},
+                    {app->hapticActions[0], hapticRightPath},
+                };
+
+                XrInteractionProfileSuggestedBinding ipsb = {};
+                ipsb.type = XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING;
+                xrStringToPath(app->instance, profilePath, &ipsb.interactionProfile);
+                ipsb.countSuggestedBindings = 2;
+                ipsb.suggestedBindings = suggestedBindings;
+                r = xrSuggestInteractionProfileBindings(app->instance, &ipsb);
+                if (r != XR_SUCCESS) {
+                    LOGI("xrSuggestInteractionProfileBindings (%s) failed: %d", profilePath, r);
+                } else {
+                    LOGI("Suggested haptic bindings for %s", profilePath);
+                }
+            }
+
+            // Attach action set to session
+            XrSessionActionSetsAttachInfo sasai = {};
+            sasai.type = XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO;
+            sasai.countActionSets = 1;
+            sasai.actionSets = &app->hapticActionSet;
+            r = xrAttachSessionActionSets(app->session, &sasai);
+            if (r != XR_SUCCESS) {
+                LOGE("xrAttachSessionActionSets failed: %d", r);
+            } else {
+                LOGI("Haptic action set attached successfully");
+            }
+        }
+    }
+
     for (uint32_t i = 0; i < NUM_EYES; i++)
         app->viewConfigs[i].type = XR_TYPE_VIEW_CONFIGURATION_VIEW;
 
@@ -760,6 +867,15 @@ static void openxr_destroy_session(AppState* app) {
     if (app->localSpace) {
         xrDestroySpace(app->localSpace);
         app->localSpace = XR_NULL_HANDLE;
+    }
+    if (app->hapticActions[0]) {
+        xrDestroyAction(app->hapticActions[0]);
+        app->hapticActions[0] = XR_NULL_HANDLE;
+        app->hapticActions[1] = XR_NULL_HANDLE;
+    }
+    if (app->hapticActionSet) {
+        xrDestroyActionSet(app->hapticActionSet);
+        app->hapticActionSet = XR_NULL_HANDLE;
     }
     if (app->session) {
         xrDestroySession(app->session);
@@ -880,6 +996,56 @@ static void render_frame(AppState* app) {
         return;
     }
     clock_gettime(CLOCK_MONOTONIC, &ta);
+
+    // Apply pending haptic feedback from server
+    if (app->hapticActionSet != XR_NULL_HANDLE && app->hapticActions[0] != XR_NULL_HANDLE
+        && app->stream.streaming.load())
+    {
+        for (int hand = 0; hand < 2; hand++)
+        {
+            float amp = 0.f;
+            int ms = 0;
+            {
+                std::lock_guard lock(app->stream.haptics_mutex);
+                auto & slot = app->stream.rumble[hand];
+                if (!slot.active)
+                    continue;
+                amp = slot.amplitude;
+                ms = slot.duration_ms;
+                slot.active = false;
+                slot.amplitude = 0.f;
+                slot.duration_ms = 0;
+            }
+
+            if (amp > 0.f)
+            {
+                XrHapticActionInfo hai = {};
+                hai.type = XR_TYPE_HAPTIC_ACTION_INFO;
+                hai.action = app->hapticActions[0]; // single action for both hands
+                hai.subactionPath = app->hapticSubactionPaths[hand];
+
+                XrHapticVibration vibration = {};
+                vibration.type = XR_TYPE_HAPTIC_VIBRATION;
+                vibration.duration = (XrDuration)ms * 1000000LL;
+                vibration.frequency = XR_FREQUENCY_UNSPECIFIED;
+                vibration.amplitude = amp;
+
+                XrResult hr = xrApplyHapticFeedback(app->session, &hai, (XrHapticBaseHeader*)&vibration);
+                if (hr != XR_SUCCESS)
+                {
+                    static int haptic_err_count = 0;
+                    if (haptic_err_count++ % 100 == 0)
+                        LOGE("xrApplyHapticFeedback hand %d failed: %d", hand, hr);
+                }
+                else
+                {
+                    static int haptic_ok_count = 0;
+                    if (haptic_ok_count++ % 100 == 0)
+                        LOGI("xrApplyHapticFeedback hand %d amp=%.2f ms=%d ok", hand, amp, ms);
+                }
+            }
+        }
+    }
 
     // Early frame selection — pick decoded frames right after xrBeginFrame
     // to minimize rend_wait. Tracking/controller work below doesn't affect selection.
