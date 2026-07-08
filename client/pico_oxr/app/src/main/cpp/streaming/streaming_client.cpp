@@ -788,8 +788,8 @@ void streaming_client::send_headset_info()
 {
 	from_headset::headset_info_packet info{};
 
-	info.render_eye_width = eye_width;
-	info.render_eye_height = eye_height;
+	info.render_eye_width = eye_width.load();
+	info.render_eye_height = eye_height.load();
 	info.stream_eye_width = stream_eye_width.load();
 	info.stream_eye_height = stream_eye_height.load();
 

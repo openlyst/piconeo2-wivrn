@@ -682,6 +682,8 @@ public class WivrnLobbyView {
         tcpOnly = sp.getBoolean("tcp_only", false);
         microphoneEnabled = sp.getBoolean("microphone", false);
         highPowerMode = sp.getBoolean("high_power", false);
+        streamBitrateSetting = sp.getInt("stream_bitrate", 50);
+        streamResolutionScale = sp.getInt("stream_resolution_scale", 100);
     }
 
     private void saveSettings() {
@@ -695,6 +697,8 @@ public class WivrnLobbyView {
             .putBoolean("tcp_only", tcpOnly)
             .putBoolean("microphone", microphoneEnabled)
             .putBoolean("high_power", highPowerMode)
+            .putInt("stream_bitrate", streamBitrateSetting)
+            .putInt("stream_resolution_scale", streamResolutionScale)
             .apply();
     }
 
@@ -787,6 +791,24 @@ public class WivrnLobbyView {
     }
 
     public int getResWidth() { return resWidth; }
+
+    public void applyResolution() {
+        int renderW = Math.max(256, resWidth);
+        renderW = (renderW / 2) * 2;
+        int renderH = renderW * 2160 / 2048;
+        renderH = (renderH / 2) * 2;
+
+        int streamW = Math.max(256, (int)(renderW * streamResolutionScale / 100f));
+        streamW = (streamW / 2) * 2;
+        int streamH = streamW * 2160 / 2048;
+        streamH = (streamH / 2) * 2;
+
+        if (context instanceof MainActivity) {
+            ((MainActivity) context).onRenderResolutionChanged(renderW, renderH);
+            ((MainActivity) context).onStreamResolutionChanged(streamW, streamH);
+        }
+    }
+
     public int getFoveationScale() { return foveationScale; }
     public String getCodec() { return codec; }
     public int getBitrate() { return bitrate; }
@@ -986,7 +1008,7 @@ public class WivrnLobbyView {
         canvas.drawText("Settings", x, y + 30, textLargePaint);
         y += 70;
 
-        y = drawResolutionSlider(x, y, w, "Resolution", resWidth, 1024, 2048, true);
+        y = drawResolutionSlider(x, y, w, "Resolution", resWidth, 1024, 2048);
         y = drawSlider(x, y, w, "Foveated Encoding", foveationScale, 0, 80, "%", true);
         y = drawSlider(x, y, w, "Bitrate", bitrate, 5, 100, "Mbit/s", true);
         y = drawSlider(x, y, w, "IPD", ipdMm, 58, 72, "mm", false);
@@ -1885,10 +1907,13 @@ public class WivrnLobbyView {
             switch (activeSlider) {
                 case SLIDER_STREAM_BITRATE:
                     streamBitrateSetting = (int)Math.max(1, Math.min(100, ((x - contentX) / sliderW) * 100));
+                    saveSettings();
                     markDirty();
                     return;
                 case SLIDER_STREAM_RESOLUTION:
                     streamResolutionScale = (int)Math.max(10, Math.min(200, ((x - contentX) / sliderW) * 200));
+                    saveSettings();
+                    applyResolution();
                     markDirty();
                     return;
             }
@@ -1908,6 +1933,7 @@ public class WivrnLobbyView {
                 float resPct = Math.max(0, Math.min(1, (x - contentX) / resSliderW));
                 resWidth = Math.max(1024, Math.min(2048, (int)(1024 + resPct * 1024)));
                 saveSettings();
+                applyResolution();
                 markDirty();
                 break;
             }
@@ -2084,6 +2110,35 @@ public class WivrnLobbyView {
         }
 
         if (streamTab == STREAM_TAB_SETTINGS) {
+            handleStreamSettingsClick(x, y);
+            return;
+        }
+    }
+
+    private void handleStreamSettingsClick(float x, float y) {
+        float contentX = SIDEBAR_WIDTH + 30;
+        float sliderW = width - contentX - 30 - 150;
+        float sy = 110;
+
+        // Bitrate
+        sy += 35;
+        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
+            activeSlider = SLIDER_STREAM_BITRATE;
+            streamBitrateSetting = (int)Math.max(1, Math.min(100, ((x - contentX) / sliderW) * 100));
+            saveSettings();
+            markDirty();
+            return;
+        }
+        sy += 50;
+
+        // Resolution Scale
+        sy += 35;
+        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
+            activeSlider = SLIDER_STREAM_RESOLUTION;
+            streamResolutionScale = (int)Math.max(10, Math.min(200, ((x - contentX) / sliderW) * 200));
+            saveSettings();
+            applyResolution();
+            markDirty();
             return;
         }
     }
@@ -2209,8 +2264,19 @@ public class WivrnLobbyView {
         float sliderW = contentW - 100;
 
         float sy = 100;
-        // Resolution (disabled)
-        sy += 35 + 50;
+        // Resolution
+        sy += 35;
+        float resSliderW = contentW - 130;
+        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + resSliderW) {
+            activeSlider = SLIDER_RESOLUTION;
+            float pct = Math.max(0, Math.min(1, (x - contentX) / resSliderW));
+            resWidth = Math.max(1024, Math.min(2048, (int)(1024 + pct * 1024)));
+            saveSettings();
+            applyResolution();
+            markDirty();
+            return;
+        }
+        sy += 50;
         // Foveation (disabled)
         sy += 35 + 50;
         // Bitrate (disabled)
@@ -2218,7 +2284,7 @@ public class WivrnLobbyView {
 
         // IPD (enabled)
         sy += 35;
-        float resSliderW = contentW - 100;
+        resSliderW = contentW - 100;
         if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + resSliderW) {
             activeSlider = SLIDER_IPD;
             float pct = Math.max(0, Math.min(1, (x - contentX) / resSliderW));
@@ -2288,7 +2354,10 @@ public class WivrnLobbyView {
             tcpOnly = false;
             microphoneEnabled = false;
             highPowerMode = false;
+            streamBitrateSetting = 50;
+            streamResolutionScale = 100;
             saveSettings();
+            applyResolution();
             ((MainActivity) context).onIpdChanged(ipdMm);
             ((MainActivity) context).onMicrophoneChanged(false);
             showResetConfirm = false;

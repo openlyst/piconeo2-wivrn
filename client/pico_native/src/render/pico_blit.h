@@ -5,6 +5,7 @@
 #include "wivrn_packets.h"
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <vector>
 
@@ -18,8 +19,8 @@ class pico_blit_pipeline
 	GLint tex_uniform = -1;
 	GLint tex_size_uniform = -1;
 
-	int eye_width = 0;
-	int eye_height = 0;
+	std::atomic<int> eye_width{0};
+	std::atomic<int> eye_height{0};
 
 	std::vector<float> vertex_data;
 	bool initialized = false;
@@ -37,6 +38,7 @@ public:
 	~pico_blit_pipeline();
 
 	void init(int w, int h);
+	void set_resolution(int w, int h);
 	void draw(int eye, GLuint src_texture,
 	          const wivrn::to_headset::foveation_parameter & foveation,
 	          int src_width, int src_height);
