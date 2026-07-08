@@ -91,9 +91,9 @@ public:
 	int poll(T && visitor, std::chrono::milliseconds timeout)
 	{
 		pollfd fds[2] = {};
-		fds[0].events = POLLIN;
+		fds[0].events = POLLIN | POLLRDHUP;
 		fds[0].fd = stream.get_fd();
-		fds[1].events = POLLIN;
+		fds[1].events = POLLIN | POLLRDHUP;
 		fds[1].fd = control.get_fd();
 
 		while (auto packet = stream.receive_pending(&bytes_received_))
@@ -105,10 +105,10 @@ public:
 		if (r < 0)
 			throw std::system_error(errno, std::system_category());
 
-		if (fds[0].revents & (POLLHUP | POLLERR))
+		if (fds[0].revents & (POLLHUP | POLLERR | POLLRDHUP))
 			throw std::runtime_error("Error on stream socket");
 
-		if (fds[1].revents & (POLLHUP | POLLERR))
+		if (fds[1].revents & (POLLHUP | POLLERR | POLLRDHUP))
 			throw std::runtime_error("Error on control socket");
 
 		if (fds[0].revents & POLLIN)

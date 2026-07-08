@@ -1342,6 +1342,11 @@ public class WivrnLobbyView {
         canvas.drawText("Disconnected", px + 30, py + 50, textLargePaint);
         canvas.drawText(errorMessage, px + 30, py + 90, textPaint);
 
+        RectF reconnectBtn = new RectF(px + 20, py + panelH - 80, px + 220, py + panelH - 20);
+        boolean reconnectHover = touchDown && reconnectBtn.contains(touchX, touchY);
+        canvas.drawRoundRect(reconnectBtn, 10, 10, reconnectHover ? buttonHoverBgPaint : buttonBgPaint);
+        drawCenteredText("Reconnect", reconnectBtn, textPaint);
+
         RectF closeBtn = new RectF(px + panelW - 220, py + panelH - 80, px + panelW - 20, py + panelH - 20);
         boolean hover = touchDown && closeBtn.contains(touchX, touchY);
         canvas.drawRoundRect(closeBtn, 10, 10, hover ? buttonHoverBgPaint : buttonBgPaint);
@@ -2482,6 +2487,14 @@ public class WivrnLobbyView {
         float panelH = 250;
         float px = (width - panelW) / 2;
         float py = (height - panelH) / 2;
+
+        RectF reconnectBtn = new RectF(px + 20, py + panelH - 80, px + 220, py + panelH - 20);
+        if (reconnectBtn.contains(x, y)) {
+            errorMessage = "";
+            ((MainActivity) context).onReconnectRequested();
+            markDirty();
+            return;
+        }
 
         RectF closeBtn = new RectF(px + panelW - 220, py + panelH - 80, px + panelW - 20, py + panelH - 20);
         if (closeBtn.contains(x, y)) {
