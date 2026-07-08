@@ -62,10 +62,12 @@ struct controller_sample
 {
 	float orientation[4]{};
 	float position[3]{};
+	float angular_velocity[3]{};
 	int trigger = 0;
 	int touch[2]{};
 	int battery = 0;
 	bool connected = false;
+	bool has_angular_velocity = false;
 	bool button_a = false;
 	bool button_b = false;
 	bool grip = false;
@@ -97,7 +99,8 @@ public:
 	std::atomic<float> soft_ipd{0.064f};
 	void update_controller(int hand, const float orient[4], const float pos[3],
 	                       int trigger, const int touch[2], int battery,
-	                       bool a, bool b, bool grip, bool click, bool menu);
+	                       bool a, bool b, bool grip, bool click, bool menu,
+	                       const float * ang_vel = nullptr);
 	void update_controller_from_jni(int hand, int conn, const float * sensor,
 	                                const float * ang_vel, const int * keys);
 	void clear_controller(int hand);
@@ -130,6 +133,7 @@ private:
 	float ctrl_lin_vel[2][3]{{0, 0, 0}, {0, 0, 0}};
 	float ctrl_ang_vel[2][3]{{0, 0, 0}, {0, 0, 0}};
 	float ctrl_prev_pos[2][3]{{0, 0, 0}, {0, 0, 0}};
+	float ctrl_raw_pos[2][3]{{0, 0, 0}, {0, 0, 0}};
 	neo2::quat ctrl_prev_orient[2]{{0, 0, 0, 1}, {0, 0, 0, 1}};
 	uint64_t ctrl_prev_ts[2]{0, 0};
 	bool ctrl_filter_init[2]{false, false};
@@ -142,7 +146,7 @@ private:
 	input_state prev_inputs[2][10];
 
 	void step_head_filter(const float pos[3], const neo2::quat & orient, uint64_t ts);
-	void step_ctrl_filter(int hand, const float pos_m[3], const neo2::quat & orient, uint64_t ts);
+	void step_ctrl_filter(int hand, const float pos_m[3], const neo2::quat & orient, uint64_t ts, const float * hw_ang_vel = nullptr);
 
 	void run();
 	void transmit_tracking(int64_t headset_ns);
