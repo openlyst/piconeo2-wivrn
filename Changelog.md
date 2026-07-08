@@ -7,6 +7,7 @@
  - Improve stuttering.
  - Set default bitrate to 50.
  - Add bitrate slider to settings.
+ - Harden USB pairing and disconnection handling.
 
 # [RC4](https://gitlab.com/HttpAnimations/piconeo2-wivrn/-/tree/13457b85ce3a656dd60ace3279cdf1a2d05f2313)
 

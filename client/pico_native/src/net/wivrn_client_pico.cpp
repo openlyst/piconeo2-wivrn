@@ -242,7 +242,7 @@ wivrn_session_pico::wivrn_session_pico(in6_addr address, int port, bool tcp_only
                                        const std::string & model_name,
                                        std::function<std::string(int fd)> pin_enter,
                                        std::atomic<bool> & shutdown_flag) :
-        control(address, port), stream(-1), address(address)
+        control(address, port, 10000), stream(-1), address(address)
 {
 	handshake(address, tcp_only, headset_keypair, model_name, pin_enter, shutdown_flag);
 }
@@ -252,7 +252,7 @@ wivrn_session_pico::wivrn_session_pico(in_addr address, int port, bool tcp_only,
                                        const std::string & model_name,
                                        std::function<std::string(int fd)> pin_enter,
                                        std::atomic<bool> & shutdown_flag) :
-        control(address, port), stream(-1), address(address)
+        control(address, port, 10000), stream(-1), address(address)
 {
 	handshake(address, tcp_only, headset_keypair, model_name, pin_enter, shutdown_flag);
 }

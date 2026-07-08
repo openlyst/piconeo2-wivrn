@@ -7,6 +7,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <fstream>
@@ -613,6 +614,10 @@ void streaming_client::network_loop()
 	}
 
 	spdlog::info("Network loop ended, cleaning up session");
+	if (auto_reconnect.load())
+		notify_connection_state(1, "Reconnecting...");
+	else
+		notify_connection_state(3, last_error.empty() ? "Disconnected" : last_error);
 	tracker.stop();
 	tracker.session = nullptr;
 	session.reset();
@@ -686,6 +691,17 @@ bool streaming_client::connect_to_server()
 					return "000000";
 				if (!pairing_pin.empty())
 					return pairing_pin;
+
+				pollfd pfd{};
+				pfd.fd = fd;
+				pfd.events = 0;
+				int r = ::poll(&pfd, 1, 0);
+				if (r < 0 || (pfd.revents & (POLLHUP | POLLERR | POLLRDHUP)))
+				{
+					spdlog::warn("PIN entry: control socket closed by server");
+					throw std::runtime_error("Server disconnected during PIN entry");
+				}
+
 				auto status = future.wait_for(std::chrono::milliseconds(100));
 				if (status == std::future_status::ready)
 				{
@@ -780,6 +796,13 @@ bool streaming_client::connect_to_server()
 	catch (std::exception & e)
 	{
 		spdlog::error("connect_to_server error: {}", e.what());
+		last_error = e.what();
+		return false;
+	}
+	catch (...)
+	{
+		spdlog::error("connect_to_server error: unknown exception");
+		last_error = "Unknown error";
 		return false;
 	}
 }
@@ -962,7 +985,8 @@ void streaming_client::try_connect()
 			}
 		}
 
-		notify_connection_state(0, "");
+		if (!auto_reconnect.load())
+			notify_connection_state(0, "");
 		spdlog::info("Connection thread exiting");
 	});
 }

@@ -27,6 +27,7 @@
 #include <netdb.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <string.h>
 #include <string>
 #include <sys/socket.h>
@@ -194,6 +195,53 @@ wivrn::TCP::TCP(in6_addr address, int port)
 	init();
 }
 
+wivrn::TCP::TCP(in6_addr address, int port, int timeout_ms)
+{
+	fd = socket(AF_INET6, SOCK_STREAM, 0);
+	if (fd < 0)
+		throw std::system_error{errno, std::generic_category()};
+	fcntl(fd, F_SETFD, FD_CLOEXEC);
+
+	int flags = fcntl(fd, F_GETFL, 0);
+	fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
+	sockaddr_in6 sa;
+	sa.sin6_family = AF_INET6;
+	sa.sin6_addr = address;
+	sa.sin6_port = htons(port);
+
+	int ret = connect(fd, (sockaddr *)&sa, sizeof(sa));
+	if (ret < 0 && errno != EINPROGRESS)
+	{
+		::close(fd);
+		throw std::system_error{errno, std::generic_category()};
+	}
+
+	if (ret != 0)
+	{
+		pollfd pfd{};
+		pfd.fd = fd;
+		pfd.events = POLLOUT;
+		int r = ::poll(&pfd, 1, timeout_ms);
+		if (r <= 0)
+		{
+			::close(fd);
+			throw std::runtime_error("Connection timed out");
+		}
+		int err = 0;
+		socklen_t errlen = sizeof(err);
+		getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &errlen);
+		if (err != 0)
+		{
+			::close(fd);
+			throw std::system_error{err, std::generic_category()};
+		}
+	}
+
+	fcntl(fd, F_SETFL, flags);
+	init();
+}
+
 wivrn::TCP::TCP(in_addr address, int port)
 {
 	fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -212,6 +260,53 @@ wivrn::TCP::TCP(in_addr address, int port)
 		throw std::system_error{errno, std::generic_category()};
 	}
 
+	init();
+}
+
+wivrn::TCP::TCP(in_addr address, int port, int timeout_ms)
+{
+	fd = socket(AF_INET, SOCK_STREAM, 0);
+	if (fd < 0)
+		throw std::system_error{errno, std::generic_category()};
+	fcntl(fd, F_SETFD, FD_CLOEXEC);
+
+	int flags = fcntl(fd, F_GETFL, 0);
+	fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
+	sockaddr_in sa;
+	sa.sin_family = AF_INET;
+	sa.sin_addr = address;
+	sa.sin_port = htons(port);
+
+	int ret = connect(fd, (sockaddr *)&sa, sizeof(sa));
+	if (ret < 0 && errno != EINPROGRESS)
+	{
+		::close(fd);
+		throw std::system_error{errno, std::generic_category()};
+	}
+
+	if (ret != 0)
+	{
+		pollfd pfd{};
+		pfd.fd = fd;
+		pfd.events = POLLOUT;
+		int r = ::poll(&pfd, 1, timeout_ms);
+		if (r <= 0)
+		{
+			::close(fd);
+			throw std::runtime_error("Connection timed out");
+		}
+		int err = 0;
+		socklen_t errlen = sizeof(err);
+		getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &errlen);
+		if (err != 0)
+		{
+			::close(fd);
+			throw std::system_error{err, std::generic_category()};
+		}
+	}
+
+	fcntl(fd, F_SETFL, flags);
 	init();
 }
 
