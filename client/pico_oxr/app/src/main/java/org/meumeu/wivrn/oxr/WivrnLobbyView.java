@@ -2297,7 +2297,7 @@ public class WivrnLobbyView {
         sy += 50;
 
         // Codec (disabled)
-        sy += 50;
+        sy += 35 + 50;
 
         // TCP only (enabled)
         RectF tcpCheckbox = new RectF(contentX, sy, contentX + 30, sy + 30);
