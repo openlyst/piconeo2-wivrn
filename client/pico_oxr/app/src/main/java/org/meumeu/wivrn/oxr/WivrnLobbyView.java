@@ -1908,6 +1908,7 @@ public class WivrnLobbyView {
                 case SLIDER_STREAM_BITRATE:
                     streamBitrateSetting = (int)Math.max(1, Math.min(100, ((x - contentX) / sliderW) * 100));
                     saveSettings();
+                    ((MainActivity) context).nativeSetBitrate(streamBitrateSetting);
                     markDirty();
                     return;
                 case SLIDER_STREAM_RESOLUTION:
@@ -2126,6 +2127,7 @@ public class WivrnLobbyView {
             activeSlider = SLIDER_STREAM_BITRATE;
             streamBitrateSetting = (int)Math.max(1, Math.min(100, ((x - contentX) / sliderW) * 100));
             saveSettings();
+            ((MainActivity) context).nativeSetBitrate(streamBitrateSetting);
             markDirty();
             return;
         }
@@ -2279,8 +2281,17 @@ public class WivrnLobbyView {
         sy += 50;
         // Foveation (disabled)
         sy += 35 + 50;
-        // Bitrate (disabled)
-        sy += 35 + 50;
+        // Bitrate
+        sy += 35;
+        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
+            activeSlider = SLIDER_BITRATE;
+            float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
+            bitrate = Math.max(5, Math.min(100, (int)(5 + pct * 95)));
+            saveSettings();
+            markDirty();
+            return;
+        }
+        sy += 50;
 
         // IPD (enabled)
         sy += 35;

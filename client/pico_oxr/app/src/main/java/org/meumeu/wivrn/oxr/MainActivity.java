@@ -167,6 +167,9 @@ public class MainActivity extends NativeActivity {
             return;
         }
         Log.i(TAG, "flushing pending connection: " + pendingHost + ":" + pendingPort + " tcp=" + pendingTcpOnly);
+        if (lobbyView != null) {
+            nativeSetBitrate(lobbyView.getBitrate());
+        }
         nativeConnectServer(pendingHost, pendingPort, pendingTcpOnly);
         if (pendingPin != null && !pendingPin.isEmpty()) {
             nativeSetPin(pendingPin);
@@ -465,6 +468,7 @@ public class MainActivity extends NativeActivity {
         pendingTcpOnly = tcpOnly;
         if (lobbyView != null) {
             lobbyView.applyResolution();
+            nativeSetBitrate(lobbyView.getBitrate());
         }
         nativeConnectServer(hostname, port, tcpOnly);
     }
@@ -577,6 +581,7 @@ public class MainActivity extends NativeActivity {
     public native void nativeConnectServer(String host, int port, boolean tcpOnly);
     public native void nativeDisconnectServer();
     public native void nativeSetPin(String pin);
+    public native void nativeSetBitrate(int bitrateMbps);
     public native boolean nativeReady();
     public native void nativeRequestAppList();
     public native void nativeStartApp(String appId);

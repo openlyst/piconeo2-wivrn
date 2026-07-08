@@ -143,6 +143,7 @@ struct streaming_client
 	std::atomic<bool> microphone_enabled{false};
 	std::atomic<bool> auto_reconnect{false};
 	std::atomic<int64_t> time_offset_ns{0};
+	std::atomic<int> bitrate_mbps{50};
 
 	std::string server_host;
 	int server_port = 0;
