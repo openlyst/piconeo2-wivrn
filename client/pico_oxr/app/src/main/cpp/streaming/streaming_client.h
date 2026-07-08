@@ -168,6 +168,7 @@ struct streaming_client
 	void setup_audio();
 	bool connect_to_server();
 	void try_connect();
+	void run_connect_loop();
 	void send_headset_info();
 	void network_loop();
 	void reset_stream_state();
