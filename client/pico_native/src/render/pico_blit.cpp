@@ -57,8 +57,8 @@ pico_blit_pipeline::~pico_blit_pipeline()
 
 void pico_blit_pipeline::init(int w, int h)
 {
-	eye_width = w;
-	eye_height = h;
+	eye_width.store(w);
+	eye_height.store(h);
 
 	GLuint vert = compile_shader(GL_VERTEX_SHADER, vert_src);
 	GLuint frag = compile_shader(GL_FRAGMENT_SHADER, frag_src);
@@ -210,7 +210,7 @@ void pico_blit_pipeline::draw(int eye, GLuint src_texture,
 		vertex_dirty = false;
 	}
 
-	glViewport(0, 0, eye_width, eye_height);
+	glViewport(0, 0, eye_width.load(), eye_height.load());
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_CULL_FACE);
 
@@ -236,5 +236,11 @@ void pico_blit_pipeline::draw(int eye, GLuint src_texture,
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
 	glUseProgram(0);
+}
+
+void pico_blit_pipeline::set_resolution(int w, int h)
+{
+	eye_width.store(w);
+	eye_height.store(h);
 }
 

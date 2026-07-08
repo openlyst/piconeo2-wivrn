@@ -30,8 +30,8 @@ class pico_lobby
 	GLint tex_mvp_uniform = -1;
 	GLint tex_sampler_uniform = -1;
 
-	int eye_width = 0;
-	int eye_height = 0;
+	std::atomic<int> eye_width{0};
+	std::atomic<int> eye_height{0};
 	bool initialized = false;
 
 	std::mutex tex_mutex;
@@ -80,6 +80,7 @@ public:
 	~pico_lobby();
 
 	void init(int w, int h);
+	void set_resolution(int w, int h);
 	void draw(int eye, const float head_orient[4], const float head_pos[3],
 	          const controller_sample controllers[2],
 	          const XrFovf & fov, float ipd);
