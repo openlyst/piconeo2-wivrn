@@ -881,6 +881,63 @@ static void render_frame(AppState* app) {
     }
     clock_gettime(CLOCK_MONOTONIC, &ta);
 
+    // Early frame selection — pick decoded frames right after xrBeginFrame
+    // to minimize rend_wait. Tracking/controller work below doesn't affect selection.
+    static std::shared_ptr<pico_decoded_frame> render_frames[3];
+    static bool was_streaming = false;
+
+    if (app->stream.streaming.load())
+    {
+        was_streaming = true;
+        std::lock_guard lock(app->stream.decoded_frame_mutex);
+
+        auto &buf0 = app->stream.decoded_frame_buffers[0];
+        auto &buf1 = app->stream.decoded_frame_buffers[1];
+
+        // Collect all common frame indices
+        uint64_t common_indices[streaming_client::FRAME_BUFFER_SIZE * 2];
+        int common_count = 0;
+
+        for (auto &s0 : buf0)
+        {
+            if (!s0 || !s0->valid) continue;
+            for (auto &s1 : buf1)
+            {
+                if (!s1 || !s1->valid) continue;
+                if (s0->frame_index == s1->frame_index)
+                {
+                    common_indices[common_count++] = s0->frame_index;
+                }
+            }
+        }
+
+        if (common_count > 0)
+        {
+            // Pick latest common frame
+            uint64_t chosen = common_indices[0];
+            for (int i = 1; i < common_count; i++)
+                if (common_indices[i] > chosen)
+                    chosen = common_indices[i];
+
+            render_frames[0] = app->stream.get_frame(chosen, 0);
+            render_frames[1] = app->stream.get_frame(chosen, 1);
+        }
+        // If no common frame, keep previous render_frames
+
+        for (int e = 0; e < 2; e++)
+        {
+            if (render_frames[e] && render_frames[e]->valid)
+                g_latency.on_frame_rendered(render_frames[e]->frame_index, e);
+        }
+    }
+    else if (was_streaming)
+    {
+        render_frames[0].reset();
+        render_frames[1].reset();
+        render_frames[2].reset();
+        was_streaming = false;
+    }
+
     XrViewState vstate = {};
     vstate.type = XR_TYPE_VIEW_STATE;
 
@@ -1091,65 +1148,6 @@ static void render_frame(AppState* app) {
 
     float sc_wait_ms = 0, gl_draw_ms = 0, sc_rel_ms = 0;
 
-    // Common frame selection — match upstream WiVRn's common_frame() approach.
-    // Find a frame index present in both eyes' rolling buffers, closest to predictedDisplayTime.
-    // Falls back to per-eye latest if no common frame exists.
-    static std::shared_ptr<pico_decoded_frame> render_frames[3];
-    static bool was_streaming = false;
-
-    if (app->stream.streaming.load())
-    {
-        was_streaming = true;
-        std::lock_guard lock(app->stream.decoded_frame_mutex);
-
-        auto &buf0 = app->stream.decoded_frame_buffers[0];
-        auto &buf1 = app->stream.decoded_frame_buffers[1];
-
-        // Collect all common frame indices, sorted ascending
-        uint64_t common_indices[streaming_client::FRAME_BUFFER_SIZE * 2];
-        int common_count = 0;
-
-        for (auto &s0 : buf0)
-        {
-            if (!s0 || !s0->valid) continue;
-            for (auto &s1 : buf1)
-            {
-                if (!s1 || !s1->valid) continue;
-                if (s0->frame_index == s1->frame_index)
-                {
-                    common_indices[common_count++] = s0->frame_index;
-                }
-            }
-        }
-
-        if (common_count > 0)
-        {
-            // Pick latest common frame
-            uint64_t chosen = common_indices[0];
-            for (int i = 1; i < common_count; i++)
-                if (common_indices[i] > chosen)
-                    chosen = common_indices[i];
-
-            render_frames[0] = app->stream.get_frame(chosen, 0);
-            render_frames[1] = app->stream.get_frame(chosen, 1);
-        }
-        // If no common frame, keep previous render_frames — don't fall back to
-        // mismatched per-eye frames which causes stutter when moving
-
-        for (int e = 0; e < 2; e++)
-        {
-            if (render_frames[e] && render_frames[e]->valid)
-                g_latency.on_frame_rendered(render_frames[e]->frame_index, e);
-        }
-    }
-    else if (was_streaming)
-    {
-        render_frames[0].reset();
-        render_frames[1].reset();
-        render_frames[2].reset();
-        was_streaming = false;
-    }
-
     for (uint32_t eye = 0; eye < NUM_EYES; eye++) {
         uint32_t imgIndex = 0;
         XrSwapchainImageAcquireInfo ai = {};
@@ -1162,7 +1160,7 @@ static void render_frame(AppState* app) {
 
         XrSwapchainImageWaitInfo wi = {};
         wi.type = XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
-        wi.timeout = XR_INFINITE_DURATION;
+        wi.timeout = 10000000000; // 10s in ns
         clock_gettime(CLOCK_MONOTONIC, &tc);
         r = xrWaitSwapchainImage(app->swapchains[eye].handle, &wi);
         clock_gettime(CLOCK_MONOTONIC, &td);
