@@ -23,6 +23,7 @@ public class MainActivity extends NativeActivity {
     private static final String CTRL_UNITY_VERSION = "2.8.6.9";
 
     private final float[] mHeadData = new float[7];
+    private final float[] mHapticOut = new float[2];
 
     private volatile boolean mCtrlRunning = false;
     private Thread mCtrlThread;
@@ -287,6 +288,16 @@ public class MainActivity extends NativeActivity {
                         int sendConn = mForeground ? conn : 0;
                         nativeControllerState(h, sendConn, sensor, angVel, keys);
 
+                        boolean haveHaptic = nativeDrainHaptic(h, mHapticOut);
+                        if (mForeground && conn == 1 && haveHaptic) {
+                            try {
+                                ControllerClient.vibrateCV2ControllerStrength(
+                                        mHapticOut[0], (int) mHapticOut[1], h);
+                            } catch (Throwable t) {
+                                // old service: no CV2 vibrate
+                            }
+                        }
+
                         if (conn == 1) {
                             int batt = pick(ext, EXT_BATTERY);
                             if (h == 0) {
@@ -494,6 +505,7 @@ public class MainActivity extends NativeActivity {
 
     public native void nativeGetHeadData(float[] out);
     public native void nativeControllerState(int hand, int conn, float[] sensor, float[] angVel, int[] keys);
+    public native boolean nativeDrainHaptic(int hand, float[] out);
     public native int nativeGetTextureId();
     public native void nativeSetSurfaceTexture(SurfaceTexture surfaceTexture);
     public native void nativeOnFrameAvailable();

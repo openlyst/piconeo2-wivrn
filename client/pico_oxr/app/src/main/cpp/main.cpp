@@ -236,6 +236,34 @@ struct AppState {
 
 extern "C" {
 
+JNIEXPORT jboolean JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeDrainHaptic(
+    JNIEnv * env, jobject thiz, jint hand, jfloatArray out)
+{
+    if (!g_app || hand < 0 || hand > 1 || !out)
+        return JNI_FALSE;
+    if (env->GetArrayLength(out) < 2)
+        return JNI_FALSE;
+
+    float amp;
+    int ms;
+    {
+        std::lock_guard lock(g_app->stream.haptics_mutex);
+        auto & slot = g_app->stream.rumble[hand];
+        if (!slot.active)
+            return JNI_FALSE;
+        amp = slot.amplitude;
+        ms = slot.duration_ms;
+        slot.active = false;
+        slot.amplitude = 0.f;
+        slot.duration_ms = 0;
+    }
+
+    float vals[2] = {amp, static_cast<float>(ms)};
+    env->SetFloatArrayRegion(out, 0, 2, vals);
+    return JNI_TRUE;
+}
+
 JNIEXPORT jint JNICALL
 Java_org_meumeu_wivrn_oxr_MainActivity_nativeGetTextureId(JNIEnv * env, jobject thiz)
 {
@@ -715,50 +743,50 @@ static bool openxr_create_session(AppState* app) {
             xrStringToPath(app->instance, "/user/hand/left", &app->hapticSubactionPaths[0]);
             xrStringToPath(app->instance, "/user/hand/right", &app->hapticSubactionPaths[1]);
 
-            const char* actionNames[2] = {"left_haptic", "right_haptic"};
-            const char* actionLocalNames[2] = {"Left Controller Haptic", "Right Controller Haptic"};
-            for (int i = 0; i < 2; i++) {
-                XrActionCreateInfo aci = {};
-                aci.type = XR_TYPE_ACTION_CREATE_INFO;
-                strcpy(aci.actionName, actionNames[i]);
-                strcpy(aci.localizedActionName, actionLocalNames[i]);
-                aci.actionType = XR_ACTION_TYPE_VIBRATION_OUTPUT;
-                aci.countSubactionPaths = 1;
-                aci.subactionPaths = &app->hapticSubactionPaths[i];
-                r = xrCreateAction(app->hapticActionSet, &aci, &app->hapticActions[i]);
+            // Single vibrate action with both subaction paths (matches Pico HelloXR sample)
+            XrActionCreateInfo aci = {};
+            aci.type = XR_TYPE_ACTION_CREATE_INFO;
+            strcpy(aci.actionName, "vibrate_hand");
+            strcpy(aci.localizedActionName, "Vibrate Hand");
+            aci.actionType = XR_ACTION_TYPE_VIBRATION_OUTPUT;
+            aci.countSubactionPaths = 2;
+            aci.subactionPaths = app->hapticSubactionPaths;
+            r = xrCreateAction(app->hapticActionSet, &aci, &app->hapticActions[0]);
+            if (r != XR_SUCCESS) {
+                LOGE("xrCreateAction vibrate_hand failed: %d", r);
+            } else {
+                app->hapticActions[1] = app->hapticActions[0]; // same action, different subaction path
+                LOGI("Vibrate action created successfully");
+            }
+
+            XrPath hapticLeftPath, hapticRightPath;
+            xrStringToPath(app->instance, "/user/hand/left/output/haptic", &hapticLeftPath);
+            xrStringToPath(app->instance, "/user/hand/right/output/haptic", &hapticRightPath);
+
+            // Suggest bindings for all relevant interaction profiles
+            const char* profilePaths[] = {
+                "/interaction_profiles/pico/cv2_controller",
+                "/interaction_profiles/khr/simple_controller",
+                "/interaction_profiles/oculus/touch_controller",
+            };
+
+            for (auto profilePath : profilePaths) {
+                XrActionSuggestedBinding suggestedBindings[2] = {
+                    {app->hapticActions[0], hapticLeftPath},
+                    {app->hapticActions[0], hapticRightPath},
+                };
+
+                XrInteractionProfileSuggestedBinding ipsb = {};
+                ipsb.type = XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING;
+                xrStringToPath(app->instance, profilePath, &ipsb.interactionProfile);
+                ipsb.countSuggestedBindings = 2;
+                ipsb.suggestedBindings = suggestedBindings;
+                r = xrSuggestInteractionProfileBindings(app->instance, &ipsb);
                 if (r != XR_SUCCESS) {
-                    LOGE("xrCreateAction %s failed: %d", actionNames[i], r);
+                    LOGI("xrSuggestInteractionProfileBindings (%s) failed: %d", profilePath, r);
+                } else {
+                    LOGI("Suggested haptic bindings for %s", profilePath);
                 }
-            }
-
-            // Suggest bindings for KHR simple controller profile
-            XrActionSuggestedBinding suggestedBindings[2];
-            suggestedBindings[0].action = app->hapticActions[0];
-            xrStringToPath(app->instance, "/user/hand/left/output/haptic", &suggestedBindings[0].binding);
-            suggestedBindings[1].action = app->hapticActions[1];
-            xrStringToPath(app->instance, "/user/hand/right/output/haptic", &suggestedBindings[1].binding);
-
-            XrInteractionProfileSuggestedBinding ipsb = {};
-            ipsb.type = XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING;
-            ipsb.interactionProfile = XR_NULL_PATH;
-            xrStringToPath(app->instance, "/interaction_profiles/khr/simple_controller", &ipsb.interactionProfile);
-            ipsb.countSuggestedBindings = 2;
-            ipsb.suggestedBindings = suggestedBindings;
-            r = xrSuggestInteractionProfileBindings(app->instance, &ipsb);
-            if (r != XR_SUCCESS) {
-                LOGE("xrSuggestInteractionProfileBindings (khr) failed: %d", r);
-            }
-
-            // Also try Pico Neo 3 profile as fallback
-            XrInteractionProfileSuggestedBinding ipsbPico = {};
-            ipsbPico.type = XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING;
-            ipsbPico.interactionProfile = XR_NULL_PATH;
-            xrStringToPath(app->instance, "/interaction_profiles/bytedance/pico_neo3_controller", &ipsbPico.interactionProfile);
-            ipsbPico.countSuggestedBindings = 2;
-            ipsbPico.suggestedBindings = suggestedBindings;
-            r = xrSuggestInteractionProfileBindings(app->instance, &ipsbPico);
-            if (r != XR_SUCCESS) {
-                LOGI("xrSuggestInteractionProfileBindings (pico_neo3) failed: %d (expected if ext not present)", r);
             }
 
             // Attach action set to session
@@ -840,11 +868,10 @@ static void openxr_destroy_session(AppState* app) {
         xrDestroySpace(app->localSpace);
         app->localSpace = XR_NULL_HANDLE;
     }
-    for (int i = 0; i < 2; i++) {
-        if (app->hapticActions[i]) {
-            xrDestroyAction(app->hapticActions[i]);
-            app->hapticActions[i] = XR_NULL_HANDLE;
-        }
+    if (app->hapticActions[0]) {
+        xrDestroyAction(app->hapticActions[0]);
+        app->hapticActions[0] = XR_NULL_HANDLE;
+        app->hapticActions[1] = XR_NULL_HANDLE;
     }
     if (app->hapticActionSet) {
         xrDestroyActionSet(app->hapticActionSet);
@@ -971,7 +998,8 @@ static void render_frame(AppState* app) {
     clock_gettime(CLOCK_MONOTONIC, &ta);
 
     // Apply pending haptic feedback from server
-    if (app->hapticActionSet != XR_NULL_HANDLE && app->stream.streaming.load())
+    if (app->hapticActionSet != XR_NULL_HANDLE && app->hapticActions[0] != XR_NULL_HANDLE
+        && app->stream.streaming.load())
     {
         for (int hand = 0; hand < 2; hand++)
         {
@@ -989,16 +1017,16 @@ static void render_frame(AppState* app) {
                 slot.duration_ms = 0;
             }
 
-            if (app->hapticActions[hand] != XR_NULL_HANDLE && amp > 0.f)
+            if (amp > 0.f)
             {
                 XrHapticActionInfo hai = {};
                 hai.type = XR_TYPE_HAPTIC_ACTION_INFO;
-                hai.action = app->hapticActions[hand];
+                hai.action = app->hapticActions[0]; // single action for both hands
                 hai.subactionPath = app->hapticSubactionPaths[hand];
 
                 XrHapticVibration vibration = {};
                 vibration.type = XR_TYPE_HAPTIC_VIBRATION;
-                vibration.duration = (XrDuration)ms * 1000000LL; // ms to ns
+                vibration.duration = (XrDuration)ms * 1000000LL;
                 vibration.frequency = XR_FREQUENCY_UNSPECIFIED;
                 vibration.amplitude = amp;
 
@@ -1008,6 +1036,12 @@ static void render_frame(AppState* app) {
                     static int haptic_err_count = 0;
                     if (haptic_err_count++ % 100 == 0)
                         LOGE("xrApplyHapticFeedback hand %d failed: %d", hand, hr);
+                }
+                else
+                {
+                    static int haptic_ok_count = 0;
+                    if (haptic_ok_count++ % 100 == 0)
+                        LOGI("xrApplyHapticFeedback hand %d amp=%.2f ms=%d ok", hand, amp, ms);
                 }
             }
         }

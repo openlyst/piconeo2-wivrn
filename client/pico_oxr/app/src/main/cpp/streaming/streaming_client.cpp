@@ -446,6 +446,8 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 		}
 		else if constexpr (std::is_same_v<T, to_headset::haptics>)
 		{
+			spdlog::info("HAPTICS packet received: id={} amp={} dur={}ns freq={}",
+				(int)p.id, p.amplitude, p.duration.count(), p.frequency);
 			int hand = -1;
 			switch (p.id)
 			{
