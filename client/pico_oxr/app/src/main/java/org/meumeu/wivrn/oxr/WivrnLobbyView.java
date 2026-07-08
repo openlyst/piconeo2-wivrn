@@ -207,8 +207,8 @@ public class WivrnLobbyView {
         this.prefs = context.getSharedPreferences("wivrn_servers", Context.MODE_PRIVATE);
 
         initPaints();
-        loadServers();
         loadSettings();
+        loadServers();
         startDiscovery();
         updateWifiStatus();
     }
@@ -650,7 +650,7 @@ public class WivrnLobbyView {
         }
 
         if (servers.isEmpty()) {
-            servers.add(new ServerEntry("Local", "127.0.0.1", 9757, true, true));
+            servers.add(new ServerEntry("Local", "127.0.0.1", 9757, tcpOnly, true));
         }
     }
 
@@ -897,7 +897,7 @@ public class WivrnLobbyView {
             canvas.drawRoundRect(card, 12, 12, cardBgPaint);
 
             canvas.drawText(s.name, x + 20, cardY + 35, textPaint);
-            canvas.drawText(s.hostname + ":" + s.port + (s.tcpOnly ? " (TCP)" : ""), x + 20, cardY + 65, textSmallPaint);
+            canvas.drawText(s.hostname + ":" + s.port + (s.tcpOnly ? " (TCP)" : " (UDP)"), x + 20, cardY + 65, textSmallPaint);
 
             if (s.discovered) {
                 textSmallPaint.setColor(Color.rgb(80, 200, 120));
@@ -994,7 +994,7 @@ public class WivrnLobbyView {
         y = drawDropdown(x, y, w, "Codec", new String[]{"Automatic", "H.264", "H.265"},
             codec.equals("auto") ? 0 : codec.equals("h264") ? 1 : 2, true);
 
-        y = drawCheckbox(x, y, w, "TCP only", tcpOnly, true);
+        y = drawCheckbox(x, y, w, "TCP only", tcpOnly, false);
         y = drawCheckbox(x, y, w, "Enable microphone", microphoneEnabled, false);
         y = drawCheckbox(x, y, w, "High power mode", highPowerMode, true);
 
@@ -2118,7 +2118,7 @@ public class WivrnLobbyView {
             addServerName = "";
             addServerAddress = "";
             addServerPort = "9757";
-            addServerTcpOnly = false;
+            addServerTcpOnly = tcpOnly;
             addServerFieldFocus = 0;
             markDirty();
             return;
@@ -2232,7 +2232,15 @@ public class WivrnLobbyView {
 
         // Codec (disabled)
         sy += 50;
-        // TCP (disabled)
+
+        // TCP only (enabled)
+        RectF tcpCheckbox = new RectF(contentX, sy, contentX + 30, sy + 30);
+        if (tcpCheckbox.contains(x, y) || (x >= contentX && x <= contentX + contentW && y >= sy - 5 && y <= sy + 35)) {
+            tcpOnly = !tcpOnly;
+            saveSettings();
+            markDirty();
+            return;
+        }
         sy += 40;
 
         // Microphone (enabled)
