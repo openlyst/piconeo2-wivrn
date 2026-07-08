@@ -57,7 +57,8 @@ void init_stream(T & stream)
 template <typename T>
 void wivrn_session_pico::handshake(T address, bool tcp_only, crypto::key & headset_keypair,
                                    const std::string & model_name,
-                                   std::function<std::string(int fd)> pin_enter)
+                                   std::function<std::string(int fd)> pin_enter,
+                                   std::atomic<bool> & shutdown_flag)
 {
 	pollfd fds{};
 	fds.events = POLLIN;
@@ -70,8 +71,10 @@ void wivrn_session_pico::handshake(T address, bool tcp_only, crypto::key & heads
 
 		while (true)
 		{
+			if (shutdown_flag.load())
+				throw std::runtime_error("Connection cancelled");
+
 			auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(timeout_abs - std::chrono::steady_clock::now());
-			spdlog::warn("handshake: receive: polling, timeout_ms={}", std::max<int>(ms.count(), 100));
 			int r = ::poll(&fds, 1, std::max<int>(ms.count(), 100));
 			if (r < 0)
 			{
@@ -199,12 +202,12 @@ void wivrn_session_pico::handshake(T address, bool tcp_only, crypto::key & heads
 		case to_headset::crypto_handshake::crypto_state::pairing_disabled:
 			spdlog::warn("Pairing is disabled on server");
 			handshake_ok = false;
-			return;
+			throw std::runtime_error("Pairing is disabled on the server");
 
 		case to_headset::crypto_handshake::crypto_state::incompatible_version:
 			spdlog::error("Incompatible protocol versions");
 			handshake_ok = false;
-			return;
+			throw std::runtime_error("Incompatible protocol versions");
 	}
 
 	spdlog::warn("handshake: switch done, sending stream handshake");
@@ -236,17 +239,19 @@ void wivrn_session_pico::handshake(T address, bool tcp_only, crypto::key & heads
 wivrn_session_pico::wivrn_session_pico(in6_addr address, int port, bool tcp_only,
                                        crypto::key & headset_keypair,
                                        const std::string & model_name,
-                                       std::function<std::string(int fd)> pin_enter) :
+                                       std::function<std::string(int fd)> pin_enter,
+                                       std::atomic<bool> & shutdown_flag) :
         control(address, port), stream(-1), address(address)
 {
-	handshake(address, tcp_only, headset_keypair, model_name, pin_enter);
+	handshake(address, tcp_only, headset_keypair, model_name, pin_enter, shutdown_flag);
 }
 
 wivrn_session_pico::wivrn_session_pico(in_addr address, int port, bool tcp_only,
                                        crypto::key & headset_keypair,
                                        const std::string & model_name,
-                                       std::function<std::string(int fd)> pin_enter) :
+                                       std::function<std::string(int fd)> pin_enter,
+                                       std::atomic<bool> & shutdown_flag) :
         control(address, port), stream(-1), address(address)
 {
-	handshake(address, tcp_only, headset_keypair, model_name, pin_enter);
+	handshake(address, tcp_only, headset_keypair, model_name, pin_enter, shutdown_flag);
 }
