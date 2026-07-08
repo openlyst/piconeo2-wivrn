@@ -1105,7 +1105,9 @@ static void render_frame(AppState* app) {
         auto &buf0 = app->stream.decoded_frame_buffers[0];
         auto &buf1 = app->stream.decoded_frame_buffers[1];
 
-        uint64_t best_common_idx = UINT64_MAX;
+        // Collect all common frame indices, sorted ascending
+        uint64_t common_indices[streaming_client::FRAME_BUFFER_SIZE * 2];
+        int common_count = 0;
 
         for (auto &s0 : buf0)
         {
@@ -1115,28 +1117,24 @@ static void render_frame(AppState* app) {
                 if (!s1 || !s1->valid) continue;
                 if (s0->frame_index == s1->frame_index)
                 {
-                    if (s0->frame_index > best_common_idx)
-                        best_common_idx = s0->frame_index;
+                    common_indices[common_count++] = s0->frame_index;
                 }
             }
         }
 
-        if (best_common_idx != UINT64_MAX)
+        if (common_count > 0)
         {
-            render_frames[0] = app->stream.get_frame(best_common_idx, 0);
-            render_frames[1] = app->stream.get_frame(best_common_idx, 1);
+            // Pick latest common frame
+            uint64_t chosen = common_indices[0];
+            for (int i = 1; i < common_count; i++)
+                if (common_indices[i] > chosen)
+                    chosen = common_indices[i];
+
+            render_frames[0] = app->stream.get_frame(chosen, 0);
+            render_frames[1] = app->stream.get_frame(chosen, 1);
         }
-        else
-        {
-            render_frames[0].reset();
-            render_frames[1].reset();
-            for (auto &s : buf0)
-                if (s && s->valid && (!render_frames[0] || s->frame_index > render_frames[0]->frame_index))
-                    render_frames[0] = s;
-            for (auto &s : buf1)
-                if (s && s->valid && (!render_frames[1] || s->frame_index > render_frames[1]->frame_index))
-                    render_frames[1] = s;
-        }
+        // If no common frame, keep previous render_frames — don't fall back to
+        // mismatched per-eye frames which causes stutter when moving
 
         for (int e = 0; e < 2; e++)
         {
