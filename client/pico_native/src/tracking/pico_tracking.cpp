@@ -120,6 +120,15 @@ void pico_native_tracker::set_head_pose(const float orient[4], const float pos[3
 	step_head_filter(pos, hq, ts);
 }
 
+void pico_native_tracker::recenter_height()
+{
+	std::lock_guard lock(state_mutex);
+	float actual_height = head_pos[1] + height_offset.load();
+	height_offset.store(actual_height);
+	height_calibrated = true;
+	spdlog::info("Recenter height: actual_height={:.3f} new_offset={:.3f}", actual_height, actual_height);
+}
+
 void pico_native_tracker::set_prediction_ns(int64_t ns)
 {
 	prediction_ns.store(ns);
@@ -437,6 +446,7 @@ void pico_native_tracker::run()
 				if (home_press_ts[h] > 0 && ts - home_press_ts[h] > 800000000ULL)
 				{
 					spdlog::info("recenter triggered by controller {} home button long press", h);
+					recenter_height();
 					Pvr_ResetSensor(PXR_RESET_ALL);
 					recenter_requested.store(true);
 				}
