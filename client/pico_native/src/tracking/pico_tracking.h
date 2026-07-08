@@ -92,6 +92,7 @@ public:
 
 	void set_head_pose(const float orient[4], const float pos[3]);
 	void get_head_pose(float out_orient[4], float out_pos[3]);
+	void recenter_height();
 	void get_controllers(controller_sample out[2]);
 	void set_prediction_ns(int64_t ns);
 	std::atomic<bool> floor_relative{false};

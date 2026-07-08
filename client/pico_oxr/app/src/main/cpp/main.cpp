@@ -944,6 +944,7 @@ static void poll_events(AppState* app) {
         case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING: {
             auto* evt = reinterpret_cast<XrEventDataReferenceSpaceChangePending*>(&edb);
             LOGI("Reference space change pending (space=%d)", evt->referenceSpaceType);
+            app->stream.tracker.recenter_height();
             if (g_pfnXrResetSensorPICO && app->session) {
                 XrResult rr = g_pfnXrResetSensorPICO(app->session, XR_RESET_ALL);
                 LOGI("xrResetSensorPICO result: %d", rr);
@@ -1187,6 +1188,7 @@ static void render_frame(AppState* app) {
             {
                 uint64_t held_ns = now_ns - home_press_ts[h];
                 LOGI("recenter triggered by controller %d home button long press (%llums)", h, held_ns / 1000000ULL);
+                app->stream.tracker.recenter_height();
                 if (g_pfnXrResetSensorPICO && app->session)
                 {
                     XrResult rr = g_pfnXrResetSensorPICO(app->session, XR_RESET_ALL);
@@ -1665,6 +1667,7 @@ static bool g_home_pressed = false;
 
 static void trigger_recenter(AppState* app) {
     LOGI("recenter triggered by Pico home button");
+    app->stream.tracker.recenter_height();
     if (g_pfnXrResetSensorPICO && app->session) {
         XrResult rr = g_pfnXrResetSensorPICO(app->session, XR_RESET_ALL);
         LOGI("xrResetSensorPICO result: %d", rr);
