@@ -698,6 +698,7 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 	}
 
 	// Face tracking (fb_face2): eye blink (closedness) + eye look directions.
+	// Pupil dilation is encoded in two unused blendshape slots (see below).
 	if (gEyeOnline.load() && gEyeOpennessValid.load())
 	{
 		auto & face = pkt.face.emplace<from_headset::tracking::fb_face2>();
@@ -713,6 +714,20 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 		float openR = gEyeOpenness[1].load();
 		face.weights[12] = 1.0f - openL;
 		face.weights[13] = 1.0f - openR;
+
+		// Pupil dilation encoded in unused blendshape slots.
+		// The WiVRn protocol can't be modified (server type hash check),
+		// so we piggyback on the fb_face2 weights array.  Slots 6 and 7
+		// (XR_FACE_EXPRESSION2_CHEEK_SUCK_L/R_FB) are never populated by
+		// the Pico SDK or any face tracker we use.  The SDK reports pupil
+		// diameter in millimeters (typically 2-8mm); we divide by 10 to
+		// fit the 0..1 blendshape range.  An OSC bridge reading these
+		// slots should multiply by 10 to recover millimeters.
+		if (gPupilDilationValid.load())
+		{
+			face.weights[6] = gPupilDilation[0].load() * 0.1f;  // left pupil mm/10
+			face.weights[7] = gPupilDilation[1].load() * 0.1f;  // right pupil mm/10
+		}
 
 		// Eye look directions from gaze pitch/yaw (indices 14-21).
 		// Max look angle ~30 degrees; scale to 0..1 blendshape weight.

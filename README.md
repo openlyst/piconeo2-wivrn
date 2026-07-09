@@ -19,7 +19,7 @@ Native WiVRn client for the Pico Neo 2 and Pico Neo 2 Eye. Stream PC VR games to
 - OpenXR
 - Audio streaming
 - Overlay application support
-- Eye tracking (Pico Neo 2 Eye only) — gaze direction for foveated encoding, eye blink and look directions via fb_face2 blendshapes
+- Eye tracking (Pico Neo 2 Eye only) — gaze direction for foveated encoding, eye blink, look directions, and pupil dilation (encoded in unused fb_face2 blendshape slots 6/7, mm/10)
 
 ## Prerequisites
 
