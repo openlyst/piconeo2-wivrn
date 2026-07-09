@@ -1,4 +1,4 @@
-# RC5
+# [RC5](https://gitlab.com/HttpAnimations/piconeo2-wivrn/-/tree/9d99acc0dcf0d58008930e10f6eda1fcabde2896)
 
  - Fix lobby flickering if your battery was low
  - Fix lobby resolution scaling
