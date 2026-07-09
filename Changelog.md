@@ -16,6 +16,7 @@
  - Add "Lower resolution for wireless" option to cap wireless streaming at 1280
  - Add dynamic bitrate adjustment that adapts to network conditions in real time
  - Add "Dynamic bitrate" toggle in settings (enabled by default)
+ - Settings page is now the same either streaming or in lobby.
 
 # [RC5](https://gitlab.com/HttpAnimations/piconeo2-wivrn/-/tree/9d99acc0dcf0d58008930e10f6eda1fcabde2896)
 
