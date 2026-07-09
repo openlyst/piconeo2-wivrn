@@ -504,6 +504,9 @@ public class MainActivity extends NativeActivity {
     public void onDisconnectRequested() {
         Log.d(TAG, "Disconnect requested");
         nativeDisconnectServer();
+        if (lobbyView != null) {
+            lobbyView.setConnectionState(WivrnLobbyView.STATE_IDLE, "");
+        }
     }
 
     public void onReconnectRequested() {
