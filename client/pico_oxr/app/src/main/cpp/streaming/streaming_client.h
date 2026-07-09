@@ -41,6 +41,7 @@ struct streaming_client
 	std::atomic<int> eye_height{1756};
 	std::atomic<int> stream_eye_width{1664};
 	std::atomic<int> stream_eye_height{1756};
+	std::atomic<bool> resolution_dirty{false};
 	std::atomic<bool> streaming{false};
 	std::atomic<bool> stream_ui_visible{false};
 

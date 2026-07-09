@@ -1920,7 +1920,6 @@ public class WivrnLobbyView {
             return;
         }
 
-        if (connectionState != STATE_IDLE && connectionState != STATE_DISCONNECTED) return;
         if (currentTab != TAB_SETTINGS) return;
         if (showAddServer) return;
 
