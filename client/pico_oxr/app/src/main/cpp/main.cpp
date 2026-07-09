@@ -28,6 +28,7 @@
 #include "lobby.h"
 #include "streaming/streaming_client.h"
 #include "streaming/oxr_blit.h"
+#include "streaming/eye_tracking.h"
 #include "pico_stutter.h"
 #include "latency_tracker.h"
 
@@ -1790,6 +1791,8 @@ extern "C" void android_main(struct android_app* androidApp) {
 
     glGenFramebuffers(1, &app.fbo);
     glGenRenderbuffers(NUM_EYES, app.depth_rbo);
+
+    initEyeTracking();
 
     int eye_w = app.swapchains[0].width;
     int eye_h = app.swapchains[0].height;
