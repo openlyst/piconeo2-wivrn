@@ -16,6 +16,10 @@ extern std::atomic<bool>  gGazeValid;
 extern std::atomic<float> gEyeOpenness[2];
 extern std::atomic<bool>  gEyeOpennessValid;
 
+// Pupil dilation in millimeters and validity.
+extern std::atomic<float> gPupilDilation[2];
+extern std::atomic<bool>  gPupilDilationValid;
+
 // Gaze pitch/yaw in radians (head-local), for eye-look blendshapes.
 extern std::atomic<float> gGazePitch;
 extern std::atomic<float> gGazeYaw;
