@@ -290,19 +290,10 @@ void streaming_client::setup_audio()
 
 void streaming_client::handle_video_shard(to_headset::video_stream_data_shard && shard)
 {
-	int64_t now = get_timestamp_ns();
-	last_shard_ns.store(now);
+	last_shard_ns.store(get_timestamp_ns());
 
-	if (db_prev_shard_ns > 0)
-	{
-		int64_t interval = now - db_prev_shard_ns;
-		if (interval > 0 && interval < 200'000'000)
-		{
-			db_shard_intervals_sum += interval;
-			db_shard_intervals_count++;
-		}
-	}
-	db_prev_shard_ns = now;
+	if (shard.timing_info && shard.stream_item_idx == 0)
+		stats_last_encode_begin = shard.timing_info->encode_begin;
 
 	if (!streaming.load())
 	{
@@ -310,11 +301,6 @@ void streaming_client::handle_video_shard(to_headset::video_stream_data_shard &&
 		stream_ui_visible = false;
 		setEyeTrackingStreaming(true);
 		spdlog::info("Streaming started, hiding lobby UI");
-	}
-
-	if (shard.timing_info && shard.stream_item_idx == 0)
-	{
-		stats_last_encode_begin = shard.timing_info->encode_begin;
 	}
 
 	uint8_t idx = shard.stream_item_idx;
@@ -358,19 +344,24 @@ void streaming_client::handle_video_shard(to_headset::video_stream_data_shard &&
 	bool is_last_shard = shard.timing_info.has_value();
 	bool is_first_shard = (shard.shard_idx == 0);
 
-	if (is_last_shard && shard.timing_info)
+	// Track shard arrival timestamps for the decoder thread to use
+	int64_t now_ns = get_timestamp_ns();
+	if (is_first_shard)
+		target->t_first_shard_ns = now_ns;
+	if (is_last_shard)
 	{
-		g_latency.on_server_timing(frame_idx, idx,
-			shard.timing_info->encode_begin,
-			shard.timing_info->encode_end,
-			shard.timing_info->send_begin,
-			shard.timing_info->send_end);
+		target->t_last_shard_ns = now_ns;
+		if (shard.timing_info)
+		{
+			target->has_server_timing = true;
+			target->encode_begin = shard.timing_info->encode_begin;
+			target->encode_end = shard.timing_info->encode_end;
+			target->send_begin = shard.timing_info->send_begin;
+			target->send_end = shard.timing_info->send_end;
+		}
 	}
-	g_latency.on_shard_received(frame_idx, idx, is_first_shard, is_last_shard);
 
 	target->shards[shard.shard_idx] = std::move(shard);
-
-	g_stutter.on_shard_arrived(frame_idx, idx, is_first_shard, is_last_shard);
 
 	if (!is_last_shard)
 		return;
@@ -405,9 +396,13 @@ void streaming_client::handle_video_shard(to_headset::video_stream_data_shard &&
 	feedback.received_last_packet = to_xr_time(fb_now);
 	feedback.sent_to_decoder = to_xr_time(fb_now);
 
-	g_latency.on_pushed_to_decoder(frame_idx, idx);
-	decoders[idx]->push_data(data, frame_idx, false);
-	g_stutter.on_pushed_to_decoder(frame_idx, idx);
+	// Push to decoder with timing info; latency/stutter tracking
+	// happens on the decoder's input thread, not here.
+	decoders[idx]->push_data(data, frame_idx, false,
+		target->t_first_shard_ns, target->t_last_shard_ns,
+		target->has_server_timing,
+		target->encode_begin, target->encode_end,
+		target->send_begin, target->send_end);
 
 	feedback.received_from_decoder = to_xr_time(get_timestamp_ns());
 
@@ -591,8 +586,6 @@ void streaming_client::reset_stream_state()
 	last_shard_ns.store(0);
 	db_last_check_ns = 0;
 	db_prev_shard_ns = 0;
-	db_shard_intervals_sum = 0;
-	db_shard_intervals_count = 0;
 	int max_b = max_bitrate_mbps.load();
 	current_bitrate_mbps.store(max_b);
 	bitrate_mbps.store(max_b);
@@ -624,8 +617,6 @@ void streaming_client::update_dynamic_bitrate()
 	{
 		db_last_check_ns = now;
 		db_prev_shard_ns = 0;
-		db_shard_intervals_sum = 0;
-		db_shard_intervals_count = 0;
 		return;
 	}
 
@@ -635,26 +626,28 @@ void streaming_client::update_dynamic_bitrate()
 	int max_bps = max_bitrate_mbps.load();
 	int cur_bps = current_bitrate_mbps.load();
 
-	int64_t avg_interval = 0;
-	if (db_shard_intervals_count > 0)
-		avg_interval = db_shard_intervals_sum / db_shard_intervals_count;
-
+	// Sample the last shard timestamp to estimate arrival rate.
+	// This avoids doing per-shard math on the network thread.
+	int64_t last_shard = last_shard_ns.load();
 	int new_bps = cur_bps;
 
-	if (avg_interval > 0)
+	if (db_prev_shard_ns > 0 && last_shard > db_prev_shard_ns)
 	{
-		float ratio = (float)avg_interval / target_frame_ns;
+		int64_t elapsed = now - db_last_check_ns;
+		// Estimate frame interval from shard activity over the check window
+		int64_t estimated_interval = elapsed / 3; // 3 streams worth of shards
+		float ratio = (float)estimated_interval / target_frame_ns;
 		if (ratio > 1.3f)
 		{
 			new_bps = (int)(cur_bps * 0.8f);
-			spdlog::info("Dynamic bitrate: reducing (avg interval {:.1f}ms, ratio {:.2f})",
-				avg_interval / 1'000'000.0f, ratio);
+			spdlog::info("Dynamic bitrate: reducing (est interval {:.1f}ms, ratio {:.2f})",
+				estimated_interval / 1'000'000.0f, ratio);
 		}
 		else if (ratio < 1.1f && cur_bps < max_bps)
 		{
 			new_bps = std::min(max_bps, (int)(cur_bps * 1.1f));
-			spdlog::info("Dynamic bitrate: increasing (avg interval {:.1f}ms, ratio {:.2f})",
-				avg_interval / 1'000'000.0f, ratio);
+			spdlog::info("Dynamic bitrate: increasing (est interval {:.1f}ms, ratio {:.2f})",
+				estimated_interval / 1'000'000.0f, ratio);
 		}
 	}
 
@@ -668,8 +661,7 @@ void streaming_client::update_dynamic_bitrate()
 	}
 
 	db_last_check_ns = now;
-	db_shard_intervals_sum = 0;
-	db_shard_intervals_count = 0;
+	db_prev_shard_ns = last_shard;
 }
 
 void streaming_client::network_loop()

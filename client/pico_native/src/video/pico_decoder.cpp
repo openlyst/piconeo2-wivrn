@@ -1,5 +1,7 @@
 #include "pico_decoder.h"
 #include "../core/pico_sched.h"
+#include "../core/latency_tracker.h"
+#include "../core/pico_stutter.h"
 
 #include <spdlog/spdlog.h>
 #include <cstring>
@@ -348,6 +350,19 @@ void pico_video_decoder::input_loop()
 		if (status != AMEDIA_OK)
 			spdlog::error("AMediaCodec_queueInputBuffer: error {}", (int)status);
 
+		// Latency/stutter tracking moved here from the network thread
+		// to keep the network thread focused on packet dispatch.
+		if (frame.has_server_timing)
+			g_latency.on_server_timing(frame.frame_index, stream_index,
+				frame.encode_begin, frame.encode_end,
+				frame.send_begin, frame.send_end);
+		g_latency.on_shard_received(frame.frame_index, stream_index,
+			frame.t_first_shard_ns > 0, frame.t_last_shard_ns > 0);
+		g_latency.on_pushed_to_decoder(frame.frame_index, stream_index);
+		g_stutter.on_shard_arrived(frame.frame_index, stream_index,
+			frame.t_first_shard_ns > 0, frame.t_last_shard_ns > 0);
+		g_stutter.on_pushed_to_decoder(frame.frame_index, stream_index);
+
 	static int feed_count[2] = {0, 0};
 	if (++feed_count[stream_index] % 30 == 1 || feed_count[stream_index] <= 5)
 	{
@@ -436,7 +451,11 @@ void pico_video_decoder::output_loop()
 	}
 }
 
-void pico_video_decoder::push_data(std::span<std::span<const uint8_t>> data, uint64_t frame_index, bool partial)
+void pico_video_decoder::push_data(std::span<std::span<const uint8_t>> data, uint64_t frame_index, bool partial,
+                                   int64_t t_first_shard_ns, int64_t t_last_shard_ns,
+                                   bool has_server_timing,
+                                   int64_t enc_begin, int64_t enc_end,
+                                   int64_t s_begin, int64_t s_end)
 {
 	std::lock_guard lock(pending_mutex);
 
@@ -452,7 +471,7 @@ void pico_video_decoder::push_data(std::span<std::span<const uint8_t>> data, uin
 			spdlog::warn("Decoder stream {} dropping frame {} (queue full)", stream_index, pending_frames.front().frame_index);
 			pending_frames.erase(pending_frames.begin());
 		}
-		pending_frames.push_back({.frame_index = frame_index});
+		pending_frames.push_back({.frame_index = frame_index, .t_received_ns = now_ns()});
 		pf = &pending_frames.back();
 	}
 
@@ -463,43 +482,21 @@ void pico_video_decoder::push_data(std::span<std::span<const uint8_t>> data, uin
 		memcpy(pf->data.data() + old_size, sub.data(), sub.size());
 	}
 
-	if (!partial)
+	if (t_first_shard_ns)
+		pf->t_first_shard_ns = t_first_shard_ns;
+	if (t_last_shard_ns)
+		pf->t_last_shard_ns = t_last_shard_ns;
+	if (has_server_timing)
 	{
-		// Try fast path: directly queue into MediaCodec if input buffer is ready
-		ssize_t in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 0);
-		if (in_idx >= 0)
-		{
-			size_t buf_size;
-			uint8_t * buf = AMediaCodec_getInputBuffer(media_codec, in_idx, &buf_size);
-			if (buf)
-			{
-				size_t copy_size = std::min(pf->data.size(), buf_size);
-				memcpy(buf, pf->data.data(), copy_size);
-				uint64_t timestamp = frame_index * 10'000;
-				int64_t queue_time = now_ns();
-				AMediaCodec_queueInputBuffer(media_codec, in_idx, 0, copy_size, timestamp, 0);
-
-				std::lock_guard lock(frame_info_mutex);
-				for (auto & fi : pending_frame_infos)
-				{
-					if (fi.frame_index == frame_index)
-					{
-						fi.t_pushed_to_decoder_ns = queue_time;
-						break;
-					}
-				}
-
-				// Remove this frame from the pending queue since it's been submitted
-				if (!pending_frames.empty() && pending_frames.back().frame_index == frame_index)
-					pending_frames.pop_back();
-
-				return;
-			}
-		}
-
-		// Fallback: queue for input_loop to handle
-		pending_cv.notify_one();
+		pf->has_server_timing = true;
+		pf->encode_begin = enc_begin;
+		pf->encode_end = enc_end;
+		pf->send_begin = s_begin;
+		pf->send_end = s_end;
 	}
+
+	if (!partial)
+		pending_cv.notify_one();
 }
 
 void pico_video_decoder::flush()
