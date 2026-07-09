@@ -7,6 +7,11 @@
  - Fix disconnect button not working on the connecting/reconnecting screen
  - Fix client showing reconnecting screen instead of disconnecting when server drops connection
  - Fix USB connect intent not overriding disconnected/reconnecting state
+ - Lower default resolution to 1664x1756 to reduce GPU load and bandwidth
+ - Swapchain resolution now reads from user settings instead of being hardcoded to 2048x2160
+ - Add "Lower resolution for wireless" option to cap wireless streaming at 1280
+ - Add dynamic bitrate adjustment that adapts to network conditions in real time
+ - Add "Dynamic bitrate" toggle in settings (enabled by default)
 
 # [RC5](https://gitlab.com/HttpAnimations/piconeo2-wivrn/-/tree/9d99acc0dcf0d58008930e10f6eda1fcabde2896)
 
