@@ -57,9 +57,10 @@ struct streaming_client
 	float stats_bandwidth_tx = 0;
 	int64_t stats_last_encode_begin = 0;
 
+	static constexpr float k_pico_fov_half = 101.0f * 0.5f * 0.01745329252f;
 	XrFovf eye_fov[2]{
-		XrFovf{-0.8814f, 0.8814f, 0.8814f, -0.8814f},
-		XrFovf{-0.8814f, 0.8814f, 0.8814f, -0.8814f},
+		XrFovf{-k_pico_fov_half, k_pico_fov_half, k_pico_fov_half, -k_pico_fov_half},
+		XrFovf{-k_pico_fov_half, k_pico_fov_half, k_pico_fov_half, -k_pico_fov_half},
 	};
 
 	std::mutex tracking_mutex;

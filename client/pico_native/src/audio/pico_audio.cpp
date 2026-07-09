@@ -3,20 +3,15 @@
 #include <spdlog/spdlog.h>
 #include <cstring>
 #include <algorithm>
+#include <chrono>
 
 void pico_audio::exit()
 {
 	exiting = true;
 	if (speaker)
-	{
 		AAudioStream_requestStop(speaker);
-		speaker_stop_ack.wait(false);
-	}
 	if (microphone && mic_running)
-	{
 		AAudioStream_requestStop(microphone);
-		microphone_stop_ack.wait(false);
-	}
 }
 
 int32_t pico_audio::speaker_data_cb(AAudioStream * stream, void * userdata, void * audio_data_v, int32_t num_frames)
@@ -187,7 +182,7 @@ void pico_audio::recreate_stream(AAudioStream * stream)
 		AAudioStream_requestStop(stream);
 		aaudio_stream_state_t state = AAudioStream_getState(stream);
 		if (state == AAUDIO_STREAM_STATE_STOPPING || state == AAUDIO_STREAM_STATE_STARTED)
-			AAudioStream_waitForStateChange(stream, state, &state, 500000000);
+			AAudioStream_waitForStateChange(stream, state, &state, 50000000);
 		AAudioStream_close(stream);
 
 		AAudioStreamBuilder * builder;
@@ -246,7 +241,7 @@ pico_audio::~pico_audio()
 		{
 			aaudio_stream_state_t state = AAudioStream_getState(stream);
 			if (state == AAUDIO_STREAM_STATE_STOPPING || state == AAUDIO_STREAM_STATE_STARTED)
-				AAudioStream_waitForStateChange(stream, state, &state, 500000000);
+				AAudioStream_waitForStateChange(stream, state, &state, 50000000);
 			AAudioStream_close(stream);
 		}
 	}

@@ -679,7 +679,11 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 		}
 	}
 
-	session->send_stream(pkt);
+	try {
+		session->send_stream(pkt);
+	} catch (std::exception & e) {
+		spdlog::warn("transmit_tracking: send failed: {}", e.what());
+	}
 }
 
 void pico_native_tracker::transmit_inputs(int64_t headset_ns)
@@ -751,6 +755,11 @@ void pico_native_tracker::transmit_inputs(int64_t headset_ns)
 		}
 	}
 
-	if (!pkt.values.empty())
-		session->send_stream(pkt);
+	if (!pkt.values.empty()) {
+		try {
+			session->send_stream(pkt);
+		} catch (std::exception & e) {
+			spdlog::warn("transmit_inputs: send failed: {}", e.what());
+		}
+	}
 }
