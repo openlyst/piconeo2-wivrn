@@ -47,6 +47,7 @@ streaming_client::streaming_client()
 streaming_client::~streaming_client()
 {
 	shutdown = true;
+	tracker.session = nullptr;
 	tracker.stop();
 
 	if (connect_thread.joinable())
@@ -549,12 +550,17 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 
 void streaming_client::reset_stream_state()
 {
+	spdlog::info("reset_stream_state: streaming=false");
 	streaming = false;
 	stream_ui_visible = false;
 	video_ready = false;
+	spdlog::info("reset_stream_state: resetting video_desc");
 	video_desc.reset();
+	spdlog::info("reset_stream_state: resetting audio_desc");
 	audio_desc.reset();
+	spdlog::info("reset_stream_state: resetting audio_handle");
 	audio_handle.reset();
+	spdlog::info("reset_stream_state: resetting decoders");
 	for (int i = 0; i < 3; i++)
 	{
 		decoders[i].reset();
@@ -568,6 +574,7 @@ void streaming_client::reset_stream_state()
 	}
 	latest_decoded_frame_index.store(0);
 	last_shard_ns.store(0);
+	spdlog::info("reset_stream_state: done");
 }
 
 void streaming_client::network_loop()
@@ -611,10 +618,15 @@ void streaming_client::network_loop()
 		notify_connection_state(1, "Reconnecting...");
 	else
 		notify_connection_state(3, last_error.empty() ? "Disconnected" : last_error);
-	tracker.stop();
+	spdlog::info("network_loop: setting tracker.session=nullptr");
 	tracker.session = nullptr;
+	spdlog::info("network_loop: calling tracker.stop()");
+	tracker.stop();
+	spdlog::info("network_loop: tracker stopped, resetting session");
 	session.reset();
+	spdlog::info("network_loop: session reset, resetting stream state");
 	reset_stream_state();
+	spdlog::info("network_loop: done, exiting");
 }
 
 bool streaming_client::connect_to_server()
@@ -878,16 +890,19 @@ void streaming_client::try_connect()
 			::shutdown(fd, SHUT_RDWR);
 		}
 		std::thread([this] {
+			spdlog::info("detached: waiting for connect_mutex");
 			std::lock_guard lock(connect_mutex);
+			spdlog::info("detached: got connect_mutex, joining threads");
 			if (connect_thread.joinable())
 				connect_thread.join();
+			spdlog::info("detached: connect_thread joined");
 			if (network_thread.joinable())
 				network_thread.join();
+			spdlog::info("detached: network_thread joined");
 			session.reset();
 			reset_stream_state();
 			shutdown = false;
-			auto_reconnect.store(true);
-
+			spdlog::info("detached: starting new connect_thread");
 			connect_thread = std::thread([this] {
 				run_connect_loop();
 			});
@@ -929,6 +944,7 @@ void streaming_client::run_connect_loop()
 
 			notify_connection_state(4, "Streaming");
 			network_thread.join();
+			spdlog::info("run_connect_loop: network_thread joined, auto_reconnect={}", auto_reconnect.load());
 		}
 		catch (std::exception & e)
 		{
@@ -937,8 +953,8 @@ void streaming_client::run_connect_loop()
 			notify_connection_state(3, e.what());
 			if (network_thread.joinable())
 				network_thread.join();
-			tracker.stop();
 			tracker.session = nullptr;
+			tracker.stop();
 			session.reset();
 			reset_stream_state();
 		}
@@ -993,8 +1009,8 @@ void streaming_client::run_connect_loop()
 				notify_connection_state(3, e.what());
 				if (network_thread.joinable())
 					network_thread.join();
-				tracker.stop();
 				tracker.session = nullptr;
+				tracker.stop();
 				session.reset();
 				reset_stream_state();
 			}
