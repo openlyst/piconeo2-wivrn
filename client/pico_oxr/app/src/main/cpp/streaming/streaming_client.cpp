@@ -886,7 +886,6 @@ void streaming_client::try_connect()
 			session.reset();
 			reset_stream_state();
 			shutdown = false;
-			auto_reconnect.store(true);
 
 			connect_thread = std::thread([this] {
 				run_connect_loop();
