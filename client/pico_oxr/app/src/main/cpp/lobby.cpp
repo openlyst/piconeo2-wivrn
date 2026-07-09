@@ -8,8 +8,8 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-static const char * vert_src = R"(
-attribute vec3 a_pos;
+static const char * vert_src = R"(#version 310 es
+layout(location = 0) in vec3 a_pos;
 uniform mat4 u_mvp;
 void main()
 {
@@ -17,20 +17,21 @@ void main()
 }
 )";
 
-static const char * frag_src = R"(
+static const char * frag_src = R"(#version 310 es
 precision mediump float;
 uniform vec4 u_color;
+out vec4 frag_color;
 void main()
 {
-    gl_FragColor = u_color;
+    frag_color = u_color;
 }
 )";
 
-static const char * tex_vert_src = R"(
-attribute vec3 a_pos;
-attribute vec2 a_uv;
+static const char * tex_vert_src = R"(#version 310 es
+layout(location = 0) in vec3 a_pos;
+layout(location = 1) in vec2 a_uv;
 uniform mat4 u_mvp;
-varying vec2 v_uv;
+out vec2 v_uv;
 void main()
 {
     gl_Position = u_mvp * vec4(a_pos, 1.0);
@@ -38,14 +39,15 @@ void main()
 }
 )";
 
-static const char * tex_frag_src = R"(
-#extension GL_OES_EGL_image_external : require
+static const char * tex_frag_src = R"(#version 310 es
+#extension GL_OES_EGL_image_external_essl3 : require
 precision mediump float;
-varying vec2 v_uv;
+in vec2 v_uv;
 uniform samplerExternalOES u_tex;
+out vec4 frag_color;
 void main()
 {
-    gl_FragColor = texture2D(u_tex, v_uv);
+    frag_color = texture(u_tex, v_uv);
 }
 )";
 
@@ -174,6 +176,9 @@ static Mat4 mat4_view(const float orient[4], const float pos[3])
 
 pico_lobby::~pico_lobby()
 {
+	if (controller_vao) glDeleteVertexArrays(1, &controller_vao);
+	if (ray_vao) glDeleteVertexArrays(1, &ray_vao);
+	if (quad_vao) glDeleteVertexArrays(1, &quad_vao);
 	if (program) glDeleteProgram(program);
 	if (tex_program) glDeleteProgram(tex_program);
 	if (controller_vbo) glDeleteBuffers(1, &controller_vbo);
@@ -242,7 +247,7 @@ void pico_lobby::init(int w, int h)
 	glDeleteShader(vert);
 	glDeleteShader(frag);
 
-	pos_attrib = glGetAttribLocation(program, "a_pos");
+	pos_attrib = 0;
 	mvp_uniform = glGetUniformLocation(program, "u_mvp");
 	color_uniform = glGetUniformLocation(program, "u_color");
 
@@ -255,18 +260,26 @@ void pico_lobby::init(int w, int h)
 		 s,-s, s,  s,-s,-s,  s, s,-s,   s,-s, s,  s, s,-s,  s, s, s,
 		-s,-s, s,  -s, s, s,  -s, s,-s,  -s,-s, s,  -s, s,-s, -s,-s,-s,
 	};
+	glGenVertexArrays(1, &controller_vao);
 	glGenBuffers(1, &controller_vbo);
+	glBindVertexArray(controller_vao);
 	glBindBuffer(GL_ARRAY_BUFFER, controller_vbo);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(box), box, GL_STATIC_DRAW);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
+	glBindVertexArray(0);
 
 	float ray[] = {
 		0, 0, 0,  0, 0, -1.0f,
 	};
+	glGenVertexArrays(1, &ray_vao);
 	glGenBuffers(1, &ray_vbo);
+	glBindVertexArray(ray_vao);
 	glBindBuffer(GL_ARRAY_BUFFER, ray_vbo);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(ray), ray, GL_STATIC_DRAW);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
+	glBindVertexArray(0);
 
 	GLuint tvert = compile_shader(GL_VERTEX_SHADER, tex_vert_src);
 	GLuint tfrag = compile_shader(GL_FRAGMENT_SHADER, tex_frag_src);
@@ -285,8 +298,8 @@ void pico_lobby::init(int w, int h)
 	glDeleteShader(tvert);
 	glDeleteShader(tfrag);
 
-	tex_pos_attrib = glGetAttribLocation(tex_program, "a_pos");
-	tex_uv_attrib = glGetAttribLocation(tex_program, "a_uv");
+	tex_pos_attrib = 0;
+	tex_uv_attrib = 1;
 	tex_mvp_uniform = glGetUniformLocation(tex_program, "u_mvp");
 	tex_sampler_uniform = glGetUniformLocation(tex_program, "u_tex");
 
@@ -306,10 +319,16 @@ void pico_lobby::init(int w, int h)
 		 1.0f,  1.0f, 0.0f,  1.0f, 0.0f,
 		-1.0f,  1.0f, 0.0f,  0.0f, 0.0f,
 	};
+	glGenVertexArrays(1, &quad_vao);
 	glGenBuffers(1, &quad_vbo);
+	glBindVertexArray(quad_vao);
 	glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 20, (void *)0);
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 20, (void *)12);
+	glBindVertexArray(0);
 
 	initialized = true;
 	LOGI("Lobby initialized (%dx%d)", w, h);
@@ -389,9 +408,7 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 		else
 			glUniform4f(color_uniform, 1.0f, 0.3f, 0.2f, 1.0f);
 
-		glEnableVertexAttribArray(pos_attrib);
-		glBindBuffer(GL_ARRAY_BUFFER, controller_vbo);
-		glVertexAttribPointer(pos_attrib, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
+		glBindVertexArray(controller_vao);
 		glUniformMatrix4fv(mvp_uniform, 1, GL_FALSE, mvp.m);
 		glDrawArrays(GL_TRIANGLES, 0, 36);
 
@@ -404,8 +421,7 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 			glUniform4f(color_uniform, 0.2f, 0.4f, 1.0f, 0.4f);
 		else
 			glUniform4f(color_uniform, 1.0f, 0.3f, 0.2f, 0.4f);
-		glBindBuffer(GL_ARRAY_BUFFER, ray_vbo);
-		glVertexAttribPointer(pos_attrib, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
+		glBindVertexArray(ray_vao);
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glLineWidth(5.0f);
@@ -419,8 +435,7 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 		     controllers[0].position[0]*0.001f, controllers[0].position[1]*0.001f, controllers[0].position[2]*0.001f,
 		     controllers[1].position[0]*0.001f, controllers[1].position[1]*0.001f, controllers[1].position[2]*0.001f);
 
-	glDisableVertexAttribArray(pos_attrib);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindVertexArray(0);
 	glUseProgram(0);
 
 	draw_quad(head_orient, head_pos, fov, ipd, eye);
@@ -488,17 +503,10 @@ void pico_lobby::draw_quad(const float head_orient[4], const float head_pos[3],
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_EXTERNAL_OES, ui_texture);
 
-	glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
-	glEnableVertexAttribArray(tex_pos_attrib);
-	glVertexAttribPointer(tex_pos_attrib, 3, GL_FLOAT, GL_FALSE, 20, (void *)0);
-	glEnableVertexAttribArray(tex_uv_attrib);
-	glVertexAttribPointer(tex_uv_attrib, 2, GL_FLOAT, GL_FALSE, 20, (void *)12);
-
+	glBindVertexArray(quad_vao);
 	glDrawArrays(GL_TRIANGLES, 0, 6);
+	glBindVertexArray(0);
 
-	glDisableVertexAttribArray(tex_pos_attrib);
-	glDisableVertexAttribArray(tex_uv_attrib);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
 	glUseProgram(0);
 }

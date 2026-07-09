@@ -3,12 +3,13 @@
 #include <spdlog/spdlog.h>
 #include <cstring>
 #include <cmath>
+#include <GLES3/gl3.h>
 #include <GLES2/gl2ext.h>
 
-static const char * vert_src = R"(
-attribute vec2 a_pos;
-attribute vec2 a_uv;
-varying vec2 v_uv;
+static const char * vert_src = R"(#version 310 es
+layout(location = 0) in vec2 a_pos;
+layout(location = 1) in vec2 a_uv;
+out vec2 v_uv;
 uniform vec2 u_tex_size;
 void main()
 {
@@ -17,15 +18,15 @@ void main()
 }
 )";
 
-static const char * frag_src = R"(
-#extension GL_OES_EGL_image_external : require
+static const char * frag_src = R"(#version 310 es
+#extension GL_OES_EGL_image_external_essl3 : require
 precision mediump float;
-varying vec2 v_uv;
+in vec2 v_uv;
 uniform samplerExternalOES u_tex;
-
+out vec4 frag_color;
 void main()
 {
-    gl_FragColor = texture2D(u_tex, v_uv);
+    frag_color = texture(u_tex, v_uv);
 }
 )";
 
@@ -49,6 +50,8 @@ static GLuint compile_shader(GLenum type, const char * src)
 
 pico_blit_pipeline::~pico_blit_pipeline()
 {
+	if (vao)
+		glDeleteVertexArrays(1, &vao);
 	if (program)
 		glDeleteProgram(program);
 	if (vertex_buffer)
@@ -81,16 +84,24 @@ void pico_blit_pipeline::init(int w, int h)
 	glDeleteShader(vert);
 	glDeleteShader(frag);
 
-	pos_attrib = glGetAttribLocation(program, "a_pos");
-	uv_attrib = glGetAttribLocation(program, "a_uv");
+	pos_attrib = 0;
+	uv_attrib = 1;
 	tex_uniform = glGetUniformLocation(program, "u_tex");
 	tex_size_uniform = glGetUniformLocation(program, "u_tex_size");
 
+	glGenVertexArrays(1, &vao);
 	glGenBuffers(1, &vertex_buffer);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+	glBindVertexArray(vao);
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
+	glEnableVertexAttribArray(pos_attrib);
+	glVertexAttribPointer(pos_attrib, 2, GL_FLOAT, GL_FALSE, 16, (void *)0);
+	glEnableVertexAttribArray(uv_attrib);
+	glVertexAttribPointer(uv_attrib, 2, GL_FLOAT, GL_FALSE, 16, (void *)8);
+	glBindVertexArray(0);
 
 	initialized = true;
-	spdlog::info("GLES de-foveation blit pipeline initialized ({}x{})", w, h);
+	spdlog::info("GLES 3.1 de-foveation blit pipeline initialized ({}x{})", w, h);
 }
 
 size_t pico_blit_pipeline::required_vertices(const wivrn::to_headset::foveation_parameter & p)
@@ -221,19 +232,13 @@ void pico_blit_pipeline::draw(int eye, GLuint src_texture,
 	glUniform1i(tex_uniform, 0);
 	glUniform2f(tex_size_uniform, (float)src_width, (float)src_height);
 
-	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
+	glBindVertexArray(vao);
 	if (foveation_changed)
 		glBufferData(GL_ARRAY_BUFFER, needed * 4 * sizeof(float), vertex_data.data(), GL_DYNAMIC_DRAW);
-	glEnableVertexAttribArray(pos_attrib);
-	glVertexAttribPointer(pos_attrib, 2, GL_FLOAT, GL_FALSE, 16, (void *)0);
-	glEnableVertexAttribArray(uv_attrib);
-	glVertexAttribPointer(uv_attrib, 2, GL_FLOAT, GL_FALSE, 16, (void *)8);
 
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, (GLsizei)needed);
 
-	glDisableVertexAttribArray(pos_attrib);
-	glDisableVertexAttribArray(uv_attrib);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindVertexArray(0);
 	glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
 	glUseProgram(0);
 }
