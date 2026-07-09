@@ -10,6 +10,7 @@
 #include <sched.h>
 #include <sys/resource.h>
 #include <unistd.h>
+#include <dlfcn.h>
 
 #include <GLES3/gl3.h>
 #include <GLES2/gl2ext.h>
@@ -256,19 +257,53 @@ pico_video_decoder::pico_video_decoder(
 	ANativeWindow * window;
 	check(AImageReader_getWindow(image_reader.get(), &window), "AImageReader_getWindow");
 
+	// Try to use async MediaCodec callbacks (API 28+). Fall back to
+	// synchronous polling if the function isn't available at runtime.
+	using set_async_cb_t = media_status_t (*)(AMediaCodec *, AMediaCodecOnAsyncNotifyCallback, void *);
+	void * lib = dlopen("libmediandk.so", RTLD_NOW);
+	set_async_cb_t set_async_cb = nullptr;
+	if (lib)
+		set_async_cb = (set_async_cb_t)dlsym(lib, "AMediaCodec_setAsyncNotifyCallback");
+
+	if (set_async_cb)
+	{
+		AMediaCodecOnAsyncNotifyCallback async_cb{
+			.onAsyncInputAvailable = pico_video_decoder::on_media_input_available,
+			.onAsyncOutputAvailable = pico_video_decoder::on_media_output_available,
+			.onAsyncFormatChanged = pico_video_decoder::on_media_format_changed,
+			.onAsyncError = pico_video_decoder::on_media_error,
+		};
+		media_status_t status = set_async_cb(media_codec, async_cb, this);
+		if (status == AMEDIA_OK)
+		{
+			use_async.store(true);
+			spdlog::warn("Stream {} using async MediaCodec callbacks", stream_index);
+		}
+		else
+		{
+			spdlog::warn("AMediaCodec_setAsyncNotifyCallback failed: {}, falling back to sync polling", (int)status);
+		}
+	}
+	else
+	{
+		spdlog::warn("AMediaCodec_setAsyncNotifyCallback not available (API 27), using sync polling for stream {}", stream_index);
+	}
+
 	check(AMediaCodec_configure(media_codec, format, window, nullptr, 0), "AMediaCodec_configure");
 	check(AMediaCodec_start(media_codec), "AMediaCodec_start");
 
 	AMediaFormat_delete(format);
 
 	input_worker = std::thread([this]() { input_loop(); });
-	output_worker = std::thread([this]() { output_loop(); });
+	if (!use_async.load())
+		output_worker = std::thread([this]() { output_loop(); });
 }
 
 pico_video_decoder::~pico_video_decoder()
 {
 	exiting = true;
 	pending_cv.notify_all();
+	input_buf_cv.notify_all();
 
 	if (media_codec)
 	{
@@ -319,29 +354,44 @@ void pico_video_decoder::input_loop()
 			pending_frames.erase(pending_frames.begin());
 		}
 
-		ssize_t in_idx = -1;
-		int dequeue_retries = 0;
-		while (!exiting && !flushing.load() && in_idx < 0)
-		{
-			in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 500);
-			if (in_idx < 0)
-				dequeue_retries++;
-		}
-		if (exiting || flushing.load())
-			continue;
+		int32_t in_idx = -1;
+		uint8_t * buf = nullptr;
+		size_t buf_size = 0;
 
-		size_t buf_size;
-		uint8_t * buf = AMediaCodec_getInputBuffer(media_codec, in_idx, &buf_size);
+		if (use_async.load())
+		{
+			available_input_buffer ibuf;
+			{
+				std::unique_lock lock(input_buf_mutex);
+				input_buf_cv.wait(lock, [&]() { return !input_buf_queue.empty() || exiting || flushing.load(); });
+				if (exiting)
+					return;
+				if (flushing.load())
+					continue;
+				ibuf = input_buf_queue.front();
+				input_buf_queue.pop();
+			}
+			in_idx = ibuf.idx;
+			buf = ibuf.data;
+			buf_size = ibuf.capacity;
+		}
+		else
+		{
+			while (!exiting && !flushing.load() && in_idx < 0)
+				in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 500);
+			if (exiting || flushing.load())
+				continue;
+			buf = AMediaCodec_getInputBuffer(media_codec, in_idx, &buf_size);
+		}
+
 		if (!buf)
 		{
 			AMediaCodec_queueInputBuffer(media_codec, in_idx, 0, 0, 0, 0);
 			continue;
 		}
 
-		std::vector<uint8_t> frame_data = std::move(frame.data);
-
-		size_t copy_size = std::min(frame_data.size(), buf_size);
-		memcpy(buf, frame_data.data(), copy_size);
+		size_t copy_size = std::min(frame.data.size(), buf_size);
+		memcpy(buf, frame.data.data(), copy_size);
 
 		uint64_t timestamp = frame.frame_index * 10'000;
 		int64_t queue_time = now_ns();
@@ -350,8 +400,6 @@ void pico_video_decoder::input_loop()
 		if (status != AMEDIA_OK)
 			spdlog::error("AMediaCodec_queueInputBuffer: error {}", (int)status);
 
-		// Latency/stutter tracking moved here from the network thread
-		// to keep the network thread focused on packet dispatch.
 		if (frame.has_server_timing)
 			g_latency.on_server_timing(frame.frame_index, stream_index,
 				frame.encode_begin, frame.encode_end,
@@ -363,14 +411,83 @@ void pico_video_decoder::input_loop()
 			frame.t_first_shard_ns > 0, frame.t_last_shard_ns > 0);
 		g_stutter.on_pushed_to_decoder(frame.frame_index, stream_index);
 
-	static int feed_count[2] = {0, 0};
-	if (++feed_count[stream_index] % 30 == 1 || feed_count[stream_index] <= 5)
+		static int feed_count[2] = {0, 0};
+		if (++feed_count[stream_index] % 30 == 1 || feed_count[stream_index] <= 5)
+		{
+			spdlog::warn("DEC_LATENCY s={} frame={} | recv_to_queue={:.1f}ms",
+				stream_index, frame.frame_index,
+				(queue_time - frame.t_received_ns) / 1e6f);
+		}
+	}
+}
+
+void pico_video_decoder::on_media_input_available(AMediaCodec * mc, void * userdata, int32_t index)
+{
+	auto * self = static_cast<pico_video_decoder *>(userdata);
+	size_t capacity = 0;
+	uint8_t * data = AMediaCodec_getInputBuffer(mc, index, &capacity);
+	if (!data || !capacity)
 	{
-		spdlog::warn("DEC_LATENCY s={} frame={} | recv_to_queue={:.1f}ms dequeue_retries={}",
-			stream_index, frame.frame_index,
-			(queue_time - frame.t_received_ns) / 1e6f, dequeue_retries);
+		spdlog::warn("on_media_input_available: null buffer for index {}, queueing empty", index);
+		AMediaCodec_queueInputBuffer(mc, index, 0, 0, 0, 0);
+		return;
 	}
+	{
+		std::lock_guard lock(self->input_buf_mutex);
+		self->input_buf_queue.push({index, capacity, data});
 	}
+	self->input_buf_cv.notify_one();
+}
+
+void pico_video_decoder::on_media_output_available(AMediaCodec * mc, void * userdata, int32_t index, AMediaCodecBufferInfo * info)
+{
+	auto * self = static_cast<pico_video_decoder *>(userdata);
+	if (self->exiting || self->flushing.load())
+	{
+		AMediaCodec_releaseOutputBuffer(mc, index, false);
+		return;
+	}
+
+	int64_t dequeue_time = now_ns();
+	uint64_t ts_frame = (info->presentationTimeUs + 5'000) / 10'000;
+
+	int64_t queue_time_for_frame = 0;
+	{
+		std::lock_guard lock(self->frame_info_mutex);
+		for (auto & fi : self->pending_frame_infos)
+		{
+			if (fi.frame_index == ts_frame)
+			{
+				fi.t_dequeued_output_ns = dequeue_time;
+				queue_time_for_frame = fi.t_pushed_to_decoder_ns;
+				break;
+			}
+		}
+	}
+
+	static int out_count[2] = {0, 0};
+	if (++out_count[self->stream_index] % 30 == 1 || out_count[self->stream_index] <= 5)
+	{
+		int64_t queue_to_dequeue = queue_time_for_frame ? (dequeue_time - queue_time_for_frame) : 0;
+		spdlog::warn("DEC_LATENCY s={} frame={} | queue_to_dequeue={:.1f}ms",
+			self->stream_index, ts_frame,
+			queue_to_dequeue / 1e6f);
+	}
+
+	auto status = AMediaCodec_releaseOutputBuffer(mc, index, true);
+	if (status != AMEDIA_OK)
+		spdlog::error("AMediaCodec_releaseOutputBuffer: error {}", (int)status);
+}
+
+void pico_video_decoder::on_media_format_changed(AMediaCodec * mc, void * userdata, AMediaFormat * format)
+{
+	spdlog::info("MediaCodec format changed for stream {}", static_cast<pico_video_decoder *>(userdata)->stream_index);
+}
+
+void pico_video_decoder::on_media_error(AMediaCodec * mc, void * userdata, media_status_t error, int32_t actionCode, const char * detail)
+{
+	auto * self = static_cast<pico_video_decoder *>(userdata);
+	spdlog::warn("MediaCodec error stream {}: {} (error={})", self->stream_index, detail ? detail : "(null)", (int)error);
 }
 
 void pico_video_decoder::output_loop()
@@ -378,23 +495,6 @@ void pico_video_decoder::output_loop()
 	int prio = (stream_index == 1) ? 3 : 2;
 	int nice = (stream_index == 1) ? -10 : -8;
 	pico_sched::pin_current_thread("decoder output", prio, nice);
-
-	// Log actual scheduling result
-	{
-		pid_t tid = gettid();
-		int cur_sched = sched_getscheduler(tid);
-		int cur_nice = getpriority(PRIO_PROCESS, tid);
-		cpu_set_t cur;
-		CPU_ZERO(&cur);
-		sched_getaffinity(tid, sizeof(cur), &cur);
-		char cores[64] = {};
-		int off = 0;
-		for (int c = 0; c < 8; c++)
-			if (CPU_ISSET(c, &cur))
-				off += snprintf(cores + off, sizeof(cores) - off, "%s%d", off ? "," : "", c);
-		spdlog::warn("SCHED_DIAG s={} output tid={} policy={} nice={} cores=[{}]",
-			stream_index, (int)tid, cur_sched, cur_nice, cores);
-	}
 
 	while (!exiting)
 	{
@@ -425,14 +525,14 @@ void pico_video_decoder::output_loop()
 				}
 			}
 
-		static int out_count[2] = {0, 0};
-		if (++out_count[stream_index] % 30 == 1 || out_count[stream_index] <= 5)
-		{
-			int64_t queue_to_dequeue = queue_time_for_frame ? (dequeue_time - queue_time_for_frame) : 0;
-			spdlog::warn("DEC_LATENCY s={} frame={} | queue_to_dequeue={:.1f}ms",
-				stream_index, ts_frame,
-				queue_to_dequeue / 1e6f);
-		}
+			static int out_count[2] = {0, 0};
+			if (++out_count[stream_index] % 30 == 1 || out_count[stream_index] <= 5)
+			{
+				int64_t queue_to_dequeue = queue_time_for_frame ? (dequeue_time - queue_time_for_frame) : 0;
+				spdlog::warn("DEC_LATENCY s={} frame={} | queue_to_dequeue={:.1f}ms",
+					stream_index, ts_frame,
+					queue_to_dequeue / 1e6f);
+			}
 
 			auto status = AMediaCodec_releaseOutputBuffer(media_codec, out_idx, true);
 			if (status != AMEDIA_OK)
@@ -509,6 +609,11 @@ void pico_video_decoder::flush()
 	{
 		std::lock_guard lock(pending_mutex);
 		pending_frames.clear();
+	}
+	{
+		std::lock_guard lock(input_buf_mutex);
+		std::queue<available_input_buffer> empty;
+		input_buf_queue.swap(empty);
 	}
 	{
 		std::lock_guard lock(frame_info_mutex);

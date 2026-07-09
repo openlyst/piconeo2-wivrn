@@ -13,6 +13,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <span>
 #include <thread>
 
@@ -74,6 +75,16 @@ private:
 	std::vector<pending_frame> pending_frames;
 	std::condition_variable pending_cv;
 
+	struct available_input_buffer
+	{
+		int32_t idx = -1;
+		size_t capacity = 0;
+		uint8_t * data = nullptr;
+	};
+	std::mutex input_buf_mutex;
+	std::queue<available_input_buffer> input_buf_queue;
+	std::condition_variable input_buf_cv;
+
 	struct frame_info
 	{
 		uint64_t frame_index;
@@ -87,6 +98,7 @@ private:
 
 	std::atomic<bool> exiting = false;
 	std::atomic<bool> flushing = false;
+	std::atomic<bool> use_async{false};
 	std::thread input_worker;
 	std::thread output_worker;
 
@@ -94,6 +106,11 @@ private:
 
 	void on_image_available(AImageReader * reader);
 	static void on_image_available_cb(void * ctx, AImageReader * reader);
+
+	static void on_media_input_available(AMediaCodec *, void * userdata, int32_t index);
+	static void on_media_output_available(AMediaCodec *, void * userdata, int32_t index, AMediaCodecBufferInfo * info);
+	static void on_media_format_changed(AMediaCodec *, void * userdata, AMediaFormat *);
+	static void on_media_error(AMediaCodec *, void * userdata, media_status_t error, int32_t actionCode, const char * detail);
 
 	void input_loop();
 	void output_loop();
