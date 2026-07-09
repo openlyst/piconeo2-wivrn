@@ -24,6 +24,12 @@ target_include_directories(native_app_glue PUBLIC
     ${ANDROID_NDK}/sources/android/native_app_glue
 )
 
+# Pvr Native SDK (eye tracking on Neo 2 EYE)
+add_library(Pvr_NativeSDK SHARED IMPORTED)
+set_target_properties(Pvr_NativeSDK PROPERTIES
+    IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libPvr_NativeSDK.so
+)
+
 # spdlog and boost::pfr are header-only - vendored copies in third_party/
 set(THIRD_PARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
 set(SPDLOG_INCLUDE_DIR ${THIRD_PARTY_DIR})
@@ -106,6 +112,7 @@ set(STREAMING_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/streaming/streaming_client.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/streaming/oxr_blit.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/streaming/oxr_tracking.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/streaming/eye_tracking.cpp
     ${PICO_NATIVE_DIR}/src/net/wivrn_client_pico.cpp
     ${PICO_NATIVE_DIR}/src/video/pico_decoder.cpp
     ${PICO_NATIVE_DIR}/src/audio/pico_audio.cpp
@@ -153,4 +160,5 @@ target_link_libraries(pico_oxr
     ${aaudio-lib}
     openxr_loader
     wivrn-common
+    Pvr_NativeSDK
 )

@@ -1,6 +1,7 @@
 #include "pico_tracking.h"
 #include "wivrn_client_pico.h"
 #include "pico_sdk.h"
+#include "eye_tracking.h"
 
 #include <spdlog/spdlog.h>
 
@@ -676,6 +677,68 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 				cs[h].position[0] * 0.001f + grip_world[0],
 				cs[h].position[1] * 0.001f + grip_world[1] + h_offset,
 				cs[h].position[2] * 0.001f + grip_world[2]);
+		}
+	}
+
+	// Eye gaze (Neo 2 EYE): head-local gaze orientation, zero position.
+	pollEyeGaze();
+	if (gEyeOnline.load() && gGazeValid.load())
+	{
+		from_headset::tracking::pose gaze_p{};
+		gaze_p.pose.orientation = {
+			gGazeQuat[0].load(),
+			gGazeQuat[1].load(),
+			gGazeQuat[2].load(),
+			gGazeQuat[3].load()};
+		gaze_p.pose.position = {0, 0, 0};
+		gaze_p.device = device_id::EYE_GAZE;
+		gaze_p.flags = from_headset::tracking::orientation_valid |
+		               from_headset::tracking::orientation_tracked;
+		pkt.device_poses.push_back(gaze_p);
+	}
+
+	// Face tracking (fb_face2): eye blink (closedness) + eye look directions.
+	if (gEyeOnline.load() && gEyeOpennessValid.load())
+	{
+		auto & face = pkt.face.emplace<from_headset::tracking::fb_face2>();
+		face.time = pkt.timestamp;
+		face.is_valid = true;
+		face.is_eye_following_blendshapes_valid = gGazeValid.load();
+		face.weights.fill(0.0f);
+		face.confidences.fill(1.0f);
+
+		// Eye closedness = 1 - openness (0=open, 1=closed)
+		// Index 12 = EYES_CLOSED_L, Index 13 = EYES_CLOSED_R
+		float openL = gEyeOpenness[0].load();
+		float openR = gEyeOpenness[1].load();
+		face.weights[12] = 1.0f - openL;
+		face.weights[13] = 1.0f - openR;
+
+		// Eye look directions from gaze pitch/yaw (indices 14-21).
+		// Max look angle ~30 degrees; scale to 0..1 blendshape weight.
+		if (gGazeValid.load())
+		{
+			float pitch = gGazePitch.load();
+			float yaw   = gGazeYaw.load();
+			constexpr float max_angle = 0.5236f; // ~30 deg
+			float pitch_n = std::clamp(pitch / max_angle, -1.0f, 1.0f);
+			float yaw_n   = std::clamp(yaw / max_angle, -1.0f, 1.0f);
+			// pitch > 0 = looking down, pitch < 0 = looking up
+			if (pitch_n > 0) {
+				face.weights[14] = pitch_n; // EYES_LOOK_DOWN_L
+				face.weights[15] = pitch_n; // EYES_LOOK_DOWN_R
+			} else {
+				face.weights[20] = -pitch_n; // EYES_LOOK_UP_L
+				face.weights[21] = -pitch_n; // EYES_LOOK_UP_R
+			}
+			// yaw > 0 = looking left, yaw < 0 = looking right
+			if (yaw_n > 0) {
+				face.weights[16] = yaw_n; // EYES_LOOK_LEFT_L
+				face.weights[17] = yaw_n; // EYES_LOOK_LEFT_R
+			} else {
+				face.weights[18] = -yaw_n; // EYES_LOOK_RIGHT_L
+				face.weights[19] = -yaw_n; // EYES_LOOK_RIGHT_R
+			}
 		}
 	}
 

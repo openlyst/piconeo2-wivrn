@@ -23,6 +23,7 @@ gradle.properties
 local.properties
 compile_commands.json
 !libopenxr_loader.so
+!libPvr_NativeSDK.so
 .alvr-ref/
 .wivrn-ref/
 tools/keyframe_tool.html
