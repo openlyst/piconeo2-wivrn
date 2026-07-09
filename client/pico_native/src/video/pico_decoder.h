@@ -62,6 +62,13 @@ private:
 		std::vector<uint8_t> data;
 		uint64_t frame_index = 0;
 		int64_t t_received_ns = 0;
+		int64_t t_first_shard_ns = 0;
+		int64_t t_last_shard_ns = 0;
+		bool has_server_timing = false;
+		int64_t encode_begin = 0;
+		int64_t encode_end = 0;
+		int64_t send_begin = 0;
+		int64_t send_end = 0;
 	};
 	std::mutex pending_mutex;
 	std::vector<pending_frame> pending_frames;
@@ -99,7 +106,11 @@ public:
 
 	~pico_video_decoder();
 
-	void push_data(std::span<std::span<const uint8_t>> data, uint64_t frame_index, bool partial);
+	void push_data(std::span<std::span<const uint8_t>> data, uint64_t frame_index, bool partial,
+	               int64_t t_first_shard_ns = 0, int64_t t_last_shard_ns = 0,
+	               bool has_server_timing = false,
+	               int64_t enc_begin = 0, int64_t enc_end = 0,
+	               int64_t s_begin = 0, int64_t s_end = 0);
 
 	void flush();
 
