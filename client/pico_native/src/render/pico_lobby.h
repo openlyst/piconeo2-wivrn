@@ -1,6 +1,7 @@
 #pragma once
 
-#include <GLES2/gl2.h>
+#include <GLES3/gl3.h>
+#include <GLES2/gl2ext.h>
 #include <vector>
 #include <mutex>
 #include "pico_tracking.h"
@@ -10,6 +11,9 @@ class pico_lobby
 	GLuint program = 0;
 	GLuint beam_vbo = 0;
 	GLuint controller_vbo = 0;
+	GLuint beam_vao = 0;
+	GLuint controller_vao = 0;
+	GLuint quad_vao = 0;
 
 	struct beam_seg { int offset; int count; };
 	std::vector<beam_seg> beam_segments;
