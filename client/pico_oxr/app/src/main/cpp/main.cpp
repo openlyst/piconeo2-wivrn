@@ -309,7 +309,7 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeConnectServer(JNIEnv * env, jobject
     g_app->stream.tcp_only = tcpOnly;
     env->ReleaseStringUTFChars(host, h);
     g_app->stream.shutdown = false;
-    g_app->stream.auto_reconnect.store(true);
+    g_app->stream.auto_reconnect.store(false);
     g_app->stream.try_connect();
 }
 
@@ -1154,7 +1154,7 @@ static void render_frame(AppState* app) {
     // Pico Neo 2 has a square ~101 degree per-eye FOV.
     // The OpenXR runtime reports incorrect/wider values that cause zoom-in.
     // Use the known-correct value, same as the PVR client.
-    constexpr float k_fov_half = 101.0f * 0.5f * 0.01745329252f;
+    constexpr float k_fov_half = streaming_client::k_pico_fov_half;
     app->stream.eye_fov[0] = {-k_fov_half, k_fov_half, k_fov_half, -k_fov_half};
     app->stream.eye_fov[1] = {-k_fov_half, k_fov_half, k_fov_half, -k_fov_half};
 

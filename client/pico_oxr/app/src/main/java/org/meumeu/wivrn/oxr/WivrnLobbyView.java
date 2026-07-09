@@ -2474,6 +2474,7 @@ public class WivrnLobbyView {
         if (closeBtn.contains(x, y)) {
             connectionState = STATE_IDLE;
             errorMessage = "";
+            ((MainActivity) context).onDisconnectRequested();
             markDirty();
         }
     }

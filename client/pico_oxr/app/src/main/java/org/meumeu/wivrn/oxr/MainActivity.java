@@ -163,6 +163,7 @@ public class MainActivity extends NativeActivity {
             hasPendingConnection = true;
             if (lobbyView != null) {
                 lobbyView.addOrUpdateServer(host, host, port, tcpOnly);
+                lobbyView.setConnectionState(WivrnLobbyView.STATE_CONNECTING, "Connecting...");
             }
             flushPendingConnection();
         }
@@ -481,9 +482,12 @@ public class MainActivity extends NativeActivity {
         pendingHost = hostname;
         pendingPort = port;
         pendingTcpOnly = tcpOnly;
+        pendingPin = null;
+        hasPendingConnection = false;
         if (lobbyView != null) {
             lobbyView.applyResolution();
             nativeSetBitrate(lobbyView.getBitrate());
+            lobbyView.setConnectionState(WivrnLobbyView.STATE_CONNECTING, "Connecting...");
         }
         nativeConnectServer(hostname, port, tcpOnly);
     }
@@ -511,12 +515,13 @@ public class MainActivity extends NativeActivity {
 
     public void onReconnectRequested() {
         Log.d(TAG, "Reconnect requested");
-        if (!hasPendingConnection) {
-            Log.w(TAG, "Reconnect: no pending connection info");
+        if (pendingHost == null || pendingHost.isEmpty()) {
+            Log.w(TAG, "Reconnect: no previous connection info");
             return;
         }
         if (lobbyView != null) {
             nativeSetBitrate(lobbyView.getBitrate());
+            lobbyView.setConnectionState(WivrnLobbyView.STATE_CONNECTING, "Connecting...");
         }
         nativeConnectServer(pendingHost, pendingPort, pendingTcpOnly);
     }
