@@ -13,11 +13,21 @@ std::atomic<float> gGazeQuat[4] = {{0.0f}, {0.0f}, {0.0f}, {1.0f}};
 std::atomic<bool>  gGazeValid{false};
 std::atomic<float> gEyeOpenness[2] = {{1.0f}, {1.0f}};
 std::atomic<bool>  gEyeOpennessValid{false};
+std::atomic<float> gPupilDilation[2] = {{0.0f}, {0.0f}};
+std::atomic<bool>  gPupilDilationValid{false};
 std::atomic<float> gGazePitch{0.0f};
 std::atomic<float> gGazeYaw{0.0f};
 
 static const int MODE_POSITION = 0x2, MODE_EYE = 0x4;
 static std::atomic<bool> gEyeIrOn{false};
+
+// Reconnection: count consecutive invalid frames; after a threshold we
+// assume the headset was removed and re-apply the tracking mode so the
+// eye tracking service re-registers when the headset is put back on.
+// All of these are only accessed from the tracking thread (pollEyeGaze).
+static constexpr int RECONNECT_FAIL_THRESHOLD = 180; // ~3s at 72Hz
+static int gConsecutiveFails = 0;
+static bool gReconnecting = false;
 
 // ---- worker thread for blocking Pvr_SetTrackingMode ----
 static std::mutex              gReqMtx;
@@ -36,6 +46,7 @@ static void applyModeNow(bool streaming)
 	{
 		gEyeOnline.store(false);
 		gGazeValid.store(false);
+		gPupilDilationValid.store(false);
 	}
 	spdlog::info("eye: tracking mode -> {} (streaming={} supported={} set={})",
 		wantEye ? "POSITION|EYE" : "POSITION-only",
@@ -65,6 +76,7 @@ void initEyeTracking()
 	gEyeIrOn.store(false);
 	gEyeOnline.store(false);
 	gGazeValid.store(false);
+	gPupilDilationValid.store(false);
 	spdlog::info("eye: Pvr_GetTrackingMode supported=0x{:x} EYE={}",
 		supported, gEyeSupported.load() ? 1 : 0);
 }
@@ -90,6 +102,17 @@ void pollEyeGaze()
 		return;
 	}
 
+	// While waiting for the eye service to re-register after a reconnect,
+	// skip SDK calls — Pvr_SetTrackingMode is still being re-applied on the
+	// worker thread and the data would be garbage.
+	if (gReconnecting)
+	{
+		gGazeValid.store(false);
+		gEyeOpennessValid.store(false);
+		gPupilDilationValid.store(false);
+		return;
+	}
+
 	int ls = 0, rs = 0, cs = 0;
 	float lp[3], rp[3], cp[3];
 	float lv[3], rv[3], cv[3];
@@ -108,6 +131,21 @@ void pollEyeGaze()
 	{
 		gGazeValid.store(false);
 		gEyeOpennessValid.store(false);
+		gPupilDilationValid.store(false);
+		gConsecutiveFails++;
+		if (gConsecutiveFails == RECONNECT_FAIL_THRESHOLD && gEyeOnline.load())
+		{
+			spdlog::warn("eye: {} consecutive failures, reconnecting", gConsecutiveFails);
+			gReconnecting = true;
+			gEyeOnline.store(false);
+			gConsecutiveFails = 0;
+			{
+				std::lock_guard<std::mutex> lk(gReqMtx);
+				gReqStreaming = true;
+				gReqPending = true;
+			}
+			gReqCv.notify_one();
+		}
 		return;
 	}
 
@@ -117,6 +155,15 @@ void pollEyeGaze()
 		gEyeOpenness[0].store(lo);
 		gEyeOpenness[1].store(ro);
 		gEyeOpennessValid.store(true);
+
+		// Pupil dilation from the SDK is in millimeters.
+		gPupilDilation[0].store(lpd);
+		gPupilDilation[1].store(rpd);
+		gPupilDilationValid.store(true);
+	}
+	else
+	{
+		gPupilDilationValid.store(false);
 	}
 
 	// Per-eye vectors are not populated on Neo 2 EYE; only combined gaze (cv) works.
@@ -125,8 +172,30 @@ void pollEyeGaze()
 	if (!valid)
 	{
 		gGazeValid.store(false);
+		gConsecutiveFails++;
+		if (gConsecutiveFails == RECONNECT_FAIL_THRESHOLD && gEyeOnline.load())
+		{
+			spdlog::warn("eye: {} consecutive invalid frames, reconnecting", gConsecutiveFails);
+			gReconnecting = true;
+			gEyeOnline.store(false);
+			gConsecutiveFails = 0;
+			{
+				std::lock_guard<std::mutex> lk(gReqMtx);
+				gReqStreaming = true;
+				gReqPending = true;
+			}
+			gReqCv.notify_one();
+		}
 		return;
 	}
+
+	// Valid frame — clear reconnect state and reset the failure counter.
+	if (gReconnecting)
+	{
+		gReconnecting = false;
+		spdlog::info("eye: reconnected after headset removal");
+	}
+	gConsecutiveFails = 0;
 
 	if (!gEyeOnline.load())
 	{
