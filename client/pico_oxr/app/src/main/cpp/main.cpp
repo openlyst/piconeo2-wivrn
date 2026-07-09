@@ -389,8 +389,15 @@ JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetStreamResolution(JNIEnv * env, jobject thiz, jint width, jint height)
 {
     if (!g_app) return;
+    int old_w = g_app->stream.stream_eye_width.load();
+    int old_h = g_app->stream.stream_eye_height.load();
     g_app->stream.stream_eye_width.store(width);
     g_app->stream.stream_eye_height.store(height);
+    if ((width != old_w || height != old_h) && g_app->stream.session)
+    {
+        g_app->stream.send_headset_info();
+        LOGI("Sent updated stream resolution to server: %dx%d", width, height);
+    }
     LOGI("Stream resolution set to %dx%d", width, height);
 }
 
@@ -398,10 +405,14 @@ JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetRenderResolution(JNIEnv * env, jobject thiz, jint width, jint height)
 {
     if (!g_app) return;
+    int old_w = g_app->stream.eye_width.load();
+    int old_h = g_app->stream.eye_height.load();
     g_app->stream.eye_width.store(width);
     g_app->stream.eye_height.store(height);
     g_app->lobby.set_resolution(width, height);
     g_app->stream.blit_pipeline.set_resolution(width, height);
+    if (width != old_w || height != old_h)
+        g_app->stream.resolution_dirty.store(true);
     LOGI("Render resolution set to %dx%d", width, height);
 }
 
@@ -914,6 +925,53 @@ static bool openxr_create_session(AppState* app) {
     return true;
 }
 
+static bool recreate_swapchain(AppState* app) {
+    int new_w = app->stream.eye_width.load();
+    int new_h = app->stream.eye_height.load();
+
+    for (uint32_t eye = 0; eye < NUM_EYES; eye++) {
+        if (app->swapchains[eye].handle) {
+            xrDestroySwapchain(app->swapchains[eye].handle);
+            app->swapchains[eye].handle = XR_NULL_HANDLE;
+            app->swapchains[eye].images.clear();
+        }
+    }
+
+    for (uint32_t eye = 0; eye < NUM_EYES; eye++) {
+        XrSwapchainCreateInfo swci = {};
+        swci.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
+        swci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+        swci.format = GL_RGBA8;
+        swci.width = new_w;
+        swci.height = new_h;
+        swci.sampleCount = app->viewConfigs[eye].recommendedSwapchainSampleCount;
+        swci.faceCount = 1;
+        swci.arraySize = 1;
+        swci.mipCount = 1;
+
+        XrResult r = xrCreateSwapchain(app->session, &swci, &app->swapchains[eye].handle);
+        if (r != XR_SUCCESS) {
+            LOGE("recreate_swapchain eye %u failed: %d", eye, r);
+            return false;
+        }
+        app->swapchains[eye].width = swci.width;
+        app->swapchains[eye].height = swci.height;
+
+        uint32_t imgCount = 0;
+        xrEnumerateSwapchainImages(app->swapchains[eye].handle, 0, &imgCount, nullptr);
+        app->swapchains[eye].images.resize(imgCount);
+        for (auto& img : app->swapchains[eye].images)
+            img.type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        xrEnumerateSwapchainImages(app->swapchains[eye].handle, imgCount, &imgCount,
+            reinterpret_cast<XrSwapchainImageBaseHeader*>(app->swapchains[eye].images.data()));
+        LOGI("Eye %u swapchain recreated: %ux%u, %u images", eye, swci.width, swci.height, imgCount);
+    }
+
+    app->lobby.set_resolution(new_w, new_h);
+    app->stream.blit_pipeline.set_resolution(new_w, new_h);
+    return true;
+}
+
 static void openxr_destroy_session(AppState* app) {
     for (uint32_t eye = 0; eye < NUM_EYES; eye++) {
         if (app->swapchains[eye].handle) {
@@ -1055,6 +1113,18 @@ static void render_frame(AppState* app) {
         return;
     }
     clock_gettime(CLOCK_MONOTONIC, &ta);
+
+    if (app->stream.resolution_dirty.exchange(false) && app->session != XR_NULL_HANDLE)
+    {
+        int new_w = app->stream.eye_width.load();
+        int new_h = app->stream.eye_height.load();
+        if (new_w != app->swapchains[0].width || new_h != app->swapchains[0].height)
+        {
+            LOGI("Resolution changed, recreating swapchain %dx%d -> %dx%d",
+                 app->swapchains[0].width, app->swapchains[0].height, new_w, new_h);
+            recreate_swapchain(app);
+        }
+    }
 
     // Apply pending haptic feedback from server
     if (app->hapticActionSet != XR_NULL_HANDLE && app->hapticActions[0] != XR_NULL_HANDLE
