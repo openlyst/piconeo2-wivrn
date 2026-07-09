@@ -309,7 +309,7 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeConnectServer(JNIEnv * env, jobject
     g_app->stream.tcp_only = tcpOnly;
     env->ReleaseStringUTFChars(host, h);
     g_app->stream.shutdown = false;
-    g_app->stream.auto_reconnect.store(true);
+    g_app->stream.auto_reconnect.store(false);
     g_app->stream.try_connect();
 }
 

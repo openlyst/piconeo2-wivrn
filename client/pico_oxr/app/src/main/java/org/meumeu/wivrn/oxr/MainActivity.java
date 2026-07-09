@@ -163,6 +163,7 @@ public class MainActivity extends NativeActivity {
             hasPendingConnection = true;
             if (lobbyView != null) {
                 lobbyView.addOrUpdateServer(host, host, port, tcpOnly);
+                lobbyView.setConnectionState(WivrnLobbyView.STATE_CONNECTING, "Connecting...");
             }
             flushPendingConnection();
         }

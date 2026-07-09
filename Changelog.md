@@ -4,6 +4,8 @@
  - Fix USB connection failing due to duplicate connect intents tearing down in-progress connections
  - Fix streaming UI not appearing when connecting from wivrn-dashboard due to JNI callback refs being set too late
  - Fix disconnect button not working on the connecting/reconnecting screen
+ - Fix client showing reconnecting screen instead of disconnecting when server drops connection
+ - Fix USB connect intent not overriding disconnected/reconnecting state
 
 # [RC5](https://gitlab.com/HttpAnimations/piconeo2-wivrn/-/tree/9d99acc0dcf0d58008930e10f6eda1fcabde2896)
 
