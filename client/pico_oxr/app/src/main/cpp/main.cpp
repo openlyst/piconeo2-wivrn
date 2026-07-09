@@ -1767,6 +1767,9 @@ extern "C" void android_main(struct android_app* androidApp) {
     if (attached)
         g_jvm->DetachCurrentThread();
 
+    app.stream.vm = g_jvm;
+    app.stream.activity = g_activity;
+
     if (!egl_init(&app)) {
         LOGE("EGL init failed");
         return;
@@ -1795,8 +1798,6 @@ extern "C" void android_main(struct android_app* androidApp) {
     app.stream.blit_pipeline.init(eye_w, eye_h);
     app.stream.eye_width.store(eye_w);
     app.stream.eye_height.store(eye_h);
-    app.stream.vm = g_jvm;
-    app.stream.activity = g_activity;
     g_stream = &app.stream;
 
     LOGI("Entering main loop");

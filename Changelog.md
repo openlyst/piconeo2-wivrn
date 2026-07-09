@@ -2,6 +2,7 @@
 
  - Remove non-functional high power mode option from settings
  - Fix USB connection failing due to duplicate connect intents tearing down in-progress connections
+ - Fix streaming UI not appearing when connecting from wivrn-dashboard due to JNI callback refs being set too late
 
 # [RC5](https://gitlab.com/HttpAnimations/piconeo2-wivrn/-/tree/9d99acc0dcf0d58008930e10f6eda1fcabde2896)
 
