@@ -44,9 +44,12 @@ struct streaming_client
 	std::atomic<bool> resolution_dirty{false};
 	std::atomic<bool> streaming{false};
 	std::atomic<bool> stream_ui_visible{false};
+	std::atomic<bool> stream_stalled{false};
 
 	std::atomic<int64_t> last_shard_ns{0};
 	std::atomic<int64_t> connected_ns{0};
+	std::atomic<uint64_t> last_displayed_frame{0};
+	std::atomic<int64_t> frame_first_displayed_ns{0};
 
 	uint64_t stats_bytes_rx = 0;
 	uint64_t stats_bytes_tx = 0;
