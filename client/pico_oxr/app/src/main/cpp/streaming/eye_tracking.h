@@ -12,6 +12,14 @@ extern std::atomic<bool> gEyeOnline;     // latches true when first valid gaze a
 extern std::atomic<float> gGazeQuat[4];
 extern std::atomic<bool>  gGazeValid;
 
+// Eye openness (0=closed, 1=open) and validity, for fb_face2 blendshapes.
+extern std::atomic<float> gEyeOpenness[2];
+extern std::atomic<bool>  gEyeOpennessValid;
+
+// Gaze pitch/yaw in radians (head-local), for eye-look blendshapes.
+extern std::atomic<float> gGazePitch;
+extern std::atomic<float> gGazeYaw;
+
 // Boot: detect EYE support, leave IR off.
 void initEyeTracking();
 
@@ -19,5 +27,5 @@ void initEyeTracking();
 // Safe to call from any thread; the blocking Pvr_SetTrackingMode runs on a worker.
 void setEyeTrackingStreaming(bool streaming);
 
-// Read eye tracking and update gGazeQuat/gGazeValid. Call from tracking thread.
+// Read eye tracking and update gaze/openness state. Call from tracking thread.
 void pollEyeGaze();

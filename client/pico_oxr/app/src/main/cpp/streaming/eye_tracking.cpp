@@ -11,6 +11,10 @@ std::atomic<bool> gEyeSupported{false};
 std::atomic<bool> gEyeOnline{false};
 std::atomic<float> gGazeQuat[4] = {{0.0f}, {0.0f}, {0.0f}, {1.0f}};
 std::atomic<bool>  gGazeValid{false};
+std::atomic<float> gEyeOpenness[2] = {{1.0f}, {1.0f}};
+std::atomic<bool>  gEyeOpennessValid{false};
+std::atomic<float> gGazePitch{0.0f};
+std::atomic<float> gGazeYaw{0.0f};
 
 static const int MODE_POSITION = 0x2, MODE_EYE = 0x4;
 static std::atomic<bool> gEyeIrOn{false};
@@ -103,7 +107,16 @@ void pollEyeGaze()
 	if (!ok)
 	{
 		gGazeValid.store(false);
+		gEyeOpennessValid.store(false);
 		return;
+	}
+
+	// Eye openness is valid whenever any status > 0 (even mid-blink).
+	if (ls > 0 || rs > 0 || cs > 0)
+	{
+		gEyeOpenness[0].store(lo);
+		gEyeOpenness[1].store(ro);
+		gEyeOpennessValid.store(true);
 	}
 
 	// Per-eye vectors are not populated on Neo 2 EYE; only combined gaze (cv) works.
@@ -130,6 +143,9 @@ void pollEyeGaze()
 	// For q = Rx(pitch) * Ry(yaw): dir = (-sinY, cosY*sinP, -cosY*cosP)
 	float yaw   = atan2f(-gx, sqrtf(gy * gy + gz * gz));
 	float pitch = atan2f(gy, -gz);
+
+	gGazePitch.store(pitch);
+	gGazeYaw.store(yaw);
 
 	// Build head-local gaze quaternion: q = Rx(pitch) * Ry(yaw)
 	float sp = sinf(pitch * 0.5f), cph = cosf(pitch * 0.5f);
