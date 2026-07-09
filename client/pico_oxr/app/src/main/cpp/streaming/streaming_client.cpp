@@ -1,6 +1,7 @@
 #include "streaming_client.h"
 #include "pico_stutter.h"
 #include "latency_tracker.h"
+#include "eye_tracking.h"
 
 #include <spdlog/spdlog.h>
 
@@ -295,6 +296,7 @@ void streaming_client::handle_video_shard(to_headset::video_stream_data_shard &&
 	{
 		streaming = true;
 		stream_ui_visible = false;
+		setEyeTrackingStreaming(true);
 		spdlog::info("Streaming started, hiding lobby UI");
 	}
 
@@ -551,6 +553,7 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 void streaming_client::reset_stream_state()
 {
 	spdlog::info("reset_stream_state: streaming=false");
+	setEyeTrackingStreaming(false);
 	streaming = false;
 	stream_ui_visible = false;
 	video_ready = false;
@@ -836,7 +839,7 @@ void streaming_client::send_headset_info()
 	info.fov[1] = eye_fov[1];
 
 	info.hand_tracking = false;
-	info.eye_gaze = false;
+	info.eye_gaze = gEyeSupported.load();
 	info.palm_pose = false;
 	info.user_presence = false;
 	info.passthrough = false;

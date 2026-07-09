@@ -1,5 +1,6 @@
 # RC6 (unreleased)
 
+ - Add eye tracking support for Pico Neo 2 EYE via libPvr_NativeSDK (gaze forwarded for server-side foveated encoding)
  - Remove non-functional high power mode option from settings
  - Fix USB connection failing due to duplicate connect intents tearing down in-progress connections
  - Fix streaming UI not appearing when connecting from wivrn-dashboard due to JNI callback refs being set too late
