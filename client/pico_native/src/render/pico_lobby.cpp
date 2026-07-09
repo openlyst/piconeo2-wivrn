@@ -4,8 +4,8 @@
 #include <cmath>
 #include <vector>
 
-static const char * vert_src = R"(
-attribute vec3 a_pos;
+static const char * vert_src = R"(#version 310 es
+layout(location = 0) in vec3 a_pos;
 uniform mat4 u_mvp;
 void main()
 {
@@ -13,20 +13,21 @@ void main()
 }
 )";
 
-static const char * frag_src = R"(
+static const char * frag_src = R"(#version 310 es
 precision mediump float;
 uniform vec4 u_color;
+out vec4 frag_color;
 void main()
 {
-    gl_FragColor = u_color;
+    frag_color = u_color;
 }
 )";
 
-static const char * tex_vert_src = R"(
-attribute vec3 a_pos;
-attribute vec2 a_uv;
+static const char * tex_vert_src = R"(#version 310 es
+layout(location = 0) in vec3 a_pos;
+layout(location = 1) in vec2 a_uv;
 uniform mat4 u_mvp;
-varying vec2 v_uv;
+out vec2 v_uv;
 void main()
 {
     gl_Position = u_mvp * vec4(a_pos, 1.0);
@@ -34,13 +35,14 @@ void main()
 }
 )";
 
-static const char * tex_frag_src = R"(
+static const char * tex_frag_src = R"(#version 310 es
 precision mediump float;
-varying vec2 v_uv;
+in vec2 v_uv;
 uniform sampler2D u_tex;
+out vec4 frag_color;
 void main()
 {
-    gl_FragColor = texture2D(u_tex, v_uv);
+    frag_color = texture(u_tex, v_uv);
 }
 )";
 
@@ -170,6 +172,9 @@ static Mat4 mat4_view(const float orient[4], const float pos[3])
 
 pico_lobby::~pico_lobby()
 {
+	if (beam_vao) glDeleteVertexArrays(1, &beam_vao);
+	if (controller_vao) glDeleteVertexArrays(1, &controller_vao);
+	if (quad_vao) glDeleteVertexArrays(1, &quad_vao);
 	if (program) glDeleteProgram(program);
 	if (tex_program) glDeleteProgram(tex_program);
 	if (beam_vbo) glDeleteBuffers(1, &beam_vbo);
@@ -206,7 +211,7 @@ void pico_lobby::init(int w, int h)
 	glDeleteShader(vert);
 	glDeleteShader(frag);
 
-	pos_attrib = glGetAttribLocation(program, "a_pos");
+	pos_attrib = 0;
 	mvp_uniform = glGetUniformLocation(program, "u_mvp");
 	color_uniform = glGetUniformLocation(program, "u_color");
 
@@ -260,10 +265,14 @@ void pico_lobby::init(int w, int h)
 		beam_segments.push_back({seg_start, seg_count});
 	}
 
+	glGenVertexArrays(1, &beam_vao);
 	glGenBuffers(1, &beam_vbo);
+	glBindVertexArray(beam_vao);
 	glBindBuffer(GL_ARRAY_BUFFER, beam_vbo);
 	glBufferData(GL_ARRAY_BUFFER, beam_verts.size() * sizeof(float), beam_verts.data(), GL_STATIC_DRAW);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
+	glBindVertexArray(0);
 
 	// Controller representation: a small box (24 verts = 12 triangles)
 	// Simple 0.04m cube
@@ -282,10 +291,14 @@ void pico_lobby::init(int w, int h)
 		// left
 		-s,-s, s,  -s, s, s,  -s, s,-s,  -s,-s, s,  -s, s,-s, -s,-s,-s,
 	};
+	glGenVertexArrays(1, &controller_vao);
 	glGenBuffers(1, &controller_vbo);
+	glBindVertexArray(controller_vao);
 	glBindBuffer(GL_ARRAY_BUFFER, controller_vbo);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(box), box, GL_STATIC_DRAW);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
+	glBindVertexArray(0);
 
 	// Texture shader program
 	GLuint tvert = compile_shader(GL_VERTEX_SHADER, tex_vert_src);
@@ -305,8 +318,8 @@ void pico_lobby::init(int w, int h)
 	glDeleteShader(tvert);
 	glDeleteShader(tfrag);
 
-	tex_pos_attrib = glGetAttribLocation(tex_program, "a_pos");
-	tex_uv_attrib = glGetAttribLocation(tex_program, "a_uv");
+	tex_pos_attrib = 0;
+	tex_uv_attrib = 1;
 	tex_mvp_uniform = glGetUniformLocation(tex_program, "u_mvp");
 	tex_sampler_uniform = glGetUniformLocation(tex_program, "u_tex");
 
@@ -330,10 +343,16 @@ void pico_lobby::init(int w, int h)
 		 1.0f,  1.0f, 0.0f,  1.0f, 0.0f,
 		-1.0f,  1.0f, 0.0f,  0.0f, 0.0f,
 	};
+	glGenVertexArrays(1, &quad_vao);
 	glGenBuffers(1, &quad_vbo);
+	glBindVertexArray(quad_vao);
 	glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 20, (void *)0);
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 20, (void *)12);
+	glBindVertexArray(0);
 
 	initialized = true;
 	spdlog::info("Lobby initialized ({}x{})", w, h);
@@ -420,12 +439,11 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 
 		glUniform4f(color_uniform, r, g, b, alpha);
 		glUniformMatrix4fv(mvp_uniform, 1, GL_FALSE, mvp.m);
-		glBindBuffer(GL_ARRAY_BUFFER, beam_vbo);
-		glEnableVertexAttribArray(pos_attrib);
-		glVertexAttribPointer(pos_attrib, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
+		glBindVertexArray(beam_vao);
 		glDrawArrays(GL_LINES, beam_segments[i].offset, beam_segments[i].count);
 	}
 
+	glBindVertexArray(0);
 	glDisable(GL_BLEND);
 	glDepthMask(GL_TRUE);
 
@@ -450,14 +468,12 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 		else
 			glUniform4f(color_uniform, 1.0f, 0.3f, 0.2f, 1.0f);
 
-		glBindBuffer(GL_ARRAY_BUFFER, controller_vbo);
-		glVertexAttribPointer(pos_attrib, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
+		glBindVertexArray(controller_vao);
 		glUniformMatrix4fv(mvp_uniform, 1, GL_FALSE, mvp.m);
 		glDrawArrays(GL_TRIANGLES, 0, 36);
 	}
 
-	glDisableVertexAttribArray(pos_attrib);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindVertexArray(0);
 	glUseProgram(0);
 
 	draw_quad(head_orient, head_pos, fov, ipd, eye);
@@ -527,17 +543,10 @@ void pico_lobby::draw_quad(const float head_orient[4], const float head_pos[3],
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, ui_texture);
 
-	glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
-	glEnableVertexAttribArray(tex_pos_attrib);
-	glVertexAttribPointer(tex_pos_attrib, 3, GL_FLOAT, GL_FALSE, 20, (void *)0);
-	glEnableVertexAttribArray(tex_uv_attrib);
-	glVertexAttribPointer(tex_uv_attrib, 2, GL_FLOAT, GL_FALSE, 20, (void *)12);
-
+	glBindVertexArray(quad_vao);
 	glDrawArrays(GL_TRIANGLES, 0, 6);
+	glBindVertexArray(0);
 
-	glDisableVertexAttribArray(tex_pos_attrib);
-	glDisableVertexAttribArray(tex_uv_attrib);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glUseProgram(0);
 }
