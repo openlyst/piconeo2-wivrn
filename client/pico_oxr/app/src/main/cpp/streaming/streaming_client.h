@@ -80,6 +80,13 @@ struct streaming_client
 		wivrn::from_headset::feedback feedback{};
 		wivrn::to_headset::video_stream_data_shard::view_info_t view_info{};
 		bool has_view_info = false;
+		int64_t t_first_shard_ns = 0;
+		int64_t t_last_shard_ns = 0;
+		bool has_server_timing = false;
+		int64_t encode_begin = 0;
+		int64_t encode_end = 0;
+		int64_t send_begin = 0;
+		int64_t send_end = 0;
 
 		void reset(uint64_t idx)
 		{
@@ -87,6 +94,9 @@ struct streaming_client
 			shards.clear();
 			min_for_reconstruction = 0;
 			has_view_info = false;
+			t_first_shard_ns = 0;
+			t_last_shard_ns = 0;
+			has_server_timing = false;
 		}
 	};
 	shard_set current_shards[3];
@@ -149,11 +159,7 @@ struct streaming_client
 	std::atomic<int> current_bitrate_mbps{50};
 
 	int64_t db_last_check_ns = 0;
-	int64_t db_last_shard_count = 0;
-	int64_t db_shard_intervals_sum = 0;
-	int64_t db_shard_intervals_count = 0;
 	int64_t db_prev_shard_ns = 0;
-	int db_stutter_at_check = 0;
 
 	std::string server_host;
 	int server_port = 0;
