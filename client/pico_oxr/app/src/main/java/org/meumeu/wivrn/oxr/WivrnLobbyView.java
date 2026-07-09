@@ -129,8 +129,6 @@ public class WivrnLobbyView {
     private static final int SLIDER_FOVEATION = 1;
     private static final int SLIDER_BITRATE = 2;
     private static final int SLIDER_IPD = 3;
-    private static final int SLIDER_STREAM_BITRATE = 4;
-    private static final int SLIDER_STREAM_RESOLUTION = 5;
 
     private int resWidth = 1664;
     private int foveationScale = 30;
@@ -1421,7 +1419,10 @@ public class WivrnLobbyView {
                 renderStreamStats(contentX, contentW);
                 break;
             case STREAM_TAB_SETTINGS:
-                renderStreamSettings(contentX, contentW);
+                canvas.save();
+                canvas.translate(0, TOPBAR_HEIGHT + 10);
+                renderSettings(SIDEBAR_WIDTH + 20, width - SIDEBAR_WIDTH - 40);
+                canvas.restore();
                 break;
         }
     }
@@ -1733,54 +1734,6 @@ public class WivrnLobbyView {
         textDimPaint.setColor(Color.rgb(100, 110, 125));
     }
 
-    private void renderStreamSettings(float x, float w) {
-        float y = 40;
-        int prevTextColor = textPaint.getColor();
-        int dimText = Color.rgb(90, 95, 105);
-        int dimTrack = Color.rgb(45, 50, 60);
-        int dimHandle = Color.rgb(80, 85, 95);
-        textPaint.setColor(dimText);
-
-        canvas.drawText("Stream Settings", x, y + 30, textLargePaint);
-        y += 70;
-
-        canvas.drawText("Bitrate", x, y, textPaint);
-        canvas.drawText(streamBitrateSetting + " Mbit/s", x + w - 150, y, textPaint);
-        y += 35;
-
-        RectF track = new RectF(x, y, x + w - 150, y + 8);
-        canvas.drawRoundRect(track, 4, 4, new Paint() {{ setColor(dimTrack); }});
-        float fillW = (w - 150) * (streamBitrateSetting / 100f);
-        float handleX = x + fillW;
-        canvas.drawCircle(handleX, y + 4, 12, new Paint() {{ setAntiAlias(true); setColor(dimHandle); }});
-        y += 50;
-
-        canvas.drawText("Resolution Scale", x, y, textPaint);
-        canvas.drawText(streamResolutionScale + "%", x + w - 150, y, textPaint);
-        y += 35;
-
-        RectF track2 = new RectF(x, y, x + w - 150, y + 8);
-        canvas.drawRoundRect(track2, 4, 4, new Paint() {{ setColor(dimTrack); }});
-        float fillW2 = (w - 150) * (streamResolutionScale / 200f);
-        float handleX2 = x + fillW2;
-        canvas.drawCircle(handleX2, y + 4, 12, new Paint() {{ setAntiAlias(true); setColor(dimHandle); }});
-        y += 50;
-
-        canvas.drawText("Microphone", x, y + 10, textPaint);
-        RectF micToggle = new RectF(x + w - 80, y, x + w - 20, y + 40);
-        Paint togglePaint = new Paint();
-        togglePaint.setAntiAlias(true);
-        togglePaint.setColor(Color.rgb(50, 55, 65));
-        canvas.drawRoundRect(micToggle, 20, 20, togglePaint);
-        Paint knobPaint = new Paint();
-        knobPaint.setAntiAlias(true);
-        knobPaint.setColor(Color.rgb(100, 105, 115));
-        canvas.drawCircle(micToggle.left + 20, micToggle.centerY(), 16, knobPaint);
-        y += 60;
-
-        textPaint.setColor(prevTextColor);
-    }
-
     private void renderTouchCursor() {
         if (touchX >= 0 && touchY >= 0) {
             int baseAlpha = touchDown ? 220 : 140;
@@ -1901,30 +1854,19 @@ public class WivrnLobbyView {
         float adjustedY = y - (TOPBAR_HEIGHT + 10);
 
         if (connectionState == STATE_CONNECTED && streamTab == STREAM_TAB_SETTINGS) {
-            contentX = SIDEBAR_WIDTH + 30;
-            sliderW = width - contentX - 30 - 150;
-            switch (activeSlider) {
-                case SLIDER_STREAM_BITRATE:
-                    streamBitrateSetting = (int)Math.max(1, Math.min(100, ((x - contentX) / sliderW) * 100));
-                    saveSettings();
-                    ((MainActivity) context).nativeSetBitrate(streamBitrateSetting);
-                    markDirty();
-                    return;
-                case SLIDER_STREAM_RESOLUTION:
-                    streamResolutionScale = (int)Math.max(10, Math.min(200, ((x - contentX) / sliderW) * 200));
-                    saveSettings();
-                    applyResolution();
-                    markDirty();
-                    return;
-            }
+            handleSettingsSliderDrag(x, adjustedY);
             return;
         }
 
         if (currentTab != TAB_SETTINGS) return;
         if (showAddServer) return;
 
-        contentX = SIDEBAR_WIDTH + 20;
-        sliderW = (width - contentX - 20) - 100;
+        handleSettingsSliderDrag(x, adjustedY);
+    }
+
+    private void handleSettingsSliderDrag(float x, float y) {
+        float contentX = SIDEBAR_WIDTH + 20;
+        float sliderW = (width - contentX - 20) - 100;
         float resSliderW = (width - contentX - 20) - 130;
         float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
         switch (activeSlider) {
@@ -1944,6 +1886,7 @@ public class WivrnLobbyView {
             case SLIDER_BITRATE:
                 bitrate = Math.max(5, Math.min(100, (int)(5 + pct * 95)));
                 saveSettings();
+                ((MainActivity) context).nativeSetBitrate(bitrate);
                 markDirty();
                 break;
             case SLIDER_IPD:
@@ -2109,36 +2052,8 @@ public class WivrnLobbyView {
         }
 
         if (streamTab == STREAM_TAB_SETTINGS) {
-            handleStreamSettingsClick(x, y);
-            return;
-        }
-    }
-
-    private void handleStreamSettingsClick(float x, float y) {
-        float contentX = SIDEBAR_WIDTH + 30;
-        float sliderW = width - contentX - 30 - 150;
-        float sy = 110;
-
-        // Bitrate
-        sy += 35;
-        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
-            activeSlider = SLIDER_STREAM_BITRATE;
-            streamBitrateSetting = (int)Math.max(1, Math.min(100, ((x - contentX) / sliderW) * 100));
-            saveSettings();
-            ((MainActivity) context).nativeSetBitrate(streamBitrateSetting);
-            markDirty();
-            return;
-        }
-        sy += 50;
-
-        // Resolution Scale
-        sy += 35;
-        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
-            activeSlider = SLIDER_STREAM_RESOLUTION;
-            streamResolutionScale = (int)Math.max(10, Math.min(200, ((x - contentX) / sliderW) * 200));
-            saveSettings();
-            applyResolution();
-            markDirty();
+            float adjustedY = y - (TOPBAR_HEIGHT + 10);
+            handleSettingsClick(x, adjustedY);
             return;
         }
     }
@@ -2286,6 +2201,7 @@ public class WivrnLobbyView {
             float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
             bitrate = Math.max(5, Math.min(100, (int)(5 + pct * 95)));
             saveSettings();
+            ((MainActivity) context).nativeSetBitrate(bitrate);
             markDirty();
             return;
         }
