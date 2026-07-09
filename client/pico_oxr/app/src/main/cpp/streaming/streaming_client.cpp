@@ -290,7 +290,19 @@ void streaming_client::setup_audio()
 
 void streaming_client::handle_video_shard(to_headset::video_stream_data_shard && shard)
 {
-	last_shard_ns.store(get_timestamp_ns());
+	int64_t now = get_timestamp_ns();
+	last_shard_ns.store(now);
+
+	if (db_prev_shard_ns > 0)
+	{
+		int64_t interval = now - db_prev_shard_ns;
+		if (interval > 0 && interval < 200'000'000)
+		{
+			db_shard_intervals_sum += interval;
+			db_shard_intervals_count++;
+		}
+	}
+	db_prev_shard_ns = now;
 
 	if (!streaming.load())
 	{
@@ -388,10 +400,10 @@ void streaming_client::handle_video_shard(to_headset::video_stream_data_shard &&
 	feedback.frame_index = frame_idx;
 	feedback.stream_index = idx;
 
-	int64_t now = get_timestamp_ns();
-	feedback.received_first_packet = to_xr_time(now);
-	feedback.received_last_packet = to_xr_time(now);
-	feedback.sent_to_decoder = to_xr_time(now);
+	int64_t fb_now = get_timestamp_ns();
+	feedback.received_first_packet = to_xr_time(fb_now);
+	feedback.received_last_packet = to_xr_time(fb_now);
+	feedback.sent_to_decoder = to_xr_time(fb_now);
 
 	g_latency.on_pushed_to_decoder(frame_idx, idx);
 	decoders[idx]->push_data(data, frame_idx, false);
@@ -577,7 +589,87 @@ void streaming_client::reset_stream_state()
 	}
 	latest_decoded_frame_index.store(0);
 	last_shard_ns.store(0);
+	db_last_check_ns = 0;
+	db_prev_shard_ns = 0;
+	db_shard_intervals_sum = 0;
+	db_shard_intervals_count = 0;
+	int max_b = max_bitrate_mbps.load();
+	current_bitrate_mbps.store(max_b);
+	bitrate_mbps.store(max_b);
 	spdlog::info("reset_stream_state: done");
+}
+
+void streaming_client::send_bitrate_change(int mbps)
+{
+	if (!session)
+		return;
+
+	from_headset::settings_changed sc{};
+	sc.preferred_refresh_rate = 72.0f;
+	sc.minimum_refresh_rate = 72.0f;
+	sc.fps_divider = 1;
+	sc.bitrate_bps = (uint32_t)mbps * 1'000'000;
+	session->send_control(sc);
+	spdlog::info("Dynamic bitrate: sent settings_changed with {} Mbps", mbps);
+}
+
+void streaming_client::update_dynamic_bitrate()
+{
+	constexpr int64_t check_interval_ns = 3'000'000'000LL;
+	constexpr int64_t target_frame_ns = 13'888'888;
+	constexpr int min_bitrate = 5;
+
+	int64_t now = get_timestamp_ns();
+	if (db_last_check_ns == 0)
+	{
+		db_last_check_ns = now;
+		db_prev_shard_ns = 0;
+		db_shard_intervals_sum = 0;
+		db_shard_intervals_count = 0;
+		return;
+	}
+
+	if (now - db_last_check_ns < check_interval_ns)
+		return;
+
+	int max_bps = max_bitrate_mbps.load();
+	int cur_bps = current_bitrate_mbps.load();
+
+	int64_t avg_interval = 0;
+	if (db_shard_intervals_count > 0)
+		avg_interval = db_shard_intervals_sum / db_shard_intervals_count;
+
+	int new_bps = cur_bps;
+
+	if (avg_interval > 0)
+	{
+		float ratio = (float)avg_interval / target_frame_ns;
+		if (ratio > 1.3f)
+		{
+			new_bps = (int)(cur_bps * 0.8f);
+			spdlog::info("Dynamic bitrate: reducing (avg interval {:.1f}ms, ratio {:.2f})",
+				avg_interval / 1'000'000.0f, ratio);
+		}
+		else if (ratio < 1.1f && cur_bps < max_bps)
+		{
+			new_bps = std::min(max_bps, (int)(cur_bps * 1.1f));
+			spdlog::info("Dynamic bitrate: increasing (avg interval {:.1f}ms, ratio {:.2f})",
+				avg_interval / 1'000'000.0f, ratio);
+		}
+	}
+
+	new_bps = std::max(min_bitrate, std::min(max_bps, new_bps));
+
+	if (new_bps != cur_bps)
+	{
+		current_bitrate_mbps.store(new_bps);
+		bitrate_mbps.store(new_bps);
+		send_bitrate_change(new_bps);
+	}
+
+	db_last_check_ns = now;
+	db_shard_intervals_sum = 0;
+	db_shard_intervals_count = 0;
 }
 
 void streaming_client::network_loop()
@@ -601,6 +693,9 @@ void streaming_client::network_loop()
 				spdlog::warn("{}", last_error);
 				break;
 			}
+
+			if (streaming.load() && dynamic_bitrate_enabled.load())
+				update_dynamic_bitrate();
 		}
 		catch (std::exception & e)
 		{

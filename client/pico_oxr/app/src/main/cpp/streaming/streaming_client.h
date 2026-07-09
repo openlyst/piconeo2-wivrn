@@ -37,10 +37,10 @@ struct streaming_client
 	std::unique_ptr<wivrn_session_pico> session;
 
 	pico_blit_pipeline blit_pipeline;
-	std::atomic<int> eye_width{2048};
-	std::atomic<int> eye_height{2160};
-	std::atomic<int> stream_eye_width{2048};
-	std::atomic<int> stream_eye_height{2160};
+	std::atomic<int> eye_width{1664};
+	std::atomic<int> eye_height{1756};
+	std::atomic<int> stream_eye_width{1664};
+	std::atomic<int> stream_eye_height{1756};
 	std::atomic<bool> streaming{false};
 	std::atomic<bool> stream_ui_visible{false};
 
@@ -144,6 +144,16 @@ struct streaming_client
 	std::atomic<bool> auto_reconnect{false};
 	std::atomic<int64_t> time_offset_ns{0};
 	std::atomic<int> bitrate_mbps{50};
+	std::atomic<bool> dynamic_bitrate_enabled{true};
+	std::atomic<int> max_bitrate_mbps{50};
+	std::atomic<int> current_bitrate_mbps{50};
+
+	int64_t db_last_check_ns = 0;
+	int64_t db_last_shard_count = 0;
+	int64_t db_shard_intervals_sum = 0;
+	int64_t db_shard_intervals_count = 0;
+	int64_t db_prev_shard_ns = 0;
+	int db_stutter_at_check = 0;
 
 	std::string server_host;
 	int server_port = 0;
@@ -172,6 +182,8 @@ struct streaming_client
 	void send_headset_info();
 	void network_loop();
 	void reset_stream_state();
+	void update_dynamic_bitrate();
+	void send_bitrate_change(int mbps);
 
 	void notify_connection_state(int state, const std::string & msg);
 	void notify_stream_stats(int fps, int latency_ms, float bandwidth_rx, float bandwidth_tx, int bitrate_mbps);

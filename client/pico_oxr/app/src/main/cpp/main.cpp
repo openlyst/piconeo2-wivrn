@@ -354,6 +354,16 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetBitrate(JNIEnv * env, jobject th
     if (!g_app) return;
     LOGI("nativeSetBitrate: %d Mbps", bitrateMbps);
     g_app->stream.bitrate_mbps.store(bitrateMbps);
+    g_app->stream.max_bitrate_mbps.store(bitrateMbps);
+    g_app->stream.current_bitrate_mbps.store(bitrateMbps);
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetDynamicBitrate(JNIEnv * env, jobject thiz, jboolean enabled)
+{
+    if (!g_app) return;
+    g_app->stream.dynamic_bitrate_enabled.store(enabled);
+    LOGI("Dynamic bitrate %s", enabled ? "enabled" : "disabled");
 }
 
 JNIEXPORT void JNICALL
@@ -876,8 +886,8 @@ static bool openxr_create_session(AppState* app) {
         swci.type = XR_TYPE_SWAPCHAIN_CREATE_INFO;
         swci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
         swci.format = GL_RGBA8;
-        swci.width = 2048;
-        swci.height = 2160;
+        swci.width = app->stream.eye_width.load();
+        swci.height = app->stream.eye_height.load();
         swci.sampleCount = app->viewConfigs[eye].recommendedSwapchainSampleCount;
         swci.faceCount = 1;
         swci.arraySize = 1;
@@ -1761,6 +1771,59 @@ extern "C" void android_main(struct android_app* androidApp) {
         g_activityClass = (jclass)env->NewGlobalRef(clazz);
         g_onLobbyTouchMethod = env->GetMethodID(clazz, "onLobbyTouch", "(FFZZF)V");
         LOGI("JNI refs: g_activity=%p g_onLobbyTouchMethod=%p", g_activity, g_onLobbyTouchMethod);
+
+        jclass ctxClass = env->FindClass("android/content/Context");
+        jmethodID getSP = env->GetMethodID(ctxClass, "getSharedPreferences", "(Ljava/lang/String;I)Landroid/content/SharedPreferences;");
+        jstring spName = env->NewStringUTF("wivrn_settings");
+        jobject sp = env->CallObjectMethod(g_activity, getSP, spName, 0);
+        env->DeleteLocalRef(spName);
+
+        if (sp) {
+            jclass spClass = env->GetObjectClass(sp);
+            jmethodID getInt = env->GetMethodID(spClass, "getInt", "(Ljava/lang/String;I)I");
+            jmethodID getBool = env->GetMethodID(spClass, "getBoolean", "(Ljava/lang/String;Z)Z");
+
+            jstring keyRes = env->NewStringUTF("res_width");
+            int savedRes = env->CallIntMethod(sp, getInt, keyRes, 1664);
+            env->DeleteLocalRef(keyRes);
+
+            jstring keyTcp = env->NewStringUTF("tcp_only");
+            bool savedTcp = env->CallBooleanMethod(sp, getBool, keyTcp, false);
+            env->DeleteLocalRef(keyTcp);
+
+            jstring keyLr = env->NewStringUTF("lower_res_wireless");
+            bool savedLr = env->CallBooleanMethod(sp, getBool, keyLr, false);
+            env->DeleteLocalRef(keyLr);
+
+            jstring keyDb = env->NewStringUTF("dynamic_bitrate");
+            bool savedDb = env->CallBooleanMethod(sp, getBool, keyDb, true);
+            env->DeleteLocalRef(keyDb);
+
+            jstring keyBr = env->NewStringUTF("bitrate");
+            int savedBr = env->CallIntMethod(sp, getInt, keyBr, 50);
+            env->DeleteLocalRef(keyBr);
+
+            int effRes = savedRes;
+            if (savedLr && !savedTcp)
+                effRes = std::min(savedRes, 1280);
+            int effH = effRes * 2160 / 2048;
+            effRes = (effRes / 2) * 2;
+            effH = (effH / 2) * 2;
+            app.stream.eye_width.store(effRes);
+            app.stream.eye_height.store(effH);
+            app.stream.stream_eye_width.store(effRes);
+            app.stream.stream_eye_height.store(effH);
+            app.stream.dynamic_bitrate_enabled.store(savedDb);
+            app.stream.bitrate_mbps.store(savedBr);
+            app.stream.max_bitrate_mbps.store(savedBr);
+            app.stream.current_bitrate_mbps.store(savedBr);
+            LOGI("Initial resolution from settings: %dx%d (tcp=%d lr=%d db=%d br=%d)",
+                effRes, effH, savedTcp, savedLr, savedDb, savedBr);
+
+            env->DeleteLocalRef(spClass);
+            env->DeleteLocalRef(sp);
+        }
+        env->DeleteLocalRef(ctxClass);
         env->DeleteLocalRef(clazz);
     } else {
         LOGE("Failed to get JNIEnv for JNI ref setup");

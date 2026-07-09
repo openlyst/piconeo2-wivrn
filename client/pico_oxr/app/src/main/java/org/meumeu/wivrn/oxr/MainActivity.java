@@ -85,10 +85,12 @@ public class MainActivity extends NativeActivity {
                 SharedPreferences sp = getSharedPreferences("wivrn_settings", MODE_PRIVATE);
                 int savedIpd = sp.getInt("ipd_mm", 64);
                 boolean savedMic = sp.getBoolean("microphone", false);
+                boolean savedDynBr = sp.getBoolean("dynamic_bitrate", true);
                 runOnUiThread(() -> {
                     onIpdChanged(savedIpd);
                     if (savedMic) onMicrophoneChanged(true);
                     lobbyView.applyResolution();
+                    nativeSetDynamicBitrate(savedDynBr);
                 });
             }
         }).start();
@@ -487,6 +489,7 @@ public class MainActivity extends NativeActivity {
         if (lobbyView != null) {
             lobbyView.applyResolution();
             nativeSetBitrate(lobbyView.getBitrate());
+            nativeSetDynamicBitrate(lobbyView.isDynamicBitrate());
             lobbyView.setConnectionState(WivrnLobbyView.STATE_CONNECTING, "Connecting...");
         }
         nativeConnectServer(hostname, port, tcpOnly);
@@ -617,6 +620,7 @@ public class MainActivity extends NativeActivity {
     public native void nativeDisconnectServer();
     public native void nativeSetPin(String pin);
     public native void nativeSetBitrate(int bitrateMbps);
+    public native void nativeSetDynamicBitrate(boolean enabled);
     public native boolean nativeReady();
     public native void nativeRequestAppList();
     public native void nativeStartApp(String appId);

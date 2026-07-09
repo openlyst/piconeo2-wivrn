@@ -132,13 +132,15 @@ public class WivrnLobbyView {
     private static final int SLIDER_STREAM_BITRATE = 4;
     private static final int SLIDER_STREAM_RESOLUTION = 5;
 
-    private int resWidth = 2048;
+    private int resWidth = 1664;
     private int foveationScale = 30;
     private String codec = "auto";
     private int bitrate = 50;
     private int ipdMm = 64;
     private boolean tcpOnly = false;
     private boolean microphoneEnabled = false;
+    private boolean lowerResWireless = false;
+    private boolean dynamicBitrate = true;
 
     private String addServerName = "";
     private String addServerAddress = "";
@@ -672,7 +674,7 @@ public class WivrnLobbyView {
 
     private void loadSettings() {
         SharedPreferences sp = context.getSharedPreferences("wivrn_settings", Context.MODE_PRIVATE);
-        resWidth = sp.getInt("res_width", 2048);
+        resWidth = sp.getInt("res_width", 1664);
         foveationScale = sp.getInt("foveation_scale", 30);
         codec = sp.getString("codec", "auto");
         bitrate = sp.getInt("bitrate", 50);
@@ -681,6 +683,8 @@ public class WivrnLobbyView {
         microphoneEnabled = sp.getBoolean("microphone", false);
         streamBitrateSetting = sp.getInt("stream_bitrate", 50);
         streamResolutionScale = sp.getInt("stream_resolution_scale", 100);
+        lowerResWireless = sp.getBoolean("lower_res_wireless", false);
+        dynamicBitrate = sp.getBoolean("dynamic_bitrate", true);
     }
 
     private void saveSettings() {
@@ -695,6 +699,8 @@ public class WivrnLobbyView {
             .putBoolean("microphone", microphoneEnabled)
             .putInt("stream_bitrate", streamBitrateSetting)
             .putInt("stream_resolution_scale", streamResolutionScale)
+            .putBoolean("lower_res_wireless", lowerResWireless)
+            .putBoolean("dynamic_bitrate", dynamicBitrate)
             .apply();
     }
 
@@ -788,8 +794,14 @@ public class WivrnLobbyView {
 
     public int getResWidth() { return resWidth; }
 
+    private int getEffectiveResWidth() {
+        if (lowerResWireless && !tcpOnly)
+            return Math.min(resWidth, 1280);
+        return resWidth;
+    }
+
     public void applyResolution() {
-        int renderW = Math.max(256, resWidth);
+        int renderW = Math.max(256, getEffectiveResWidth());
         renderW = (renderW / 2) * 2;
         int renderH = renderW * 2160 / 2048;
         renderH = (renderH / 2) * 2;
@@ -811,6 +823,8 @@ public class WivrnLobbyView {
     public int getIpdMm() { return ipdMm; }
     public boolean isTcpOnly() { return tcpOnly; }
     public boolean isMicrophoneEnabled() { return microphoneEnabled; }
+    public boolean isLowerResWireless() { return lowerResWireless; }
+    public boolean isDynamicBitrate() { return dynamicBitrate; }
 
     public void render() {
         canvas.drawRect(0, 0, width, height, bgPaint);
@@ -1013,6 +1027,8 @@ public class WivrnLobbyView {
 
         y = drawCheckbox(x, y, w, "TCP only", tcpOnly, false);
         y = drawCheckbox(x, y, w, "Enable microphone", microphoneEnabled, false);
+        y = drawCheckbox(x, y, w, "Lower resolution for wireless", lowerResWireless, false);
+        y = drawCheckbox(x, y, w, "Dynamic bitrate", dynamicBitrate, false);
 
         y += 20;
         RectF resetBtn = new RectF(x, y, x + 200, y + BUTTON_HEIGHT);
@@ -2314,6 +2330,28 @@ public class WivrnLobbyView {
         }
         sy += 40;
 
+        // Lower resolution for wireless (enabled)
+        RectF lrCheckbox = new RectF(contentX, sy, contentX + 30, sy + 30);
+        if (lrCheckbox.contains(x, y) || (x >= contentX && x <= contentX + contentW && y >= sy - 5 && y <= sy + 35)) {
+            lowerResWireless = !lowerResWireless;
+            saveSettings();
+            applyResolution();
+            markDirty();
+            return;
+        }
+        sy += 40;
+
+        // Dynamic bitrate (enabled)
+        RectF dbCheckbox = new RectF(contentX, sy, contentX + 30, sy + 30);
+        if (dbCheckbox.contains(x, y) || (x >= contentX && x <= contentX + contentW && y >= sy - 5 && y <= sy + 35)) {
+            dynamicBitrate = !dynamicBitrate;
+            saveSettings();
+            ((MainActivity) context).nativeSetDynamicBitrate(dynamicBitrate);
+            markDirty();
+            return;
+        }
+        sy += 40;
+
         // Restore Defaults button
         sy += 40;
         RectF resetBtn = new RectF(contentX, sy, contentX + 200, sy + BUTTON_HEIGHT);
@@ -2337,7 +2375,7 @@ public class WivrnLobbyView {
 
         RectF yesBtn = new RectF(px + 30, py + panelH - 70, px + 30 + 180, py + panelH - 20);
         if (yesBtn.contains(x, y)) {
-            resWidth = 2048;
+            resWidth = 1664;
             foveationScale = 30;
             codec = "auto";
             bitrate = 50;
@@ -2346,10 +2384,13 @@ public class WivrnLobbyView {
             microphoneEnabled = false;
             streamBitrateSetting = 50;
             streamResolutionScale = 100;
+            lowerResWireless = false;
+            dynamicBitrate = true;
             saveSettings();
             applyResolution();
             ((MainActivity) context).onIpdChanged(ipdMm);
             ((MainActivity) context).onMicrophoneChanged(false);
+            ((MainActivity) context).nativeSetDynamicBitrate(true);
             showResetConfirm = false;
             markDirty();
             return;
