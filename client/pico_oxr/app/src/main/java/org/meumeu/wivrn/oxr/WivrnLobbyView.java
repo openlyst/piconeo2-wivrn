@@ -70,7 +70,6 @@ public class WivrnLobbyView {
     private int streamBitrateSetting = 50;
     private int streamResolutionScale = 100;
     private boolean streamMicEnabled = false;
-    private boolean streamHighPower = false;
 
     private float launchScrollY = 0;
     private float launchMaxScroll = 0;
@@ -140,7 +139,6 @@ public class WivrnLobbyView {
     private int ipdMm = 64;
     private boolean tcpOnly = false;
     private boolean microphoneEnabled = false;
-    private boolean highPowerMode = false;
 
     private String addServerName = "";
     private String addServerAddress = "";
@@ -681,7 +679,6 @@ public class WivrnLobbyView {
         ipdMm = sp.getInt("ipd_mm", 64);
         tcpOnly = sp.getBoolean("tcp_only", false);
         microphoneEnabled = sp.getBoolean("microphone", false);
-        highPowerMode = sp.getBoolean("high_power", false);
         streamBitrateSetting = sp.getInt("stream_bitrate", 50);
         streamResolutionScale = sp.getInt("stream_resolution_scale", 100);
     }
@@ -696,7 +693,6 @@ public class WivrnLobbyView {
             .putInt("ipd_mm", ipdMm)
             .putBoolean("tcp_only", tcpOnly)
             .putBoolean("microphone", microphoneEnabled)
-            .putBoolean("high_power", highPowerMode)
             .putInt("stream_bitrate", streamBitrateSetting)
             .putInt("stream_resolution_scale", streamResolutionScale)
             .apply();
@@ -815,7 +811,6 @@ public class WivrnLobbyView {
     public int getIpdMm() { return ipdMm; }
     public boolean isTcpOnly() { return tcpOnly; }
     public boolean isMicrophoneEnabled() { return microphoneEnabled; }
-    public boolean isHighPowerMode() { return highPowerMode; }
 
     public void render() {
         canvas.drawRect(0, 0, width, height, bgPaint);
@@ -1018,7 +1013,6 @@ public class WivrnLobbyView {
 
         y = drawCheckbox(x, y, w, "TCP only", tcpOnly, false);
         y = drawCheckbox(x, y, w, "Enable microphone", microphoneEnabled, false);
-        y = drawCheckbox(x, y, w, "High power mode", highPowerMode, true);
 
         y += 20;
         RectF resetBtn = new RectF(x, y, x + 200, y + BUTTON_HEIGHT);
@@ -1717,11 +1711,6 @@ public class WivrnLobbyView {
         canvas.drawText("Disabled", valueX, y, textPaint);
         y += 42;
 
-        canvas.drawText("High Power Mode", x, y, textSmallPaint);
-        textPaint.setColor(Color.rgb(90, 95, 105));
-        canvas.drawText("Disabled", valueX, y, textPaint);
-        y += 42;
-
         y += 30;
         textDimPaint.setColor(Color.rgb(100, 110, 125));
         canvas.drawText("Press both thumbsticks to toggle this overlay", x, y, textDimPaint);
@@ -1772,17 +1761,6 @@ public class WivrnLobbyView {
         knobPaint.setColor(Color.rgb(100, 105, 115));
         canvas.drawCircle(micToggle.left + 20, micToggle.centerY(), 16, knobPaint);
         y += 60;
-
-        canvas.drawText("High Power Mode", x, y + 10, textPaint);
-        RectF powerToggle = new RectF(x + w - 80, y, x + w - 20, y + 40);
-        Paint powerPaint = new Paint();
-        powerPaint.setAntiAlias(true);
-        powerPaint.setColor(Color.rgb(50, 55, 65));
-        canvas.drawRoundRect(powerToggle, 20, 20, powerPaint);
-        Paint knobPaint2 = new Paint();
-        knobPaint2.setAntiAlias(true);
-        knobPaint2.setColor(Color.rgb(100, 105, 115));
-        canvas.drawCircle(powerToggle.left + 20, powerToggle.centerY(), 16, knobPaint2);
 
         textPaint.setColor(prevTextColor);
     }
@@ -2336,9 +2314,6 @@ public class WivrnLobbyView {
         }
         sy += 40;
 
-        // High power (disabled)
-        sy += 40;
-
         // Restore Defaults button
         sy += 40;
         RectF resetBtn = new RectF(contentX, sy, contentX + 200, sy + BUTTON_HEIGHT);
@@ -2369,7 +2344,6 @@ public class WivrnLobbyView {
             ipdMm = 64;
             tcpOnly = false;
             microphoneEnabled = false;
-            highPowerMode = false;
             streamBitrateSetting = 50;
             streamResolutionScale = 100;
             saveSettings();
