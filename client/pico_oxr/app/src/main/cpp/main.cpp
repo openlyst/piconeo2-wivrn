@@ -1441,6 +1441,46 @@ static void render_frame(AppState* app) {
             if (render_frames[e] && render_frames[e]->valid)
                 g_latency.on_frame_rendered(render_frames[e]->frame_index, e);
         }
+
+        // Stall detection: if the same frame has been displayed for >2s
+        // without any new frames arriving, mark the stream as stalled.
+        uint64_t cur_frame = render_frames[0] ? render_frames[0]->frame_index : 0;
+        int64_t now_ns = app->stream.get_timestamp_ns();
+        uint64_t prev_frame = app->stream.last_displayed_frame.load();
+        if (cur_frame != prev_frame)
+        {
+            app->stream.last_displayed_frame.store(cur_frame);
+            app->stream.frame_first_displayed_ns.store(now_ns);
+            if (app->stream.stream_stalled.load())
+            {
+                app->stream.stream_stalled.store(false);
+                LOGI("Stream recovered from stall at frame %llu", (unsigned long long)cur_frame);
+            }
+        }
+        else if (cur_frame > 0)
+        {
+            int64_t first_ns = app->stream.frame_first_displayed_ns.load();
+            if (first_ns > 0 && (now_ns - first_ns) > 2'000'000'000LL)
+            {
+                if (!app->stream.stream_stalled.load())
+                {
+                    app->stream.stream_stalled.store(true);
+                    app->stream.stream_ui_visible.store(true);
+                    LOGW("Stream stalled: frame %llu displayed for %.1fs, no new frames",
+                         (unsigned long long)cur_frame, (now_ns - first_ns) / 1e9f);
+                }
+                // After 5s of stall, attempt automatic reconnect
+                if ((now_ns - first_ns) > 5'000'000'000LL && app->stream.auto_reconnect.load())
+                {
+                    LOGW("Stream stalled for 5s, triggering reconnect");
+                    app->stream.stream_stalled.store(false);
+                    app->stream.stream_ui_visible.store(false);
+                    app->stream.try_connect();
+                    app->stream.last_displayed_frame.store(0);
+                    app->stream.frame_first_displayed_ns.store(0);
+                }
+            }
+        }
     }
 
     XrCompositionLayerProjection layers[1];

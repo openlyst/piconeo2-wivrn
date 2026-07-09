@@ -563,6 +563,9 @@ void streaming_client::reset_stream_state()
 	setEyeTrackingStreaming(false);
 	streaming = false;
 	stream_ui_visible = false;
+	stream_stalled = false;
+	last_displayed_frame = 0;
+	frame_first_displayed_ns = 0;
 	video_ready = false;
 	spdlog::info("reset_stream_state: resetting video_desc");
 	video_desc.reset();
