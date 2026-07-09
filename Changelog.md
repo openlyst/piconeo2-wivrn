@@ -5,6 +5,7 @@
  - Fix eye tracking not re-registering after removing and putting the headset back on
  - Fix audio stutter by moving video shard processing and latency/stutter tracking off the network thread onto the decoder input thread
  - Add dynamic resolution support: swapchain is recreated on the fly when resolution changes, both pre-connect and during streaming
+ - Add frame stall detection: if no new frames arrive for 2s the stream UI overlay appears, and after 5s an automatic reconnect is triggered
  - Remove non-functional high power mode option from settings
  - Fix USB connection failing due to duplicate connect intents tearing down in-progress connections
  - Fix streaming UI not appearing when connecting from wivrn-dashboard due to JNI callback refs being set too late
