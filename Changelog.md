@@ -1,3 +1,7 @@
+# [RC6](https://gitlab.com/HttpAnimations/piconeo2-wivrn/-/tree/)
+
+ - Remove non-functional high power mode option from settings
+
 # [RC5](https://gitlab.com/HttpAnimations/piconeo2-wivrn/-/tree/9d99acc0dcf0d58008930e10f6eda1fcabde2896)
 
  - Fix lobby flickering if your battery was low
