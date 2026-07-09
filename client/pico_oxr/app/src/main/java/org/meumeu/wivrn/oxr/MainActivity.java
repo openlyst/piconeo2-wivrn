@@ -49,6 +49,8 @@ public class MainActivity extends NativeActivity {
     private boolean pendingTcpOnly;
     private String pendingPin;
     private boolean hasPendingConnection = false;
+    private long lastConnectFlushMs = 0;
+    private static final long CONNECT_DEBOUNCE_MS = 2000;
 
     private static final int EXT_JOY_X      = 0;
     private static final int EXT_JOY_Y      = 5;
@@ -142,6 +144,18 @@ public class MainActivity extends NativeActivity {
         Log.i(TAG, "wivrn intent: host=" + host + " port=" + port + " tcp=" + tcpOnly + " pin=" + (pin != null ? "yes" : "no"));
 
         if (host != null && !host.isEmpty()) {
+            boolean sameTarget = host.equals(pendingHost) && port == pendingPort && tcpOnly == pendingTcpOnly;
+            long now = System.currentTimeMillis();
+            if (sameTarget && hasPendingConnection && (now - lastConnectFlushMs) < CONNECT_DEBOUNCE_MS) {
+                if (pin != null && !pin.isEmpty()) {
+                    Log.i(TAG, "intent debounce: updating pin only for " + host + ":" + port);
+                    pendingPin = pin;
+                    nativeSetPin(pin);
+                } else {
+                    Log.i(TAG, "intent debounce: ignoring duplicate for " + host + ":" + port);
+                }
+                return;
+            }
             pendingHost = host;
             pendingPort = port;
             pendingTcpOnly = tcpOnly;
@@ -167,6 +181,7 @@ public class MainActivity extends NativeActivity {
             return;
         }
         Log.i(TAG, "flushing pending connection: " + pendingHost + ":" + pendingPort + " tcp=" + pendingTcpOnly);
+        lastConnectFlushMs = System.currentTimeMillis();
         if (lobbyView != null) {
             nativeSetBitrate(lobbyView.getBitrate());
         }
@@ -174,6 +189,7 @@ public class MainActivity extends NativeActivity {
         if (pendingPin != null && !pendingPin.isEmpty()) {
             nativeSetPin(pendingPin);
         }
+        hasPendingConnection = false;
     }
 
     @Override

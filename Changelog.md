@@ -1,6 +1,7 @@
 # [RC6](https://gitlab.com/HttpAnimations/piconeo2-wivrn/-/tree/)
 
  - Remove non-functional high power mode option from settings
+ - Fix USB connection failing due to duplicate connect intents tearing down in-progress connections
 
 # [RC5](https://gitlab.com/HttpAnimations/piconeo2-wivrn/-/tree/9d99acc0dcf0d58008930e10f6eda1fcabde2896)
 
