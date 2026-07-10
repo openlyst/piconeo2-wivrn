@@ -64,7 +64,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## Usage
 
-1. Install the WiVRn server on your PC ([WiVRn server setup](https://github.com/Vrixyz/WiVRn))
+1. Install the WiVRn server on your PC ([WiVRn server setup](https://github.com/WiVRn/WiVRn))
 2. Launch the app on your headset
 3. Pair with your PC by entering the PIN shown on screen
 4. Stream VR games over Wi-Fi or USB
