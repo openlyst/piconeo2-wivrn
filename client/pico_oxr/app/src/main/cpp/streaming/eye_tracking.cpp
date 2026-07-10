@@ -25,7 +25,7 @@ static std::atomic<bool> gEyeIrOn{false};
 // assume the headset was removed and re-apply the tracking mode so the
 // eye tracking service re-registers when the headset is put back on.
 // All of these are only accessed from the tracking thread (pollEyeGaze).
-static constexpr int RECONNECT_FAIL_THRESHOLD = 180; // ~3s at 72Hz
+static constexpr int RECONNECT_FAIL_THRESHOLD = 900; // ~3s at 300Hz
 static int gConsecutiveFails = 0;
 static bool gReconnecting = false;
 
@@ -48,6 +48,9 @@ static void applyModeNow(bool streaming)
 		gGazeValid.store(false);
 		gPupilDilationValid.store(false);
 	}
+	// Clear reconnect state so polling can resume after mode re-application.
+	gReconnecting = false;
+	gConsecutiveFails = 0;
 	spdlog::info("eye: tracking mode -> {} (streaming={} supported={} set={})",
 		wantEye ? "POSITION|EYE" : "POSITION-only",
 		streaming ? 1 : 0, gEyeSupported.load() ? 1 : 0, rc ? 1 : 0);
@@ -172,20 +175,8 @@ void pollEyeGaze()
 	if (!valid)
 	{
 		gGazeValid.store(false);
-		gConsecutiveFails++;
-		if (gConsecutiveFails == RECONNECT_FAIL_THRESHOLD && gEyeOnline.load())
-		{
-			spdlog::warn("eye: {} consecutive invalid frames, reconnecting", gConsecutiveFails);
-			gReconnecting = true;
-			gEyeOnline.store(false);
-			gConsecutiveFails = 0;
-			{
-				std::lock_guard<std::mutex> lk(gReqMtx);
-				gReqStreaming = true;
-				gReqPending = true;
-			}
-			gReqCv.notify_one();
-		}
+		// Don't count invalid gaze (eyes closed/blinking) as reconnect failures.
+		// Only SDK call failures (ok==false) indicate the service is gone.
 		return;
 	}
 

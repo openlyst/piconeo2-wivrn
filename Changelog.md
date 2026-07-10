@@ -1,8 +1,9 @@
 # RC6 (unreleased)
 
  - Add eye tracking support for Pico Neo 2 EYE via libPvr_NativeSDK (gaze forwarded for server-side foveated encoding)
- - Add pupil dilation tracking (encoded in unused fb_face2 blendshape slots 6/7, mm/10 — OSC bridge should multiply by 10)
+ - Add pupil dilation tracking (encoded in unused fb_face2 blendshape slots 6/7, raw millimeters)
  - Fix eye tracking not re-registering after removing and putting the headset back on
+ - Fix eye tracking dying after closing eyes for half a second (reconnect deadlock — gReconnecting was never cleared, and brief eye closures triggered false reconnects)
  - Fix audio stutter by moving video shard processing and latency/stutter tracking off the network thread onto the decoder input thread
  - Add dynamic resolution support: swapchain is recreated on the fly when resolution changes, both pre-connect and during streaming
  - Add frame stall detection: if no new frames arrive for 2s the stream UI overlay appears, and after 5s an automatic reconnect is triggered
