@@ -721,13 +721,12 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 		// so we piggyback on the fb_face2 weights array.  Slots 6 and 7
 		// (XR_FACE_EXPRESSION2_CHEEK_SUCK_L/R_FB) are never populated by
 		// the Pico SDK or any face tracker we use.  The SDK reports pupil
-		// diameter in millimeters (typically 2-8mm); we divide by 10 to
-		// fit the 0..1 blendshape range.  An OSC bridge reading these
-		// slots should multiply by 10 to recover millimeters.
+		// diameter in millimeters (typically 2-8mm) and we send the raw
+		// value directly.
 		if (gPupilDilationValid.load())
 		{
-			face.weights[6] = gPupilDilation[0].load() * 0.1f;  // left pupil mm/10
-			face.weights[7] = gPupilDilation[1].load() * 0.1f;  // right pupil mm/10
+			face.weights[6] = gPupilDilation[0].load();  // left pupil mm
+			face.weights[7] = gPupilDilation[1].load();  // right pupil mm
 		}
 
 		// Eye look directions from gaze pitch/yaw (indices 14-21).
