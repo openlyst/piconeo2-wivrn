@@ -336,7 +336,7 @@ void pico_lobby::init(int w, int h)
 
 void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[3],
                       const controller_sample controllers[2],
-                      const XrFovf & fov, float ipd)
+                      const XrFovf & fov, float ipd, bool head_trigger)
 {
 	if (!initialized)
 	{
@@ -361,7 +361,7 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	debug_frame_count++;
 
 	if (eye == 0)
-		update_interaction(head_orient, head_pos, controllers);
+		update_interaction(head_orient, head_pos, controllers, head_trigger);
 
 	glUseProgram(program);
 
@@ -568,7 +568,7 @@ void pico_lobby::recenter()
 }
 
 void pico_lobby::update_interaction(const float head_orient[4], const float head_pos[3],
-                                    const controller_sample controllers[2])
+                                    const controller_sample controllers[2], bool head_trigger)
 {
 	debug_laser_hit = false;
 
@@ -578,6 +578,8 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 	float v_axis[3] = {0, 1, 0};
 	float half_w = panel_w * 0.5f;
 	float half_h = panel_h * 0.5f;
+
+	bool any_ctrl = controllers[0].connected || controllers[1].connected;
 
 	for (int h = 0; h < 2; h++)
 	{
@@ -665,6 +667,56 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 		}
 
 		prev_trigger[h] = trigger_pressed;
+	}
+
+	// No controllers — use head gaze laser with OK button as trigger
+	head_hit.valid = false;
+	head_touch_x = -1;
+	head_touch_y = -1;
+	head_touch_down = false;
+	head_touch_pressed = false;
+
+	if (!any_ctrl)
+	{
+		neo2::quat hq = neo2::normalize_quat({head_orient[0], head_orient[1], head_orient[2], head_orient[3]});
+		float dir[3] = {0, 0, -1};
+		float ray_dir[3];
+		neo2::rotate_vector(hq, dir, ray_dir);
+
+		float u, v;
+		bool hit = ray_plane_intersect(head_pos, ray_dir, panel_pos, normal, u_axis, v_axis, half_w, half_h, u, v);
+
+		if (hit)
+		{
+			head_hit.valid = true;
+			head_hit.u = u;
+			head_hit.v = v;
+			debug_laser_hit = true;
+			debug_hit_hand = -1;
+			debug_hit_u = u;
+			debug_hit_v = v;
+			debug_trigger_down = head_trigger;
+
+			float px = (1.0f - (u + 1.0f) * 0.5f) * 1400.0f;
+			float py = (1.0f - (v + 1.0f) * 0.5f) * 900.0f;
+
+			head_touch_x = px;
+			head_touch_y = py;
+			head_touch_down = head_trigger;
+			head_touch_pressed = head_trigger && !prev_head_trigger;
+
+			debug_touch_x = px;
+			debug_touch_y = py;
+
+			if (head_touch_pressed)
+				LOGI("HEAD_TRIGGER px=%.1f py=%.1f u=%.3f v=%.3f", px, py, u, v);
+		}
+
+		prev_head_trigger = head_trigger;
+	}
+	else
+	{
+		prev_head_trigger = false;
 	}
 
 	if (!debug_laser_hit)
