@@ -1017,7 +1017,7 @@ public class WivrnLobbyView {
 
         y = drawResolutionSlider(x, y, w, "Resolution", resWidth, 1024, 2048);
         y = drawSlider(x, y, w, "Foveated Encoding", foveationScale, 0, 80, "%", true);
-        y = drawSlider(x, y, w, "Bitrate", bitrate, 5, 100, "Mbit/s", false);
+        y = drawSlider(x, y, w, "Bitrate", bitrate, 5, 200, "Mbit/s", false);
         y = drawSlider(x, y, w, "IPD", ipdMm, 58, 72, "mm", false);
 
         y = drawDropdown(x, y, w, "Codec", new String[]{"Automatic", "H.264", "H.265"},
@@ -1884,7 +1884,7 @@ public class WivrnLobbyView {
                 markDirty();
                 break;
             case SLIDER_BITRATE:
-                bitrate = Math.max(5, Math.min(100, (int)(5 + pct * 95)));
+                bitrate = Math.max(5, Math.min(200, (int)(5 + pct * 195)));
                 saveSettings();
                 ((MainActivity) context).nativeSetBitrate(bitrate);
                 markDirty();
@@ -2199,7 +2199,7 @@ public class WivrnLobbyView {
         if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
             activeSlider = SLIDER_BITRATE;
             float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
-            bitrate = Math.max(5, Math.min(100, (int)(5 + pct * 95)));
+            bitrate = Math.max(5, Math.min(200, (int)(5 + pct * 195)));
             saveSettings();
             ((MainActivity) context).nativeSetBitrate(bitrate);
             markDirty();

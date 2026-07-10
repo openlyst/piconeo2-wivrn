@@ -621,7 +621,7 @@ void streaming_client::update_dynamic_bitrate()
 {
 	constexpr int64_t check_interval_ns = 3'000'000'000LL;
 	constexpr int64_t target_frame_ns = 13'888'888;
-	constexpr int min_bitrate = 5;
+	constexpr int min_bitrate = 20;
 
 	int64_t now = get_timestamp_ns();
 	if (db_last_check_ns == 0)
@@ -944,6 +944,11 @@ void streaming_client::send_headset_info()
 	info.face_tracking = gEyeSupported.load() ? from_headset::face_type::fb2 : from_headset::face_type::none;
 	info.num_generic_trackers = 0;
 
+	// Request 10-bit encoding for better quality (eliminates banding
+	// artifacts in gradients). The server will fall back to 8-bit if
+	// the GPU or codec doesn't support 10-bit.
+	info.bit_depth = 10;
+
 	{
 		std::vector<wivrn::video_codec> codecs;
 		pico_video_decoder::supported_codecs(codecs);
@@ -958,9 +963,10 @@ void streaming_client::send_headset_info()
 	info.variant = "";
 
 	session->send_control(info);
-	spdlog::warn("Sent headset info: {}x{}, {} codecs",
+	spdlog::warn("Sent headset info: {}x{}, {} codecs, bit_depth={}",
 		info.render_eye_width, info.render_eye_height,
-		info.supported_codecs.size());
+		info.supported_codecs.size(),
+		info.bit_depth ? (int)*info.bit_depth : -1);
 
 	session->send_control(from_headset::session_state_changed{
 		.state = XR_SESSION_STATE_FOCUSED,
