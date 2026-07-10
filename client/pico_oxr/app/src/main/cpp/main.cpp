@@ -1396,10 +1396,9 @@ static void render_frame(AppState* app) {
     struct timespec tf;
     clock_gettime(CLOCK_MONOTONIC, &tf);
 
-    // Late frame selection — try to pick matching frames from both streams
-    // using the oldest available index, falling back to independent per-eye
-    // selection if the matched frame isn't in the buffer. This keeps eyes
-    // in sync while avoiding the expensive search loop and render_wait spikes.
+    // Frame selection: pick the frame whose display_time is closest to
+    // predictedDisplayTime, preferring a matching pair across both streams.
+    // Falls back to per-eye latest if no common frame is found.
     if (app->stream.streaming.load())
     {
         was_streaming = true;
@@ -1408,21 +1407,42 @@ static void render_frame(AppState* app) {
         uint64_t idx0 = app->stream.latest_decoded_frame_index_per_stream[0].load(std::memory_order_acquire);
         uint64_t idx1 = app->stream.latest_decoded_frame_index_per_stream[1].load(std::memory_order_acquire);
 
-        bool got_pair = false;
+        // Search the frame buffers for the pair closest to predictedDisplayTime
+        XrTime target = fs.predictedDisplayTime;
+        uint64_t best_idx = 0;
+        XrTime best_diff = INT64_MAX;
+
         if (idx0 > 0 && idx1 > 0)
         {
-            uint64_t chosen = std::min(idx0, idx1);
-            auto f0 = app->stream.get_frame(chosen, 0);
-            auto f1 = app->stream.get_frame(chosen, 1);
-            if (f0 && f0->valid && f1 && f1->valid)
+            uint64_t min_idx = std::min(idx0, idx1);
+            uint64_t max_idx = std::max(idx0, idx1);
+            // Search a window of available frames (up to buffer size)
+            uint64_t search_start = (max_idx > 4) ? (max_idx - 4) : 1;
+            for (uint64_t fi = search_start; fi <= max_idx; fi++)
             {
-                render_frames[0] = f0;
-                render_frames[1] = f1;
-                got_pair = true;
+                auto f0 = app->stream.get_frame(fi, 0);
+                auto f1 = app->stream.get_frame(fi, 1);
+                if (f0 && f0->valid && f1 && f1->valid)
+                {
+                    XrTime diff = f0->display_time > target
+                        ? (f0->display_time - target)
+                        : (target - f0->display_time);
+                    if (diff < best_diff)
+                    {
+                        best_diff = diff;
+                        best_idx = fi;
+                    }
+                }
+            }
+
+            if (best_idx > 0)
+            {
+                render_frames[0] = app->stream.get_frame(best_idx, 0);
+                render_frames[1] = app->stream.get_frame(best_idx, 1);
             }
         }
 
-        if (!got_pair)
+        if (!render_frames[0] || !render_frames[1])
         {
             for (int e = 0; e < 2; e++)
             {
