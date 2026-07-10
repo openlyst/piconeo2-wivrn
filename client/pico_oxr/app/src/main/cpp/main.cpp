@@ -1061,6 +1061,12 @@ static void poll_events(AppState* app) {
             app->lobby.recenter();
             break;
         }
+        case XR_TYPE_EVENT_KEY_EVENT: {
+            auto* evt = reinterpret_cast<XrEventDataKeyEvent*>(&edb);
+            LOGI("XR key event: keyCode=%d keyAction=%d repeat=%d", evt->keyCode, evt->keyAction, evt->repeat);
+            g_ok_pressed.store(evt->keyAction == 0);
+            break;
+        }
         default:
             break;
         }
