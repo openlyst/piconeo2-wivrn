@@ -429,25 +429,6 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 		glDisable(GL_BLEND);
 	}
 
-	// No controllers connected — draw laser from headset
-	if (!any_ctrl)
-	{
-		Mat4 head_model = mat4_mul(mat4_translate(head_pos[0], head_pos[1], head_pos[2]),
-		                           quat_to_mat4(head_orient));
-		float ray_len = 2.0f;
-		Mat4 ray_scale = mat4_scale(1.0f, 1.0f, ray_len);
-		Mat4 ray_model = mat4_mul(head_model, ray_scale);
-		Mat4 ray_mvp = mat4_mul(vp, ray_model);
-		glUniformMatrix4fv(mvp_uniform, 1, GL_FALSE, ray_mvp.m);
-		glUniform4f(color_uniform, 0.3f, 0.8f, 0.4f, 0.5f);
-		glBindVertexArray(ray_vao);
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		glLineWidth(5.0f);
-		glDrawArrays(GL_LINES, 0, 2);
-		glDisable(GL_BLEND);
-	}
-
 	if (eye == 0 && (ctrl_log_count++ % 300 == 0))
 		LOGI("LOBBY controllers: conn=%d/%d pos0=(%.1f,%.1f,%.1f) pos1=(%.1f,%.1f,%.1f)",
 		     (int)controllers[0].connected, (int)controllers[1].connected,
