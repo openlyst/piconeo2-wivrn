@@ -24,9 +24,9 @@ constexpr float k_grip_up_mm = 12.5f;
 constexpr float k_grip_back_mm = 40.0f;
 constexpr float k_rot_swing = 1.0f;
 
-constexpr float k_head_vel_tau = 0.1f;
-constexpr float k_ctrl_vel_tau = 0.05f;
-constexpr float k_predict = 0.4f;
+constexpr float k_head_vel_tau = 0.02f;
+constexpr float k_ctrl_vel_tau = 0.02f;
+constexpr float k_predict = 0.7f;
 
 neo2::quat apply_controller_orientation(const float raw_orient[4], int hand)
 {
@@ -521,6 +521,7 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 
 	pkt.production_timestamp = headset_ns;
 	pkt.timestamp = to_xr_time(headset_ns + prediction_ns.load());
+
 	pkt.view_flags = XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_POSITION_VALID_BIT;
 	pkt.state_flags = 0;
 	if (recenter_requested.exchange(false))

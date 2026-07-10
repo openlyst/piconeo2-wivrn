@@ -1396,10 +1396,10 @@ static void render_frame(AppState* app) {
     struct timespec tf;
     clock_gettime(CLOCK_MONOTONIC, &tf);
 
-    // Late frame selection — try to pick matching frames from both streams
-    // using the oldest available index, falling back to independent per-eye
-    // selection if the matched frame isn't in the buffer. This keeps eyes
-    // in sync while avoiding the expensive search loop and render_wait spikes.
+    // Frame selection — pick the oldest matching pair from both streams
+    // to keep eyes in sync, falling back to per-eye latest if no match.
+    // Note: display_time matching is not possible because the Pico OpenXR
+    // runtime uses a different time base than CLOCK_MONOTONIC.
     if (app->stream.streaming.load())
     {
         was_streaming = true;
@@ -1616,13 +1616,15 @@ static void render_frame(AppState* app) {
 
         layerViews[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
         if (app->stream.streaming.load() && !app->stream.stream_ui_visible.load() && render_frames[eye] && render_frames[eye]->valid)
+        {
             layerViews[eye].pose = render_frames[eye]->server_pose[eye];
-        else
-            layerViews[eye].pose = views[eye].pose;
-        if (app->stream.streaming.load() && !app->stream.stream_ui_visible.load() && render_frames[eye] && render_frames[eye]->valid)
             layerViews[eye].fov = render_frames[eye]->server_fov[eye];
+        }
         else
+        {
+            layerViews[eye].pose = views[eye].pose;
             layerViews[eye].fov = app->stream.eye_fov[eye];
+        }
         layerViews[eye].subImage.swapchain = app->swapchains[eye].handle;
         layerViews[eye].subImage.imageRect.offset = {0, 0};
         layerViews[eye].subImage.imageRect.extent = {w, h};
