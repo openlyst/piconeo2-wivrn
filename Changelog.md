@@ -1,5 +1,6 @@
 # RC6 (unreleased)
 
+ - Add language support
  - Use the headset OK button to click stuff in the UI when you don't have controllers connected
  - Add eye tracking support for Pico Neo 2 Eye
  - Add pupil dilation tracking
