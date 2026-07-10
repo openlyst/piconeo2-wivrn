@@ -69,6 +69,7 @@ static jclass g_activityClass = nullptr;
 static int prev_touch_hand = -1;
 static bool prev_touch_down = false;
 static float prev_touch_x = -1, prev_touch_y = -1;
+static std::atomic<bool> g_ok_pressed{false};
 
 // ---------------------------------------------------------------------------
 // JNI: called from Java controller poll thread
@@ -1621,7 +1622,7 @@ static void render_frame(AppState* app) {
             if (eye == 0 && (lobby_log_count++ % 300 == 0)) LOGI("LOBBY: streaming=%d", (int)app->stream.streaming.load());
             constexpr float k_lobby_fov_half = 101.0f * 0.5f * 0.01745329252f;
             XrFovf lobby_fov = {-k_lobby_fov_half, k_lobby_fov_half, k_lobby_fov_half, -k_lobby_fov_half};
-            app->lobby.draw(eye, head_orient, head_pos, cs, lobby_fov, ipd);
+            app->lobby.draw(eye, head_orient, head_pos, cs, lobby_fov, ipd, g_ok_pressed.load());
         }
         clock_gettime(CLOCK_MONOTONIC, &te);
         gl_draw_ms += ts_diff(te, td) * 1000.0f;
@@ -1678,6 +1679,12 @@ static void render_frame(AppState* app) {
         tdown = app->lobby.lobby_touch_down[hit_hand];
         tpressed = app->lobby.lobby_touch_pressed[hit_hand];
         tthumb = app->lobby.lobby_thumbstick_y[hit_hand];
+    } else if (app->lobby.head_touch_x >= 0 || app->lobby.head_touch_down) {
+        tx = app->lobby.head_touch_x;
+        ty = app->lobby.head_touch_y;
+        tdown = app->lobby.head_touch_down;
+        tpressed = app->lobby.head_touch_pressed;
+        hit_hand = -2;
     }
 
     bool state_changed = (hit_hand != prev_touch_hand) ||
@@ -1871,6 +1878,10 @@ static int32_t on_input_event(struct android_app* app, AInputEvent* event) {
             return 1;
         }
         if (code == AKEYCODE_BACK) {
+            return 1;
+        }
+        if (code == AKEYCODE_CALL || code == AKEYCODE_DPAD_CENTER || code == AKEYCODE_ENTER) {
+            g_ok_pressed.store(action == AKEY_EVENT_ACTION_DOWN);
             return 1;
         }
     }

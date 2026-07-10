@@ -47,6 +47,7 @@ class pico_lobby
 	float panel_pos[3] = {0, 0.0f, -2.5f};
 	float panel_yaw = 0.0f;
 	bool prev_trigger[2] = {false, false};
+	bool prev_head_trigger = false;
 
 	struct ray_hit
 	{
@@ -55,6 +56,7 @@ class pico_lobby
 		float v = 0.5f;
 	};
 	ray_hit last_hit[2];
+	ray_hit head_hit;
 
 	bool debug_laser_hit = false;
 	int debug_hit_hand = -1;
@@ -71,7 +73,7 @@ class pico_lobby
 	void draw_quad(const float head_orient[4], const float head_pos[3],
 	               const XrFovf & fov, float ipd, int eye);
 	void update_interaction(const float head_orient[4], const float head_pos[3],
-	                        const controller_sample controllers[2]);
+	                        const controller_sample controllers[2], bool head_trigger);
 
 public:
 	float lobby_touch_x[2] = {-1, -1};
@@ -79,6 +81,11 @@ public:
 	bool lobby_touch_down[2] = {false, false};
 	bool lobby_touch_pressed[2] = {false, false};
 	float lobby_thumbstick_y[2] = {0, 0};
+
+	float head_touch_x = -1;
+	float head_touch_y = -1;
+	bool head_touch_down = false;
+	bool head_touch_pressed = false;
 	pico_lobby() = default;
 	~pico_lobby();
 
@@ -86,7 +93,7 @@ public:
 	void set_resolution(int w, int h);
 	void draw(int eye, const float head_orient[4], const float head_pos[3],
 	          const controller_sample controllers[2],
-	          const XrFovf & fov, float ipd);
+	          const XrFovf & fov, float ipd, bool head_trigger);
 	bool is_initialized() const { return initialized; }
 
 	void recenter();
