@@ -87,6 +87,7 @@ public class WivrnLobbyView {
     private final Canvas canvas;
     private final int width = 1400;
     private final int height = 900;
+    private final I18n i18n;
 
     private int currentTab = TAB_SERVER_LIST;
     private int connectionState = STATE_IDLE;
@@ -139,6 +140,7 @@ public class WivrnLobbyView {
     private boolean microphoneEnabled = false;
     private boolean lowerResWireless = false;
     private boolean dynamicBitrate = true;
+    private int languageSetting = 0;
 
     private String addServerName = "";
     private String addServerAddress = "";
@@ -203,6 +205,7 @@ public class WivrnLobbyView {
         this.bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
         this.canvas = new Canvas(bitmap);
         this.prefs = context.getSharedPreferences("wivrn_servers", Context.MODE_PRIVATE);
+        this.i18n = I18n.init(context);
 
         initPaints();
         loadSettings();
@@ -683,6 +686,7 @@ public class WivrnLobbyView {
         streamResolutionScale = sp.getInt("stream_resolution_scale", 100);
         lowerResWireless = sp.getBoolean("lower_res_wireless", false);
         dynamicBitrate = sp.getBoolean("dynamic_bitrate", true);
+        languageSetting = sp.getInt("language", 0);
     }
 
     private void saveSettings() {
@@ -699,6 +703,7 @@ public class WivrnLobbyView {
             .putInt("stream_resolution_scale", streamResolutionScale)
             .putBoolean("lower_res_wireless", lowerResWireless)
             .putBoolean("dynamic_bitrate", dynamicBitrate)
+            .putInt("language", languageSetting)
             .apply();
     }
 
@@ -848,7 +853,13 @@ public class WivrnLobbyView {
     private void renderSidebar() {
         canvas.drawRect(0, 0, SIDEBAR_WIDTH, height, sidebarBgPaint);
 
-        String[] tabs = {"Server List", "Settings", "About", "Licenses", "Exit"};
+        String[] tabs = {
+            i18n.s(R.string.tab_server_list),
+            i18n.s(R.string.tab_settings),
+            i18n.s(R.string.tab_about),
+            i18n.s(R.string.tab_licenses),
+            i18n.s(R.string.tab_exit)
+        };
         int[] tabIds = {TAB_SERVER_LIST, TAB_SETTINGS, TAB_ABOUT, TAB_LICENSES, TAB_EXIT};
 
         float y = 30;
@@ -907,13 +918,13 @@ public class WivrnLobbyView {
         float y = 30;
 
         textLargePaint.setColor(Color.rgb(240, 245, 255));
-        canvas.drawText("Server List", x, y + 30, textLargePaint);
+        canvas.drawText(i18n.s(R.string.server_list_title), x, y + 30, textLargePaint);
         y += 60;
 
         RectF addBtn = new RectF(x + w - BUTTON_WIDTH, y - BUTTON_HEIGHT, x + w, y);
         boolean addHover = touchDown && addBtn.contains(touchX, touchY);
         canvas.drawRoundRect(addBtn, 10, 10, addHover ? buttonHoverBgPaint : buttonBgPaint);
-        drawCenteredText("+ Add Server", addBtn, textPaint);
+        drawCenteredText(i18n.s(R.string.add_server), addBtn, textPaint);
 
         y += 30;
 
@@ -926,24 +937,24 @@ public class WivrnLobbyView {
             canvas.drawRoundRect(card, 12, 12, cardBgPaint);
 
             canvas.drawText(s.name, x + 20, cardY + 35, textPaint);
-            canvas.drawText(s.hostname + ":" + s.port + (s.tcpOnly ? " (TCP)" : " (UDP)"), x + 20, cardY + 65, textSmallPaint);
+            canvas.drawText(s.hostname + ":" + s.port + (s.tcpOnly ? " (" + i18n.s(R.string.tcp) + ")" : " (" + i18n.s(R.string.udp) + ")"), x + 20, cardY + 65, textSmallPaint);
 
             if (s.discovered) {
                 textSmallPaint.setColor(Color.rgb(80, 200, 120));
-                canvas.drawText("● discovered", x + 20, cardY + 88, textSmallPaint);
+                canvas.drawText(i18n.s(R.string.discovered), x + 20, cardY + 88, textSmallPaint);
                 textSmallPaint.setColor(Color.rgb(160, 170, 185));
             }
 
             if (s.autoconnect) {
                 textSmallPaint.setColor(Color.rgb(255, 200, 60));
-                canvas.drawText("★ autoconnect", x + 20, cardY + 88, textSmallPaint);
+                canvas.drawText(i18n.s(R.string.autoconnect), x + 20, cardY + 88, textSmallPaint);
                 textSmallPaint.setColor(Color.rgb(160, 170, 185));
             }
 
             RectF connectBtn = new RectF(x + w - BUTTON_WIDTH - 20, cardY + 20, x + w - 20, cardY + 20 + BUTTON_HEIGHT);
             boolean connectHover = touchDown && connectBtn.contains(touchX, touchY);
             canvas.drawRoundRect(connectBtn, 10, 10, buttonConnectBgPaint);
-            drawCenteredText("Connect", connectBtn, textPaint);
+            drawCenteredText(i18n.s(R.string.connect), connectBtn, textPaint);
 
             float starX = connectBtn.left - 50;
             RectF starBtn = new RectF(starX, cardY + 20, starX + 40, cardY + 20 + BUTTON_HEIGHT);
@@ -975,10 +986,10 @@ public class WivrnLobbyView {
         canvas.drawRoundRect(popup, 16, 16, cardBgPaint);
 
         float py = popupY + 30;
-        canvas.drawText("Add Server", popupX + 30, py + 20, textLargePaint);
+        canvas.drawText(i18n.s(R.string.add_server_title), popupX + 30, py + 20, textLargePaint);
         py += 60;
 
-        String[] labels = {"Name", "Address", "Port"};
+        String[] labels = {i18n.s(R.string.field_name), i18n.s(R.string.field_address), i18n.s(R.string.field_port)};
         String[] values = {addServerName, addServerAddress, addServerPort};
         for (int i = 0; i < 3; i++) {
             canvas.drawText(labels[i], popupX + 30, py + 20, textSmallPaint);
@@ -995,44 +1006,48 @@ public class WivrnLobbyView {
         if (addServerTcpOnly) {
             canvas.drawText("X", tcpCheck.left + 12, py + 16, textPaint);
         }
-        canvas.drawText("TCP only", popupX + 60, py + 16, textPaint);
+        canvas.drawText(i18n.s(R.string.tcp_only), popupX + 60, py + 16, textPaint);
         py += 50;
 
         RectF cancelBtn = new RectF(popupX + 30, py, popupX + 30 + 150, py + BUTTON_HEIGHT);
         boolean cancelHover = touchDown && cancelBtn.contains(touchX, touchY);
         canvas.drawRoundRect(cancelBtn, 10, 10, cancelHover ? buttonHoverBgPaint : buttonBgPaint);
-        drawCenteredText("Cancel", cancelBtn, textPaint);
+        drawCenteredText(i18n.s(R.string.cancel), cancelBtn, textPaint);
 
         RectF saveBtn = new RectF(popupX + popupW - 180, py, popupX + popupW - 30, py + BUTTON_HEIGHT);
         boolean saveHover = touchDown && saveBtn.contains(touchX, touchY);
         canvas.drawRoundRect(saveBtn, 10, 10, saveHover ? buttonConnectBgPaint : buttonConnectBgPaint);
-        drawCenteredText("Save", saveBtn, textPaint);
+        drawCenteredText(i18n.s(R.string.save), saveBtn, textPaint);
     }
 
     private void renderSettings(float x, float w) {
         float y = 30;
 
-        canvas.drawText("Settings", x, y + 30, textLargePaint);
+        canvas.drawText(i18n.s(R.string.settings_title), x, y + 30, textLargePaint);
         y += 70;
 
-        y = drawResolutionSlider(x, y, w, "Resolution", resWidth, 1024, 2048);
-        y = drawSlider(x, y, w, "Foveated Encoding", foveationScale, 0, 80, "%", true);
-        y = drawSlider(x, y, w, "Bitrate", bitrate, 5, 200, "Mbit/s", false);
-        y = drawSlider(x, y, w, "IPD", ipdMm, 58, 72, "mm", false);
+        y = drawResolutionSlider(x, y, w, i18n.s(R.string.setting_resolution), resWidth, 1024, 2048);
+        y = drawSlider(x, y, w, i18n.s(R.string.setting_foveated_encoding), foveationScale, 0, 80, "%", true);
+        y = drawSlider(x, y, w, i18n.s(R.string.setting_bitrate), bitrate, 5, 200, i18n.s(R.string.unit_mbit_s), false);
+        y = drawSlider(x, y, w, i18n.s(R.string.setting_ipd), ipdMm, 58, 72, i18n.s(R.string.unit_mm), false);
 
-        y = drawDropdown(x, y, w, "Codec", new String[]{"Automatic", "H.264", "H.265"},
+        y = drawDropdown(x, y, w, i18n.s(R.string.setting_codec), new String[]{i18n.s(R.string.codec_auto), i18n.s(R.string.codec_h264), i18n.s(R.string.codec_h265)},
             codec.equals("auto") ? 0 : codec.equals("h264") ? 1 : 2, true);
 
-        y = drawCheckbox(x, y, w, "TCP only", tcpOnly, false);
-        y = drawCheckbox(x, y, w, "Enable microphone", microphoneEnabled, false);
-        y = drawCheckbox(x, y, w, "Lower resolution for wireless", lowerResWireless, false);
-        y = drawCheckbox(x, y, w, "Dynamic bitrate", dynamicBitrate, false);
+        y = drawCheckbox(x, y, w, i18n.s(R.string.tcp_only), tcpOnly, false);
+        y = drawCheckbox(x, y, w, i18n.s(R.string.setting_microphone), microphoneEnabled, false);
+        y = drawCheckbox(x, y, w, i18n.s(R.string.setting_lower_res_wireless), lowerResWireless, false);
+        y = drawCheckbox(x, y, w, i18n.s(R.string.setting_dynamic_bitrate), dynamicBitrate, false);
+
+        y = drawDropdown(x, y, w, i18n.s(R.string.setting_language),
+            new String[]{i18n.s(R.string.lang_system), "English", "简体中文"},
+            languageSetting, false);
 
         y += 20;
         RectF resetBtn = new RectF(x, y, x + 200, y + BUTTON_HEIGHT);
         boolean resetHover = touchDown && resetBtn.contains(touchX, touchY);
         canvas.drawRoundRect(resetBtn, 10, 10, resetHover ? buttonDangerBgPaint : buttonDangerBgPaint);
-        drawCenteredText("Restore Defaults", resetBtn, textPaint);
+        drawCenteredText(i18n.s(R.string.restore_defaults), resetBtn, textPaint);
 
         if (showResetConfirm) {
             renderResetConfirmDialog();
@@ -1048,17 +1063,17 @@ public class WivrnLobbyView {
         canvas.drawRect(0, 0, width, height, new Paint() {{ setColor(Color.argb(160, 0, 0, 0)); }});
         canvas.drawRoundRect(px, py, px + panelW, py + panelH, 12, 12, cardBgPaint);
 
-        canvas.drawText("Restore all settings to defaults?", px + 30, py + 50, textPaint);
+        canvas.drawText(i18n.s(R.string.reset_confirm), px + 30, py + 50, textPaint);
 
         RectF yesBtn = new RectF(px + 30, py + panelH - 70, px + 30 + 180, py + panelH - 20);
         boolean yesHover = touchDown && yesBtn.contains(touchX, touchY);
         canvas.drawRoundRect(yesBtn, 10, 10, yesHover ? buttonDangerBgPaint : buttonDangerBgPaint);
-        drawCenteredText("Reset", yesBtn, textPaint);
+        drawCenteredText(i18n.s(R.string.reset), yesBtn, textPaint);
 
         RectF noBtn = new RectF(px + panelW - 210, py + panelH - 70, px + panelW - 30, py + panelH - 20);
         boolean noHover = touchDown && noBtn.contains(touchX, touchY);
         canvas.drawRoundRect(noBtn, 10, 10, noHover ? buttonHoverBgPaint : buttonBgPaint);
-        drawCenteredText("Cancel", noBtn, textPaint);
+        drawCenteredText(i18n.s(R.string.cancel), noBtn, textPaint);
     }
 
     private float drawSlider(float x, float y, float w, String label, int value, int min, int max, String unit) {
@@ -1180,19 +1195,19 @@ public class WivrnLobbyView {
 
     private void renderAbout(float x, float w) {
         float y = 30;
-        canvas.drawText("WiVRn", x, y + 30, textLargePaint);
+        canvas.drawText(i18n.s(R.string.about_wivrn), x, y + 30, textLargePaint);
         y += 70;
 
-        canvas.drawText("Unofficial WiVRn Port", x, y, textPaint);
+        canvas.drawText(i18n.s(R.string.about_unofficial), x, y, textPaint);
         y += 40;
 
-        canvas.drawText("VR streaming client for Pico Neo2", x, y, textSmallPaint);
+        canvas.drawText(i18n.s(R.string.about_description), x, y, textSmallPaint);
         y += 35;
-        canvas.drawText("Based on WiVRn by Guillaume Meunier & Patrick Nicolas", x, y, textSmallPaint);
+        canvas.drawText(i18n.s(R.string.about_based_on), x, y, textSmallPaint);
         y += 35;
-        canvas.drawText("Maintainer: HttpAnimations", x, y, textSmallPaint);
+        canvas.drawText(i18n.s(R.string.about_maintainer), x, y, textSmallPaint);
         y += 35;
-        canvas.drawText("Licensed under GPLv3", x, y, textSmallPaint);
+        canvas.drawText(i18n.s(R.string.about_license), x, y, textSmallPaint);
         y += 35;
 
         String versionName = "";
@@ -1204,29 +1219,21 @@ public class WivrnLobbyView {
         } catch (Exception e) {
             Log.w(TAG, "Failed to get package info", e);
         }
-        canvas.drawText("Version " + versionName + " (Build " + versionCode + ")", x, y, textSmallPaint);
+        canvas.drawText(i18n.s(R.string.about_version, versionName, versionCode), x, y, textSmallPaint);
         y += 60;
 
         gitlabBtnRect = new RectF(x, y, x + 280, y + BUTTON_HEIGHT);
         boolean gitlabHover = touchDown && gitlabBtnRect.contains(touchX, touchY);
         canvas.drawRoundRect(gitlabBtnRect, 10, 10, gitlabHover ? buttonHoverBgPaint : buttonBgPaint);
-        drawCenteredText("GitLab Repository", gitlabBtnRect, textPaint);
+        drawCenteredText(i18n.s(R.string.gitlab_repo), gitlabBtnRect, textPaint);
     }
 
     private void renderLicenses(float x, float w) {
         float y = 30;
-        canvas.drawText("Licenses", x, y + 30, textLargePaint);
+        canvas.drawText(i18n.s(R.string.licenses_title), x, y + 30, textLargePaint);
         y += 70;
 
-        String licenseText = "WiVRn - GPL v3\n\n"
-            + "This program is free software: you can redistribute it and/or modify "
-            + "it under the terms of the GNU General Public License as published by "
-            + "the Free Software Foundation, either version 3 of the License, or "
-            + "(at your option) any later version.\n\n"
-            + "This program is distributed in the hope that it will be useful, "
-            + "but WITHOUT ANY WARRANTY; without even the implied warranty of "
-            + "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
-            + "See the GNU General Public License for more details.";
+        String licenseText = i18n.s(R.string.license_gpl_text);
 
         textSmallPaint.setColor(Color.rgb(180, 190, 200));
         android.text.StaticLayout sl = new android.text.StaticLayout(
@@ -1247,18 +1254,18 @@ public class WivrnLobbyView {
 
     private void renderExit(float x, float w) {
         float y = height / 2 - 50;
-        canvas.drawText("Exit WiVRn?", x + 50, y, textLargePaint);
+        canvas.drawText(i18n.s(R.string.exit_confirm), x + 50, y, textLargePaint);
         y += 60;
 
         RectF yesBtn = new RectF(x + 50, y, x + 50 + 200, y + BUTTON_HEIGHT);
         boolean yesHover = touchDown && yesBtn.contains(touchX, touchY);
         canvas.drawRoundRect(yesBtn, 10, 10, yesHover ? buttonDangerBgPaint : buttonDangerBgPaint);
-        drawCenteredText("Exit", yesBtn, textPaint);
+        drawCenteredText(i18n.s(R.string.exit), yesBtn, textPaint);
 
         RectF noBtn = new RectF(x + 270, y, x + 270 + 200, y + BUTTON_HEIGHT);
         boolean noHover = touchDown && noBtn.contains(touchX, touchY);
         canvas.drawRoundRect(noBtn, 10, 10, noHover ? buttonHoverBgPaint : buttonBgPaint);
-        drawCenteredText("Cancel", noBtn, textPaint);
+        drawCenteredText(i18n.s(R.string.cancel), noBtn, textPaint);
     }
 
     private void renderPinEntry() {
@@ -1272,12 +1279,12 @@ public class WivrnLobbyView {
         RectF panel = new RectF(px, py, px + panelW, py + panelH);
         canvas.drawRoundRect(panel, 16, 16, cardBgPaint);
 
-        canvas.drawText("Enter PIN", px + 30, py + 40, textLargePaint);
-        canvas.drawText("Displayed on the server dashboard", px + 30, py + 70, textSmallPaint);
+        canvas.drawText(i18n.s(R.string.enter_pin), px + 30, py + 40, textLargePaint);
+        canvas.drawText(i18n.s(R.string.pin_hint), px + 30, py + 70, textSmallPaint);
 
         RectF pinDisplay = new RectF(px + 30, py + 90, px + panelW - 30, py + 140);
         canvas.drawRoundRect(pinDisplay, 8, 8, pinDisplayPaint);
-        String displayPin = pinBuffer.isEmpty() ? "PIN" : pinBuffer;
+        String displayPin = pinBuffer.isEmpty() ? i18n.s(R.string.pin_placeholder) : pinBuffer;
         Paint.FontMetrics fm = textLargePaint.getFontMetrics();
         float textY = pinDisplay.top + (pinDisplay.height() - (fm.descent - fm.ascent)) / 2 - fm.ascent;
         float textX = pinDisplay.left + (pinDisplay.width() - textLargePaint.measureText(displayPin)) / 2;
@@ -1327,13 +1334,13 @@ public class WivrnLobbyView {
         RectF panel = new RectF(px, py, px + panelW, py + panelH);
         canvas.drawRoundRect(panel, 16, 16, cardBgPaint);
 
-        canvas.drawText("Connecting", px + 30, py + 50, textLargePaint);
+        canvas.drawText(i18n.s(R.string.connecting), px + 30, py + 50, textLargePaint);
         canvas.drawText(statusMessage, px + 30, py + 90, textPaint);
 
         RectF disconnectBtn = new RectF(px + panelW - 220, py + panelH - 80, px + panelW - 20, py + panelH - 20);
         boolean hover = touchDown && disconnectBtn.contains(touchX, touchY);
         canvas.drawRoundRect(disconnectBtn, 10, 10, hover ? buttonDangerBgPaint : buttonDangerBgPaint);
-        drawCenteredText("Disconnect", disconnectBtn, textPaint);
+        drawCenteredText(i18n.s(R.string.disconnect), disconnectBtn, textPaint);
     }
 
     private void renderDisconnected() {
@@ -1347,18 +1354,18 @@ public class WivrnLobbyView {
         RectF panel = new RectF(px, py, px + panelW, py + panelH);
         canvas.drawRoundRect(panel, 16, 16, cardBgPaint);
 
-        canvas.drawText("Disconnected", px + 30, py + 50, textLargePaint);
+        canvas.drawText(i18n.s(R.string.disconnected), px + 30, py + 50, textLargePaint);
         canvas.drawText(errorMessage, px + 30, py + 90, textPaint);
 
         RectF reconnectBtn = new RectF(px + 20, py + panelH - 80, px + 220, py + panelH - 20);
         boolean reconnectHover = touchDown && reconnectBtn.contains(touchX, touchY);
         canvas.drawRoundRect(reconnectBtn, 10, 10, reconnectHover ? buttonHoverBgPaint : buttonBgPaint);
-        drawCenteredText("Reconnect", reconnectBtn, textPaint);
+        drawCenteredText(i18n.s(R.string.reconnect), reconnectBtn, textPaint);
 
         RectF closeBtn = new RectF(px + panelW - 220, py + panelH - 80, px + panelW - 20, py + panelH - 20);
         boolean hover = touchDown && closeBtn.contains(touchX, touchY);
         canvas.drawRoundRect(closeBtn, 10, 10, hover ? buttonHoverBgPaint : buttonBgPaint);
-        drawCenteredText("Close", closeBtn, textPaint);
+        drawCenteredText(i18n.s(R.string.close), closeBtn, textPaint);
     }
 
     private void renderConnected() {
@@ -1366,7 +1373,12 @@ public class WivrnLobbyView {
 
         canvas.drawRect(0, 0, SIDEBAR_WIDTH, height, sidebarBgPaint);
 
-        String[] tabs = {"Applications", "Launch", "Stats", "Settings"};
+        String[] tabs = {
+            i18n.s(R.string.stream_applications),
+            i18n.s(R.string.stream_launch),
+            i18n.s(R.string.stream_stats),
+            i18n.s(R.string.stream_settings)
+        };
         int[] tabIds = {STREAM_TAB_APPLICATIONS, STREAM_TAB_LAUNCH, STREAM_TAB_STATS, STREAM_TAB_SETTINGS};
 
         float ty = 30;
@@ -1401,7 +1413,7 @@ public class WivrnLobbyView {
         discPaint.setColor(discHover ? Color.rgb(180, 40, 40) : buttonDangerBgPaint.getColor());
         canvas.drawRoundRect(disconnectBtn, 8, 8, discPaint);
         textPaint.setColor(Color.rgb(255, 255, 255));
-        canvas.drawText("Disconnect", 25, disconnectY + TAB_HEIGHT / 2f + 10, textPaint);
+        canvas.drawText(i18n.s(R.string.disconnect), 25, disconnectY + TAB_HEIGHT / 2f + 10, textPaint);
 
         textPaint.setColor(Color.rgb(230, 235, 245));
 
@@ -1435,12 +1447,12 @@ public class WivrnLobbyView {
         }
 
         float y = 40;
-        canvas.drawText("Running XR Applications", x, y + 30, textLargePaint);
+        canvas.drawText(i18n.s(R.string.running_xr_apps), x, y + 30, textLargePaint);
         y += 70;
 
         if (runningApps == null || runningApps.length == 0) {
             textDimPaint.setColor(Color.rgb(100, 110, 125));
-            canvas.drawText("No applications running", x, y + 20, textDimPaint);
+            canvas.drawText(i18n.s(R.string.no_apps_running), x, y + 20, textDimPaint);
             textDimPaint.setColor(Color.rgb(100, 110, 125));
             return;
         }
@@ -1456,7 +1468,7 @@ public class WivrnLobbyView {
                 canvas.drawRect(x, y, x + w, y + 1, sepPaint);
                 y += 15;
                 textDimPaint.setColor(Color.rgb(120, 130, 145));
-                canvas.drawText("Overlays", x, y + 20, textDimPaint);
+                canvas.drawText(i18n.s(R.string.overlays), x, y + 20, textDimPaint);
                 textDimPaint.setColor(Color.rgb(100, 110, 125));
                 y += 35;
             }
@@ -1507,21 +1519,21 @@ public class WivrnLobbyView {
 
     private void renderStreamLaunch(float x, float w) {
         float y = 40;
-        canvas.drawText("Launch Application", x, y + 30, textLargePaint);
+        canvas.drawText(i18n.s(R.string.launch_application), x, y + 30, textLargePaint);
         y += 70;
 
         if (availableAppNames == null || availableAppNames.length == 0) {
             textDimPaint.setColor(Color.rgb(100, 110, 125));
             if (appListRequested) {
-                canvas.drawText("Loading applications...", x, y + 20, textDimPaint);
+                canvas.drawText(i18n.s(R.string.loading_apps), x, y + 20, textDimPaint);
             } else {
-                canvas.drawText("No applications available", x, y + 20, textDimPaint);
-                canvas.drawText("Press to refresh", x, y + 60, textDimPaint);
+                canvas.drawText(i18n.s(R.string.no_apps_available), x, y + 20, textDimPaint);
+                canvas.drawText(i18n.s(R.string.press_to_refresh), x, y + 60, textDimPaint);
                 RectF refreshBtn = new RectF(x, y + 80, x + 200, y + 80 + BUTTON_HEIGHT);
                 boolean hover = touchDown && refreshBtn.contains(touchX, touchY);
                 canvas.drawRoundRect(refreshBtn, 10, 10, hover ? buttonHoverBgPaint : buttonBgPaint);
                 textPaint.setColor(Color.rgb(230, 235, 245));
-                canvas.drawText("Refresh", x + 50, y + 80 + BUTTON_HEIGHT / 2f + 8, textPaint);
+                canvas.drawText(i18n.s(R.string.refresh), x + 50, y + 80 + BUTTON_HEIGHT / 2f + 8, textPaint);
             }
             textDimPaint.setColor(Color.rgb(100, 110, 125));
             return;
@@ -1660,10 +1672,10 @@ public class WivrnLobbyView {
 
             textPaint.setColor(Color.rgb(230, 235, 245));
             textPaint.setTextSize(28);
-            canvas.drawText("Launching " + launchingAppName + "...", boxX + 30, boxY + 55, textPaint);
+            canvas.drawText(i18n.s(R.string.launching_app, launchingAppName), boxX + 30, boxY + 55, textPaint);
             textPaint.setTextSize(20);
             textPaint.setColor(Color.rgb(140, 150, 165));
-            canvas.drawText("Waiting for server response (" + elapsed + "s)", boxX + 30, boxY + 95, textPaint);
+            canvas.drawText(i18n.s(R.string.waiting_for_server, (int)elapsed), boxX + 30, boxY + 95, textPaint);
 
             float spinnerCx = boxX + boxW - 50;
             float spinnerCy = boxY + boxH / 2;
@@ -1687,15 +1699,16 @@ public class WivrnLobbyView {
 
     private void renderStreamStats(float x, float w) {
         float y = 40;
-        canvas.drawText("Performance Statistics", x, y + 30, textLargePaint);
+        canvas.drawText(i18n.s(R.string.perf_stats), x, y + 30, textLargePaint);
         y += 70;
 
+        String mbitUnit = i18n.s(R.string.unit_mbit_s);
         String[][] stats = {
-            {"FPS", streamFps > 0 ? streamFps + " fps" : "--"},
-            {"Motion to Photon Latency", streamLatencyMs > 0 ? streamLatencyMs + " ms" : "--"},
-            {"Download", String.format("%.1f Mbit/s", streamBandwidthRx * 1e-6f)},
-            {"Upload", String.format("%.1f Mbit/s", streamBandwidthTx * 1e-6f)},
-            {"Bitrate", streamBitrateMbps + " Mbit/s"},
+            {i18n.s(R.string.stat_fps), streamFps > 0 ? streamFps + " " + i18n.s(R.string.unit_fps) : "--"},
+            {i18n.s(R.string.stat_mtp_latency), streamLatencyMs > 0 ? streamLatencyMs + " " + i18n.s(R.string.unit_ms) : "--"},
+            {i18n.s(R.string.stat_download), String.format("%.1f %s", streamBandwidthRx * 1e-6f, mbitUnit)},
+            {i18n.s(R.string.stat_upload), String.format("%.1f %s", streamBandwidthTx * 1e-6f, mbitUnit)},
+            {i18n.s(R.string.stat_bitrate), streamBitrateMbps + " " + mbitUnit},
         };
 
         float labelW = 320;
@@ -1718,19 +1731,19 @@ public class WivrnLobbyView {
         y += 20;
 
         textSmallPaint.setColor(Color.rgb(90, 95, 105));
-        canvas.drawText("Resolution", x, y, textSmallPaint);
+        canvas.drawText(i18n.s(R.string.stat_resolution), x, y, textSmallPaint);
         textPaint.setColor(Color.rgb(90, 95, 105));
         canvas.drawText(streamResolutionScale + "%", valueX, y, textPaint);
         y += 42;
 
-        canvas.drawText("Microphone", x, y, textSmallPaint);
+        canvas.drawText(i18n.s(R.string.stat_microphone), x, y, textSmallPaint);
         textPaint.setColor(Color.rgb(90, 95, 105));
-        canvas.drawText("Disabled", valueX, y, textPaint);
+        canvas.drawText(i18n.s(R.string.stat_disabled), valueX, y, textPaint);
         y += 42;
 
         y += 30;
         textDimPaint.setColor(Color.rgb(100, 110, 125));
-        canvas.drawText("Press both thumbsticks to toggle this overlay", x, y, textDimPaint);
+        canvas.drawText(i18n.s(R.string.toggle_overlay_hint), x, y, textDimPaint);
         textDimPaint.setColor(Color.rgb(100, 110, 125));
     }
 
@@ -2267,6 +2280,18 @@ public class WivrnLobbyView {
         }
         sy += 40;
 
+        // Language dropdown
+        sy += 35;
+        RectF langBox = new RectF(contentX, sy, contentX + 300, sy + 40);
+        if (langBox.contains(x, y) || (x >= contentX && x <= contentX + contentW && y >= sy - 5 && y <= sy + 45)) {
+            languageSetting = (languageSetting + 1) % 3;
+            i18n.setLanguage(languageSetting);
+            saveSettings();
+            markDirty();
+            return;
+        }
+        sy += 50;
+
         // Restore Defaults button
         sy += 40;
         RectF resetBtn = new RectF(contentX, sy, contentX + 200, sy + BUTTON_HEIGHT);
@@ -2301,6 +2326,8 @@ public class WivrnLobbyView {
             streamResolutionScale = 100;
             lowerResWireless = false;
             dynamicBitrate = true;
+            languageSetting = 0;
+            i18n.setLanguage(0);
             saveSettings();
             applyResolution();
             ((MainActivity) context).onIpdChanged(ipdMm);

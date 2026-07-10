@@ -75,6 +75,7 @@ public class MainActivity extends NativeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        I18n.init(this);
         lobbyView = new WivrnLobbyView(this);
 
         new Thread(() -> {
