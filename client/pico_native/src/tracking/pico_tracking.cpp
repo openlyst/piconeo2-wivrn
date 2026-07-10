@@ -521,6 +521,7 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 
 	pkt.production_timestamp = headset_ns;
 	pkt.timestamp = to_xr_time(headset_ns + prediction_ns.load());
+
 	pkt.view_flags = XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_POSITION_VALID_BIT;
 	pkt.state_flags = 0;
 	if (recenter_requested.exchange(false))

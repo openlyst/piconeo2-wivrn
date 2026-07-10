@@ -1396,9 +1396,10 @@ static void render_frame(AppState* app) {
     struct timespec tf;
     clock_gettime(CLOCK_MONOTONIC, &tf);
 
-    // Frame selection: pick the frame whose display_time is closest to
-    // predictedDisplayTime, preferring a matching pair across both streams.
-    // Falls back to per-eye latest if no common frame is found.
+    // Frame selection — pick the oldest matching pair from both streams
+    // to keep eyes in sync, falling back to per-eye latest if no match.
+    // Note: display_time matching is not possible because the Pico OpenXR
+    // runtime uses a different time base than CLOCK_MONOTONIC.
     if (app->stream.streaming.load())
     {
         was_streaming = true;
@@ -1407,42 +1408,21 @@ static void render_frame(AppState* app) {
         uint64_t idx0 = app->stream.latest_decoded_frame_index_per_stream[0].load(std::memory_order_acquire);
         uint64_t idx1 = app->stream.latest_decoded_frame_index_per_stream[1].load(std::memory_order_acquire);
 
-        // Search the frame buffers for the pair closest to predictedDisplayTime
-        XrTime target = fs.predictedDisplayTime;
-        uint64_t best_idx = 0;
-        XrTime best_diff = INT64_MAX;
-
+        bool got_pair = false;
         if (idx0 > 0 && idx1 > 0)
         {
-            uint64_t min_idx = std::min(idx0, idx1);
-            uint64_t max_idx = std::max(idx0, idx1);
-            // Search a window of available frames (up to buffer size)
-            uint64_t search_start = (max_idx > 4) ? (max_idx - 4) : 1;
-            for (uint64_t fi = search_start; fi <= max_idx; fi++)
+            uint64_t chosen = std::min(idx0, idx1);
+            auto f0 = app->stream.get_frame(chosen, 0);
+            auto f1 = app->stream.get_frame(chosen, 1);
+            if (f0 && f0->valid && f1 && f1->valid)
             {
-                auto f0 = app->stream.get_frame(fi, 0);
-                auto f1 = app->stream.get_frame(fi, 1);
-                if (f0 && f0->valid && f1 && f1->valid)
-                {
-                    XrTime diff = f0->display_time > target
-                        ? (f0->display_time - target)
-                        : (target - f0->display_time);
-                    if (diff < best_diff)
-                    {
-                        best_diff = diff;
-                        best_idx = fi;
-                    }
-                }
-            }
-
-            if (best_idx > 0)
-            {
-                render_frames[0] = app->stream.get_frame(best_idx, 0);
-                render_frames[1] = app->stream.get_frame(best_idx, 1);
+                render_frames[0] = f0;
+                render_frames[1] = f1;
+                got_pair = true;
             }
         }
 
-        if (!render_frames[0] || !render_frames[1])
+        if (!got_pair)
         {
             for (int e = 0; e < 2; e++)
             {
@@ -1636,13 +1616,15 @@ static void render_frame(AppState* app) {
 
         layerViews[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
         if (app->stream.streaming.load() && !app->stream.stream_ui_visible.load() && render_frames[eye] && render_frames[eye]->valid)
+        {
             layerViews[eye].pose = render_frames[eye]->server_pose[eye];
-        else
-            layerViews[eye].pose = views[eye].pose;
-        if (app->stream.streaming.load() && !app->stream.stream_ui_visible.load() && render_frames[eye] && render_frames[eye]->valid)
             layerViews[eye].fov = render_frames[eye]->server_fov[eye];
+        }
         else
+        {
+            layerViews[eye].pose = views[eye].pose;
             layerViews[eye].fov = app->stream.eye_fov[eye];
+        }
         layerViews[eye].subImage.swapchain = app->swapchains[eye].handle;
         layerViews[eye].subImage.imageRect.offset = {0, 0};
         layerViews[eye].subImage.imageRect.extent = {w, h};
