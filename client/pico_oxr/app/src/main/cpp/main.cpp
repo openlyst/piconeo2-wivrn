@@ -1396,12 +1396,13 @@ static void render_frame(AppState* app) {
     struct timespec tf;
     clock_gettime(CLOCK_MONOTONIC, &tf);
 
-    // Frame selection — pick the oldest matching pair from both streams
-    // to keep eyes in sync, falling back to per-eye latest if no match.
-    // Note: display_time matching is not possible because the Pico OpenXR
-    // runtime uses a different time base than CLOCK_MONOTONIC.
-    if (app->stream.streaming.load())
-    {
+    // Late frame selection — deferred to just before the blit to minimize
+    // the time between frame decode and frame display. The lambda captures
+    // the latest decoded frames as late as possible in the render pipeline.
+    auto select_latest_frames = [&]() {
+        if (!app->stream.streaming.load())
+            return;
+
         was_streaming = true;
         std::lock_guard lock(app->stream.decoded_frame_mutex);
 
@@ -1441,7 +1442,12 @@ static void render_frame(AppState* app) {
             if (render_frames[e] && render_frames[e]->valid)
                 g_latency.on_frame_rendered(render_frames[e]->frame_index, e);
         }
+    };
 
+    // Stall detection uses whatever frames we last selected.
+    if (app->stream.streaming.load())
+    {
+        was_streaming = true;
         // Stall detection: if the same frame has been displayed for >2s
         // without any new frames arriving, mark the stream as stalled.
         uint64_t cur_frame = render_frames[0] ? render_frames[0]->frame_index : 0;
@@ -1488,11 +1494,14 @@ static void render_frame(AppState* app) {
 
     float sc_wait_ms = 0, gl_draw_ms = 0, sc_rel_ms = 0;
 
+    // Pre-acquire and wait on both swapchain images before selecting frames.
+    // This lets us pick up frames decoded during the swapchain wait.
+    uint32_t imgIndices[NUM_EYES] = {0, 0};
+    bool swapchain_ok[NUM_EYES] = {false, false};
     for (uint32_t eye = 0; eye < NUM_EYES; eye++) {
-        uint32_t imgIndex = 0;
         XrSwapchainImageAcquireInfo ai = {};
         ai.type = XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO;
-        r = xrAcquireSwapchainImage(app->swapchains[eye].handle, &ai, &imgIndex);
+        r = xrAcquireSwapchainImage(app->swapchains[eye].handle, &ai, &imgIndices[eye]);
         if (r != XR_SUCCESS) {
             LOGE("xrAcquireSwapchainImage eye %u failed: %d", eye, r);
             continue;
@@ -1509,7 +1518,18 @@ static void render_frame(AppState* app) {
             LOGE("xrWaitSwapchainImage eye %u failed: %d", eye, r);
             continue;
         }
+        swapchain_ok[eye] = true;
+    }
 
+    // Late frame selection — now that swapchain waits are done, grab the
+    // newest decoded frames. This minimizes rend_wait latency.
+    select_latest_frames();
+
+    for (uint32_t eye = 0; eye < NUM_EYES; eye++) {
+        if (!swapchain_ok[eye])
+            continue;
+
+        uint32_t imgIndex = imgIndices[eye];
         GLuint glImg = app->swapchains[eye].images[imgIndex].image;
         int32_t w = app->swapchains[eye].width;
         int32_t h = app->swapchains[eye].height;
