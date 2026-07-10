@@ -124,10 +124,17 @@ void pico_native_tracker::set_head_pose(const float orient[4], const float pos[3
 void pico_native_tracker::recenter_height()
 {
 	std::lock_guard lock(state_mutex);
-	float actual_height = head_pos[1] + height_offset.load();
-	height_offset.store(actual_height);
+	// Pvr_ResetSensor(PXR_RESET_ALL) zeroes the tracking origin to the
+	// current headset position. After that, head_pos[1] will be ~0.
+	// We want the server to see the head at standing eye height (1.5m)
+	// above the floor, so set the offset to that value.
+	// Save the pre-reset actual height for logging.
+	float pre_reset_height = head_pos[1] + height_offset.load();
+	constexpr float k_standing_eye_height = 1.5f;
+	height_offset.store(k_standing_eye_height);
 	height_calibrated = true;
-	spdlog::info("Recenter height: actual_height={:.3f} new_offset={:.3f}", actual_height, actual_height);
+	spdlog::info("Recenter height: pre_reset_height={:.3f} new_offset={:.3f} (standing eye height)",
+		pre_reset_height, k_standing_eye_height);
 }
 
 void pico_native_tracker::set_prediction_ns(int64_t ns)
