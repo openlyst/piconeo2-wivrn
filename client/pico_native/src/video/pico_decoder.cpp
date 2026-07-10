@@ -223,7 +223,7 @@ pico_video_decoder::pico_video_decoder(
 		      height,
 		      AIMAGE_FORMAT_PRIVATE,
 		      AHARDWAREBUFFER_USAGE_CPU_READ_NEVER | AHARDWAREBUFFER_USAGE_CPU_WRITE_NEVER | AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE,
-		      4,
+		      2,
 		      &ir),
 	      "AImageReader_newWithUsage");
 	image_reader.reset(ir, [](AImageReader * r) { AImageReader_delete(r); });
@@ -323,9 +323,12 @@ void pico_video_decoder::input_loop()
 		int dequeue_retries = 0;
 		while (!exiting && !flushing.load() && in_idx < 0)
 		{
-			in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 500);
+			in_idx = AMediaCodec_dequeueInputBuffer(media_codec, 0);
 			if (in_idx < 0)
+			{
 				dequeue_retries++;
+				std::this_thread::sleep_for(std::chrono::microseconds(100));
+			}
 		}
 		if (exiting || flushing.load())
 			continue;
@@ -405,7 +408,7 @@ void pico_video_decoder::output_loop()
 		}
 
 		AMediaCodecBufferInfo info;
-		ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(media_codec, &info, 100);
+		ssize_t out_idx = AMediaCodec_dequeueOutputBuffer(media_codec, &info, 0);
 		if (out_idx >= 0)
 		{
 			int64_t dequeue_time = now_ns();
@@ -448,6 +451,12 @@ void pico_video_decoder::output_loop()
 		{
 			spdlog::warn("Decoder stream {} dequeueOutputBuffer returned {}", stream_index, (long)out_idx);
 		}
+		else
+		{
+			// Non-blocking poll returned nothing — brief yield to avoid
+			// burning CPU while still responding quickly to new output.
+			std::this_thread::sleep_for(std::chrono::microseconds(200));
+		}
 	}
 }
 
@@ -466,7 +475,7 @@ void pico_video_decoder::push_data(std::span<std::span<const uint8_t>> data, uin
 	}
 	else
 	{
-		while (pending_frames.size() >= 5)
+		while (pending_frames.size() >= 2)
 		{
 			spdlog::warn("Decoder stream {} dropping frame {} (queue full)", stream_index, pending_frames.front().frame_index);
 			pending_frames.erase(pending_frames.begin());
