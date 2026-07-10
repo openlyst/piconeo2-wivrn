@@ -1,5 +1,6 @@
 # RC6 (unreleased)
 
+ - Add no-controller support: when no controllers are connected, the laser pointer originates from the headset and the headset OK button acts as the UI trigger
  - Add eye tracking support for Pico Neo 2 EYE via libPvr_NativeSDK (gaze forwarded for server-side foveated encoding)
  - Add pupil dilation tracking (encoded in unused fb_face2 blendshape slots 6/7, raw millimeters)
  - Fix eye tracking not re-registering after removing and putting the headset back on
