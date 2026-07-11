@@ -129,6 +129,8 @@ private:
 
 	// Prediction offset from server's tracking_control
 	std::atomic<int64_t> prediction_ns{0};
+	std::atomic<int64_t> base_prediction_ns{0};
+	std::atomic<int64_t> latency_correction_ns{0};
 	std::atomic<bool> recenter_requested{false};
 
 	float ctrl_lin_vel[2][3]{{0, 0, 0}, {0, 0, 0}};

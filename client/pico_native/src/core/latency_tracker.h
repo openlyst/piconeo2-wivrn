@@ -181,6 +181,26 @@ public:
 		logged_count.store(0);
 	}
 
+	int64_t get_avg_total_latency_ns()
+	{
+		std::lock_guard lock(mutex);
+		if (records.empty())
+			return 0;
+		int64_t sum = 0;
+		int count = 0;
+		for (const auto & r : records)
+		{
+			if (!r.complete || !r.has_server_timing) continue;
+			if (!r.recv_first || !r.recv_last || !r.decoder_in || !r.decoded || !r.rendered || !r.submitted)
+				continue;
+			sum += r.submitted - r.encode_begin;
+			count++;
+		}
+		if (count == 0)
+			return 0;
+		return sum / count;
+	}
+
 private:
 	void log_frame(const frame_timing & r)
 	{

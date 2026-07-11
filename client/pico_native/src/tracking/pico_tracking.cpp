@@ -2,6 +2,7 @@
 #include "wivrn_client_pico.h"
 #include "pico_sdk.h"
 #include "eye_tracking.h"
+#include "latency_tracker.h"
 
 #include <spdlog/spdlog.h>
 
@@ -132,7 +133,8 @@ void pico_native_tracker::recenter_height()
 
 void pico_native_tracker::set_prediction_ns(int64_t ns)
 {
-	prediction_ns.store(ns);
+	base_prediction_ns.store(ns);
+	prediction_ns.store(ns + latency_correction_ns.load());
 }
 
 void pico_native_tracker::get_head_pose(float out_orient[4], float out_pos[3])
@@ -477,6 +479,25 @@ void pico_native_tracker::run()
 		bool do_uplink = (frame_counter % k_uplink_div) == 0;
 		if (do_uplink && session)
 		{
+			if ((frame_counter % 300) == 0)
+			{
+				int64_t measured = g_latency.get_avg_total_latency_ns();
+				if (measured > 0)
+				{
+					int64_t base = base_prediction_ns.load();
+					int64_t correction = measured - base;
+					if (correction < 0) correction = 0;
+					if (correction > 50000000LL) correction = 50000000LL;
+					int64_t prev = latency_correction_ns.load();
+					int64_t smoothed = (prev * 7 + correction) / 8;
+					latency_correction_ns.store(smoothed);
+					prediction_ns.store(base + smoothed);
+					spdlog::info("Prediction adjusted: base={}ms measured={}ms correction={}ms total={}ms",
+						base / 1000000, measured / 1000000,
+						smoothed / 1000000, (base + smoothed) / 1000000);
+				}
+			}
+
 			transmit_tracking((int64_t)ts);
 			transmit_inputs((int64_t)ts);
 		}
