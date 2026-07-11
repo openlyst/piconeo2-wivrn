@@ -368,12 +368,12 @@ Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetDynamicBitrate(JNIEnv * env, job
 }
 
 JNIEXPORT void JNICALL
-Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetIpd(JNIEnv * env, jobject thiz, jint ipdMm)
+Java_org_meumeu_wivrn_oxr_MainActivity_nativeSetIpd(JNIEnv * env, jobject thiz, jfloat ipdMm)
 {
     if (!g_app) return;
     float ipd_m = ipdMm * 0.001f;
     g_app->stream.tracker.soft_ipd.store(ipd_m);
-    LOGI("Software IPD set to %d mm (%.4f m)", ipdMm, ipd_m);
+    LOGI("Software IPD set to %.1f mm (%.4f m)", ipdMm, ipd_m);
 }
 
 JNIEXPORT void JNICALL
