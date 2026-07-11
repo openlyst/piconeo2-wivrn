@@ -11,6 +11,8 @@
  - If the stream freezes for 2s the UI pops up, and after 5s it auto reconnects
  - Fix floaty controller tracking
 - Fix nausea from over-smoothed head tracking (velocity filter was 33x too aggressive)
+- Fix IPD slider having no effect (missing tracked bits in view flags)
+- IPD slider now uses 0.5mm precision instead of 1mm
  - Improve video quality, less banding
  - Reduce motion to photon latency from 34ms to 21ms
  - Remove high power mode from settings (it didn't do anything)
