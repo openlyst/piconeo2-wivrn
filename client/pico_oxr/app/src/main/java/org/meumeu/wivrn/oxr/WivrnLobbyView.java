@@ -135,7 +135,7 @@ public class WivrnLobbyView {
     private int foveationScale = 30;
     private String codec = "auto";
     private int bitrate = 50;
-    private int ipdMm = 64;
+    private float ipdMm = 64;
     private boolean tcpOnly = false;
     private boolean microphoneEnabled = false;
     private boolean lowerResWireless = false;
@@ -679,7 +679,12 @@ public class WivrnLobbyView {
         foveationScale = sp.getInt("foveation_scale", 30);
         codec = sp.getString("codec", "auto");
         bitrate = sp.getInt("bitrate", 50);
-        ipdMm = sp.getInt("ipd_mm", 64);
+        try {
+            ipdMm = sp.getFloat("ipd_mm", 64);
+        } catch (ClassCastException e) {
+            ipdMm = sp.getInt("ipd_mm", 64);
+            sp.edit().putFloat("ipd_mm", ipdMm).apply();
+        }
         tcpOnly = sp.getBoolean("tcp_only", false);
         microphoneEnabled = sp.getBoolean("microphone", false);
         streamBitrateSetting = sp.getInt("stream_bitrate", 50);
@@ -696,7 +701,7 @@ public class WivrnLobbyView {
             .putInt("foveation_scale", foveationScale)
             .putString("codec", codec)
             .putInt("bitrate", bitrate)
-            .putInt("ipd_mm", ipdMm)
+            .putFloat("ipd_mm", ipdMm)
             .putBoolean("tcp_only", tcpOnly)
             .putBoolean("microphone", microphoneEnabled)
             .putInt("stream_bitrate", streamBitrateSetting)
@@ -823,7 +828,7 @@ public class WivrnLobbyView {
     public int getFoveationScale() { return foveationScale; }
     public String getCodec() { return codec; }
     public int getBitrate() { return bitrate; }
-    public int getIpdMm() { return ipdMm; }
+    public float getIpdMm() { return ipdMm; }
     public boolean isTcpOnly() { return tcpOnly; }
     public boolean isMicrophoneEnabled() { return microphoneEnabled; }
     public boolean isLowerResWireless() { return lowerResWireless; }
@@ -1029,7 +1034,7 @@ public class WivrnLobbyView {
         y = drawResolutionSlider(x, y, w, i18n.s(R.string.setting_resolution), resWidth, 1024, 2048);
         y = drawSlider(x, y, w, i18n.s(R.string.setting_foveated_encoding), foveationScale, 0, 80, "%", true);
         y = drawSlider(x, y, w, i18n.s(R.string.setting_bitrate), bitrate, 5, 200, i18n.s(R.string.unit_mbit_s), false);
-        y = drawSlider(x, y, w, i18n.s(R.string.setting_ipd), ipdMm, 58, 72, i18n.s(R.string.unit_mm), false);
+        y = drawSliderFloat(x, y, w, i18n.s(R.string.setting_ipd), ipdMm, 58, 72, i18n.s(R.string.unit_mm), false, 1);
 
         y = drawDropdown(x, y, w, i18n.s(R.string.setting_codec), new String[]{i18n.s(R.string.codec_auto), i18n.s(R.string.codec_h264), i18n.s(R.string.codec_h265)},
             codec.equals("auto") ? 0 : codec.equals("h264") ? 1 : 2, true);
@@ -1081,6 +1086,10 @@ public class WivrnLobbyView {
     }
 
     private float drawSlider(float x, float y, float w, String label, int value, int min, int max, String unit, boolean disabled) {
+        return drawSliderFloat(x, y, w, label, (float)value, min, max, unit, disabled, 0);
+    }
+
+    private float drawSliderFloat(float x, float y, float w, String label, float value, float min, float max, String unit, boolean disabled, int decimals) {
         int prevTextColor = textPaint.getColor();
         int prevSmallColor = textSmallPaint.getColor();
         if (disabled) {
@@ -1094,7 +1103,7 @@ public class WivrnLobbyView {
         RectF track = new RectF(x, y, x + sliderW, y + 8);
         canvas.drawRoundRect(track, 4, 4, disabled ? dimPaint : sliderTrackPaint);
 
-        float pct = (float)(value - min) / (max - min);
+        float pct = (value - min) / (max - min);
         RectF fill = new RectF(x, y, x + sliderW * pct, y + 8);
         if (!disabled)
             canvas.drawRoundRect(fill, 4, 4, sliderFillPaint);
@@ -1103,7 +1112,8 @@ public class WivrnLobbyView {
         Paint handlePaint = disabled ? new Paint() {{ setAntiAlias(true); setColor(Color.rgb(80, 85, 95)); }} : sliderHandlePaint;
         canvas.drawCircle(handleX, y + 4, 14, handlePaint);
 
-        canvas.drawText(value + unit, x + sliderW + 15, y + 12, textSmallPaint);
+        String fmt = decimals > 0 ? "%." + decimals + "f%s" : "%.0f%s";
+        canvas.drawText(String.format(fmt, value, unit), x + sliderW + 15, y + 12, textSmallPaint);
 
         y += 30;
         textPaint.setColor(prevTextColor);
@@ -1903,7 +1913,8 @@ public class WivrnLobbyView {
                 markDirty();
                 break;
             case SLIDER_IPD:
-                ipdMm = Math.max(58, Math.min(72, (int)(58 + pct * 14)));
+                ipdMm = Math.round((58 + pct * 14) * 2) / 2.0f;
+                ipdMm = Math.max(58, Math.min(72, ipdMm));
                 saveSettings();
                 ((MainActivity) context).onIpdChanged(ipdMm);
                 markDirty();
@@ -2226,7 +2237,8 @@ public class WivrnLobbyView {
         if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + resSliderW) {
             activeSlider = SLIDER_IPD;
             float pct = Math.max(0, Math.min(1, (x - contentX) / resSliderW));
-            ipdMm = Math.max(58, Math.min(72, (int)(58 + pct * 14)));
+            ipdMm = Math.round((58 + pct * 14) * 2) / 2.0f;
+            ipdMm = Math.max(58, Math.min(72, ipdMm));
             saveSettings();
             ((MainActivity) context).onIpdChanged(ipdMm);
             markDirty();
