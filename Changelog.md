@@ -10,6 +10,7 @@
  - Resolution can now change on the fly without reconnecting
  - If the stream freezes for 2s the UI pops up, and after 5s it auto reconnects
  - Fix floaty controller tracking
+- Fix nausea from over-smoothed head tracking (velocity filter was 33x too aggressive)
  - Improve video quality, less banding
  - Reduce motion to photon latency from 34ms to 21ms
  - Remove high power mode from settings (it didn't do anything)
