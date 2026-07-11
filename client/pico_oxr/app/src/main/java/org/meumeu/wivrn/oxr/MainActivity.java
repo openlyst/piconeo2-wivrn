@@ -84,11 +84,17 @@ public class MainActivity extends NativeActivity {
             }
             if (nativeReady()) {
                 SharedPreferences sp = getSharedPreferences("wivrn_settings", MODE_PRIVATE);
-                int savedIpd = sp.getInt("ipd_mm", 64);
+                float savedIpd;
+                try {
+                    savedIpd = sp.getFloat("ipd_mm", 64);
+                } catch (ClassCastException e) {
+                    savedIpd = sp.getInt("ipd_mm", 64);
+                }
+                final float finalIpd = savedIpd;
                 boolean savedMic = sp.getBoolean("microphone", false);
                 boolean savedDynBr = sp.getBoolean("dynamic_bitrate", true);
                 runOnUiThread(() -> {
-                    onIpdChanged(savedIpd);
+                    onIpdChanged(finalIpd);
                     if (savedMic) onMicrophoneChanged(true);
                     lobbyView.applyResolution();
                     nativeSetDynamicBitrate(savedDynBr);
@@ -530,7 +536,7 @@ public class MainActivity extends NativeActivity {
         nativeConnectServer(pendingHost, pendingPort, pendingTcpOnly);
     }
 
-    public void onIpdChanged(int ipdMm) {
+    public void onIpdChanged(float ipdMm) {
         Log.i(TAG, "IPD changed: " + ipdMm + " mm");
         nativeSetIpd(ipdMm);
     }
@@ -628,7 +634,7 @@ public class MainActivity extends NativeActivity {
     public native void nativeRequestRunningApps();
     public native void nativeSetActiveApp(int appId);
     public native void nativeStopApp(int appId);
-    public native void nativeSetIpd(int ipdMm);
+    public native void nativeSetIpd(float ipdMm);
     public native void nativeSetMicrophone(boolean enabled);
     public native void nativeSetStreamResolution(int width, int height);
     public native void nativeSetRenderResolution(int width, int height);
