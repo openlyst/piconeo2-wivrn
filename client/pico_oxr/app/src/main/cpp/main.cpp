@@ -211,6 +211,7 @@ struct AppState {
     XrSystemId systemId = XR_NULL_SYSTEM_ID;
     XrSession session = XR_NULL_HANDLE;
     XrSpace localSpace = XR_NULL_HANDLE;
+    XrSpace viewSpace = XR_NULL_HANDLE;
     XrSessionState sessionState = XR_SESSION_STATE_UNKNOWN;
     bool sessionRunning = false;
 
@@ -798,6 +799,13 @@ static bool openxr_create_session(AppState* app) {
         return false;
     }
 
+    rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+    r = xrCreateReferenceSpace(app->session, &rsci, &app->viewSpace);
+    if (r != XR_SUCCESS) {
+        LOGW("xrCreateReferenceSpace VIEW failed: %d, velocity will use EMA fallback", r);
+        app->viewSpace = XR_NULL_HANDLE;
+    }
+
     // Create haptic action set for controller vibration
     {
         XrActionSetCreateInfo asci = {};
@@ -985,6 +993,10 @@ static void openxr_destroy_session(AppState* app) {
         xrDestroySpace(app->localSpace);
         app->localSpace = XR_NULL_HANDLE;
     }
+    if (app->viewSpace) {
+        xrDestroySpace(app->viewSpace);
+        app->viewSpace = XR_NULL_HANDLE;
+    }
     if (app->hapticActions[0]) {
         xrDestroyAction(app->hapticActions[0]);
         app->hapticActions[0] = XR_NULL_HANDLE;
@@ -1048,6 +1060,10 @@ static void poll_events(AppState* app) {
                 xrDestroySpace(app->localSpace);
                 app->localSpace = XR_NULL_HANDLE;
             }
+            if (app->viewSpace) {
+                xrDestroySpace(app->viewSpace);
+                app->viewSpace = XR_NULL_HANDLE;
+            }
             XrReferenceSpaceCreateInfo rsci = {};
             rsci.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
             rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
@@ -1058,6 +1074,10 @@ static void poll_events(AppState* app) {
                 LOGE("xrCreateReferenceSpace after recenter failed: %d", rr);
             else
                 LOGI("Reference space recreated after recenter");
+            rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+            rr = xrCreateReferenceSpace(app->session, &rsci, &app->viewSpace);
+            if (rr != XR_SUCCESS)
+                LOGW("xrCreateReferenceSpace VIEW after recenter failed: %d", rr);
             app->lobby.recenter();
             break;
         }
@@ -1237,7 +1257,42 @@ static void render_frame(AppState* app) {
     float ipd = app->stream.tracker.soft_ipd.load();
     if (ipd <= 0.001f) ipd = hw_ipd;
 
-    app->stream.tracker.set_head_pose(head_orient, head_pos);
+    float hw_lin_vel[3] = {0, 0, 0};
+    float hw_ang_vel[3] = {0, 0, 0};
+    bool have_hw_vel = false;
+    if (app->viewSpace != XR_NULL_HANDLE)
+    {
+        XrSpaceVelocity velocity = {};
+        velocity.type = XR_TYPE_SPACE_VELOCITY;
+        XrSpaceLocation location = {};
+        location.type = XR_TYPE_SPACE_LOCATION;
+        location.next = &velocity;
+        XrResult vr = xrLocateSpace(app->viewSpace, app->localSpace,
+                                     fs.predictedDisplayTime, &location);
+        static int vel_diag_count = 0;
+        if (vel_diag_count++ < 5)
+            LOGI("xrLocateSpace VIEW: result=%d velFlags=0x%x linValid=%d angValid=%d",
+                 vr, velocity.velocityFlags,
+                 (velocity.velocityFlags & XR_SPACE_VELOCITY_LINEAR_VALID_BIT) ? 1 : 0,
+                 (velocity.velocityFlags & XR_SPACE_VELOCITY_ANGULAR_VALID_BIT) ? 1 : 0);
+        if (vr == XR_SUCCESS &&
+            (velocity.velocityFlags & XR_SPACE_VELOCITY_LINEAR_VALID_BIT) &&
+            (velocity.velocityFlags & XR_SPACE_VELOCITY_ANGULAR_VALID_BIT))
+        {
+            hw_lin_vel[0] = velocity.linearVelocity.x;
+            hw_lin_vel[1] = velocity.linearVelocity.y;
+            hw_lin_vel[2] = velocity.linearVelocity.z;
+            hw_ang_vel[0] = velocity.angularVelocity.x;
+            hw_ang_vel[1] = velocity.angularVelocity.y;
+            hw_ang_vel[2] = velocity.angularVelocity.z;
+            have_hw_vel = true;
+        }
+    }
+
+    if (have_hw_vel)
+        app->stream.tracker.set_head_pose(head_orient, head_pos, hw_lin_vel, hw_ang_vel);
+    else
+        app->stream.tracker.set_head_pose(head_orient, head_pos);
 
     // Pico Neo 2 has a square ~101 degree per-eye FOV.
     // The OpenXR runtime reports incorrect/wider values that cause zoom-in.
@@ -1249,9 +1304,13 @@ static void render_frame(AppState* app) {
     static int hmd_log_count = 0;
     if (hmd_log_count++ % 120 == 0)
     {
-        LOGI("RENDER HMD: q=(%.4f,%.4f,%.4f,%.4f) pos_m=(%.4f,%.4f,%.4f) ipd=%.4f",
+        LOGI("RENDER HMD: q=(%.4f,%.4f,%.4f,%.4f) pos_m=(%.4f,%.4f,%.4f) ipd=%.4f "
+             "hw_vel=%d lv=(%.2f,%.2f,%.2f) av=(%.2f,%.2f,%.2f)",
              head_orient[0], head_orient[1], head_orient[2], head_orient[3],
-             head_pos[0], head_pos[1], head_pos[2], ipd);
+             head_pos[0], head_pos[1], head_pos[2], ipd,
+             have_hw_vel ? 1 : 0,
+             hw_lin_vel[0], hw_lin_vel[1], hw_lin_vel[2],
+             hw_ang_vel[0], hw_ang_vel[1], hw_ang_vel[2]);
     }
 
     static int fov_log_count = 0;
@@ -1313,6 +1372,11 @@ static void render_frame(AppState* app) {
                     app->localSpace = XR_NULL_HANDLE;
                     LOGI("old localSpace destroyed");
                 }
+                if (app->viewSpace)
+                {
+                    xrDestroySpace(app->viewSpace);
+                    app->viewSpace = XR_NULL_HANDLE;
+                }
                 XrReferenceSpaceCreateInfo rsci = {};
                 rsci.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
                 rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
@@ -1323,6 +1387,10 @@ static void render_frame(AppState* app) {
                     LOGE("xrCreateReferenceSpace after recenter failed: %d", rr);
                 else
                     LOGI("Reference space recreated after recenter");
+                rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+                rr = xrCreateReferenceSpace(app->session, &rsci, &app->viewSpace);
+                if (rr != XR_SUCCESS)
+                    LOGW("xrCreateReferenceSpace VIEW after recenter failed: %d", rr);
                 app->lobby.recenter();
             }
             else if (home_press_ts[h] > 0)
@@ -1847,6 +1915,10 @@ static void trigger_recenter(AppState* app) {
         app->localSpace = XR_NULL_HANDLE;
         LOGI("old localSpace destroyed");
     }
+    if (app->viewSpace) {
+        xrDestroySpace(app->viewSpace);
+        app->viewSpace = XR_NULL_HANDLE;
+    }
     XrReferenceSpaceCreateInfo rsci = {};
     rsci.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
     rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
@@ -1857,6 +1929,10 @@ static void trigger_recenter(AppState* app) {
         LOGE("xrCreateReferenceSpace after recenter failed: %d", rr);
     else
         LOGI("Reference space recreated after recenter");
+    rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+    rr = xrCreateReferenceSpace(app->session, &rsci, &app->viewSpace);
+    if (rr != XR_SUCCESS)
+        LOGW("xrCreateReferenceSpace VIEW after recenter failed: %d", rr);
     app->lobby.recenter();
 }
 

@@ -25,8 +25,6 @@ constexpr float k_grip_up_mm = 12.5f;
 constexpr float k_grip_back_mm = 40.0f;
 constexpr float k_rot_swing = 1.0f;
 
-constexpr float k_head_vel_tau = 0.12f;
-constexpr float k_ctrl_vel_tau = 0.05f;
 constexpr float k_predict = 1.0f;
 
 neo2::quat apply_controller_orientation(const float raw_orient[4], int hand)
@@ -100,7 +98,8 @@ void pico_native_tracker::stop()
 	spdlog::info("Native tracker stopped");
 }
 
-void pico_native_tracker::set_head_pose(const float orient[4], const float pos[3])
+void pico_native_tracker::set_head_pose(const float orient[4], const float pos[3],
+                                       const float * lin_vel, const float * ang_vel)
 {
 	uint64_t ts = (uint64_t)now_ns();
 	neo2::quat hq = neo2::normalize_quat({orient[0], orient[1], orient[2], orient[3]});
@@ -109,6 +108,7 @@ void pico_native_tracker::set_head_pose(const float orient[4], const float pos[3
 	std::memcpy(head_orient, orient, sizeof(head_orient));
 	std::memcpy(head_pos, pos, sizeof(head_pos));
 	head_valid = true;
+	head_pose_seq++;
 
 	if (!height_calibrated && !floor_relative.load())
 	{
@@ -119,7 +119,27 @@ void pico_native_tracker::set_head_pose(const float orient[4], const float pos[3
 		spdlog::info("Height calibrated: initial_Y={:.3f} offset={:.3f}", pos[1], offset);
 	}
 
-	step_head_filter(pos, hq, ts);
+	if (lin_vel && ang_vel)
+	{
+		head_lin_vel[0] = lin_vel[0];
+		head_lin_vel[1] = lin_vel[1];
+		head_lin_vel[2] = lin_vel[2];
+		head_ang_vel[0] = ang_vel[0];
+		head_ang_vel[1] = ang_vel[1];
+		head_ang_vel[2] = ang_vel[2];
+		hw_velocity_valid = true;
+		head_prev_pos[0] = pos[0];
+		head_prev_pos[1] = pos[1];
+		head_prev_pos[2] = pos[2];
+		head_prev_orient = hq;
+		head_prev_ts = ts;
+		head_filter_init = true;
+	}
+	else
+	{
+		hw_velocity_valid = false;
+		step_head_filter(pos, hq, ts);
+	}
 }
 
 void pico_native_tracker::recenter_height()
@@ -258,11 +278,9 @@ void pico_native_tracker::step_head_filter(const float pos[3], const neo2::quat 
 		double dt = (double)(ts - head_prev_ts) * 1e-9;
 		if (dt > 0.002 && dt < 0.05)
 		{
-			float alpha = 1.0f - std::exp(-(float)dt / k_head_vel_tau);
-
-			float lvx = (float)((pos[0] - head_prev_pos[0]) / dt);
-			float lvy = (float)((pos[1] - head_prev_pos[1]) / dt);
-			float lvz = (float)((pos[2] - head_prev_pos[2]) / dt);
+			head_lin_vel[0] = (float)((pos[0] - head_prev_pos[0]) / dt);
+			head_lin_vel[1] = (float)((pos[1] - head_prev_pos[1]) / dt);
+			head_lin_vel[2] = (float)((pos[2] - head_prev_pos[2]) / dt);
 
 			neo2::quat delta = neo2::normalize_quat(
 				neo2::multiply_quat(orient, neo2::conjugate_quat(head_prev_orient)));
@@ -274,19 +292,19 @@ void pico_native_tracker::step_head_filter(const float pos[3], const neo2::quat 
 			float w = delta.w > 1.0f ? 1.0f : delta.w;
 			float angle = 2.0f * std::acos(w);
 			float s = std::sqrt(1.0f - w * w);
-			float avx = 0, avy = 0, avz = 0;
 			if (s > 1e-6f)
 			{
 				float k = (angle / s) / (float)dt;
-				avx = delta.x * k; avy = delta.y * k; avz = delta.z * k;
+				head_ang_vel[0] = delta.x * k;
+				head_ang_vel[1] = delta.y * k;
+				head_ang_vel[2] = delta.z * k;
 			}
-
-			head_lin_vel[0] += (lvx - head_lin_vel[0]) * alpha;
-			head_lin_vel[1] += (lvy - head_lin_vel[1]) * alpha;
-			head_lin_vel[2] += (lvz - head_lin_vel[2]) * alpha;
-			head_ang_vel[0] += (avx - head_ang_vel[0]) * alpha;
-			head_ang_vel[1] += (avy - head_ang_vel[1]) * alpha;
-			head_ang_vel[2] += (avz - head_ang_vel[2]) * alpha;
+			else
+			{
+				head_ang_vel[0] = 0;
+				head_ang_vel[1] = 0;
+				head_ang_vel[2] = 0;
+			}
 		}
 	}
 	head_prev_pos[0] = pos[0];
@@ -304,20 +322,15 @@ void pico_native_tracker::step_ctrl_filter(int hand, const float pos_m[3], const
 		double dt = (double)(ts - ctrl_prev_ts[hand]) * 1e-9;
 		if (dt > 0.002 && dt < 0.05)
 		{
-			float alpha = 1.0f - std::exp(-(float)dt / k_ctrl_vel_tau);
-			float lvx = (float)((pos_m[0] - ctrl_prev_pos[hand][0]) / dt);
-			float lvy = (float)((pos_m[1] - ctrl_prev_pos[hand][1]) / dt);
-			float lvz = (float)((pos_m[2] - ctrl_prev_pos[hand][2]) / dt);
-			ctrl_lin_vel[hand][0] += (lvx - ctrl_lin_vel[hand][0]) * alpha;
-			ctrl_lin_vel[hand][1] += (lvy - ctrl_lin_vel[hand][1]) * alpha;
-			ctrl_lin_vel[hand][2] += (lvz - ctrl_lin_vel[hand][2]) * alpha;
+			ctrl_lin_vel[hand][0] = (float)((pos_m[0] - ctrl_prev_pos[hand][0]) / dt);
+			ctrl_lin_vel[hand][1] = (float)((pos_m[1] - ctrl_prev_pos[hand][1]) / dt);
+			ctrl_lin_vel[hand][2] = (float)((pos_m[2] - ctrl_prev_pos[hand][2]) / dt);
 
-			float avx = 0, avy = 0, avz = 0;
 			if (hw_ang_vel)
 			{
-				avx = -hw_ang_vel[0];
-				avy = -hw_ang_vel[1];
-				avz = hw_ang_vel[2];
+				ctrl_ang_vel[hand][0] = -hw_ang_vel[0];
+				ctrl_ang_vel[hand][1] = -hw_ang_vel[1];
+				ctrl_ang_vel[hand][2] = hw_ang_vel[2];
 			}
 			else
 			{
@@ -334,12 +347,17 @@ void pico_native_tracker::step_ctrl_filter(int hand, const float pos_m[3], const
 				if (s > 1e-6f)
 				{
 					float k = (angle / s) / (float)dt;
-					avx = delta.x * k; avy = delta.y * k; avz = delta.z * k;
+					ctrl_ang_vel[hand][0] = delta.x * k;
+					ctrl_ang_vel[hand][1] = delta.y * k;
+					ctrl_ang_vel[hand][2] = delta.z * k;
+				}
+				else
+				{
+					ctrl_ang_vel[hand][0] = 0;
+					ctrl_ang_vel[hand][1] = 0;
+					ctrl_ang_vel[hand][2] = 0;
 				}
 			}
-			ctrl_ang_vel[hand][0] += (avx - ctrl_ang_vel[hand][0]) * alpha;
-			ctrl_ang_vel[hand][1] += (avy - ctrl_ang_vel[hand][1]) * alpha;
-			ctrl_ang_vel[hand][2] += (avz - ctrl_ang_vel[hand][2]) * alpha;
 		}
 	}
 	ctrl_prev_pos[hand][0] = pos_m[0];
@@ -353,6 +371,7 @@ void pico_native_tracker::step_ctrl_filter(int hand, const float pos_m[3], const
 void pico_native_tracker::run()
 {
 	int frame_counter = 0;
+	uint32_t last_tx_seq = 0;
 
 	auto ts_add_ns = [](struct timespec & t, long ns) {
 		t.tv_nsec += ns;
@@ -372,10 +391,12 @@ void pico_native_tracker::run()
 
 		float h_orient[4], h_pos[3];
 		bool h_valid;
+		uint32_t cur_seq;
 
 		{
 			std::lock_guard lock(state_mutex);
 			h_valid = head_valid;
+			cur_seq = head_pose_seq;
 			if (h_valid)
 			{
 				std::memcpy(h_orient, head_orient, sizeof(h_orient));
@@ -394,6 +415,8 @@ void pico_native_tracker::run()
 				head_orient[0] = qx; head_orient[1] = qy; head_orient[2] = qz; head_orient[3] = qw;
 				head_pos[0] = px; head_pos[1] = py; head_pos[2] = pz;
 				head_valid = true;
+				head_pose_seq++;
+				cur_seq = head_pose_seq;
 				h_valid = true;
 				std::memcpy(h_orient, head_orient, sizeof(h_orient));
 				std::memcpy(h_pos, head_pos, sizeof(h_pos));
@@ -477,9 +500,11 @@ void pico_native_tracker::run()
 		}
 
 		bool do_uplink = (frame_counter % k_uplink_div) == 0;
-		if (do_uplink && session)
+		bool new_pose = (cur_seq != last_tx_seq);
+		if (do_uplink && new_pose && session)
 		{
-			if ((frame_counter % 300) == 0)
+			last_tx_seq = cur_seq;
+			if ((frame_counter % 150) == 0)
 			{
 				int64_t measured = g_latency.get_avg_total_latency_ns();
 				if (measured > 0)
@@ -489,7 +514,7 @@ void pico_native_tracker::run()
 					if (correction < 0) correction = 0;
 					if (correction > 50000000LL) correction = 50000000LL;
 					int64_t prev = latency_correction_ns.load();
-					int64_t smoothed = (prev * 7 + correction) / 8;
+					int64_t smoothed = (prev * 3 + correction) / 4;
 					latency_correction_ns.store(smoothed);
 					prediction_ns.store(base + smoothed);
 					spdlog::info("Prediction adjusted: base={}ms measured={}ms correction={}ms total={}ms",

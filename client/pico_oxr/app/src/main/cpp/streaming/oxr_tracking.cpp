@@ -13,5 +13,5 @@ void oxr_tracker::set_head_pose_from_xr(const XrPosef & pose)
 		pose.position.y,
 		pose.position.z
 	};
-	set_head_pose(orient, pos);
+	set_head_pose(orient, pos, nullptr, nullptr);
 }

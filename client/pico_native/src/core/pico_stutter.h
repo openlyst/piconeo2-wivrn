@@ -23,7 +23,7 @@ struct stutter_event
 class stutter_detector
 {
 public:
-	static constexpr int64_t TARGET_FRAME_NS = 11'111'111; // 90fps
+	static constexpr int64_t TARGET_FRAME_NS = 13'888'888; // 72fps
 	static constexpr int64_t STUTTER_THRESHOLD_NS = 20'000'000; // 20ms = missed deadline
 	static constexpr int64_t STALE_FRAME_THRESHOLD_NS = 40'000'000; // 40ms old = stale
 	static constexpr int64_t DECODE_SLOW_THRESHOLD_NS = 15'000'000; // 15ms decode = slow

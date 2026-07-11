@@ -90,7 +90,8 @@ public:
 	void start();
 	void stop();
 
-	void set_head_pose(const float orient[4], const float pos[3]);
+	void set_head_pose(const float orient[4], const float pos[3],
+	                   const float * lin_vel = nullptr, const float * ang_vel = nullptr);
 	void get_head_pose(float out_orient[4], float out_pos[3]);
 	void recenter_height();
 	void get_controllers(controller_sample out[2]);
@@ -115,6 +116,7 @@ private:
 	float head_orient[4]{0, 0, 0, 1};
 	float head_pos[3]{0, 0, 0};
 	bool head_valid = false;
+	uint32_t head_pose_seq = 0;
 
 	controller_sample controllers[2];
 
@@ -126,6 +128,7 @@ private:
 	uint64_t head_prev_ts = 0;
 	bool head_filter_init = false;
 	bool height_calibrated = false;
+	bool hw_velocity_valid = false;
 
 	// Prediction offset from server's tracking_control
 	std::atomic<int64_t> prediction_ns{0};
