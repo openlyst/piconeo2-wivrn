@@ -24,9 +24,9 @@ constexpr float k_grip_up_mm = 12.5f;
 constexpr float k_grip_back_mm = 40.0f;
 constexpr float k_rot_swing = 1.0f;
 
-constexpr float k_head_vel_tau = 0.02f;
-constexpr float k_ctrl_vel_tau = 0.02f;
-constexpr float k_predict = 0.7f;
+constexpr float k_head_vel_tau = 0.66f;
+constexpr float k_ctrl_vel_tau = 0.05f;
+constexpr float k_predict = 0.4f;
 
 neo2::quat apply_controller_orientation(const float raw_orient[4], int hand)
 {
@@ -564,9 +564,9 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 		head_lin_vel[1] * k_predict,
 		head_lin_vel[2] * k_predict};
 	head_tp.angular_velocity = {
-		head_ang_vel[0] * k_predict,
-		head_ang_vel[1] * k_predict,
-		head_ang_vel[2] * k_predict};
+		head_ang_vel[0],
+		head_ang_vel[1],
+		head_ang_vel[2]};
 	pkt.device_poses.push_back(head_tp);
 
 	for (int h = 0; h < 2; h++)
