@@ -455,15 +455,8 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 			if (head_pred == 0)
 				head_pred = 30000000; // 30ms default prediction
 
-			// The server's prediction estimate is typically too low for
-			// the Pico Neo 2 pipeline. Boost it to cover the full
-			// motion-to-photon latency (encode + network + decode + display).
-			constexpr int64_t k_prediction_boost_ns = 20000000; // 20ms
-			int64_t server_pred = head_pred;
-			head_pred += k_prediction_boost_ns;
 			tracker.set_prediction_ns(head_pred);
-			spdlog::info("Head prediction: {}ns (server={} boost={}ns)", head_pred,
-				server_pred, k_prediction_boost_ns);
+			spdlog::info("Head prediction: {}ns", head_pred);
 		}
 		else if constexpr (std::is_same_v<T, to_headset::haptics>)
 		{

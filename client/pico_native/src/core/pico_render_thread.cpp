@@ -10,7 +10,9 @@
 #include <GLES2/gl2ext.h>
 #include <cstring>
 #include <cmath>
+#include <cstdlib>
 #include <unistd.h>
+#include <sys/system_properties.h>
 
 #ifndef EGL_CONTEXT_PRIORITY_LEVEL_IMG
 #define EGL_CONTEXT_PRIORITY_LEVEL_IMG 0x3100
@@ -565,7 +567,16 @@ void pico_render_thread::run()
 	bool warp_pinned = false;
 	int frame = 0;
 
-	constexpr int64_t target_frame_ns = 13888888LL; // 72Hz
+	int target_fps = 72;
+	char prop_buf[8] = {};
+	if (__system_property_get("persist.pvr.config.target_fps", prop_buf) > 0)
+	{
+		int val = atoi(prop_buf);
+		if (val >= 60 && val <= 120)
+			target_fps = val;
+	}
+	int64_t target_frame_ns = 1000000000LL / target_fps;
+	spdlog::info("Render target: {}Hz ({}ns)", target_fps, target_frame_ns);
 
 	while (running.load())
 	{

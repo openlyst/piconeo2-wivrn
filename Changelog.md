@@ -13,6 +13,12 @@
 - Fix nausea from over-smoothed head tracking (velocity filter was 33x too aggressive)
 - Fix IPD slider having no effect (missing tracked bits in view flags)
 - IPD slider now uses 0.5mm precision instead of 1mm
+- Fix motion sickness: velocity filter tau reduced from 660ms to 120ms for responsive prediction
+- Fix motion sickness: linear and angular velocity now use same prediction scale (was asymmetric)
+- Fix motion sickness: removed hardcoded 20ms prediction boost that caused over-prediction
+- Fix motion sickness: increased decoder buffer from 2 to 4 frames to reduce judder on network jitter
+- Fix motion sickness: tracking uplink now runs at full 300Hz instead of 150Hz
+- Render thread now reads target FPS from persist.pvr.config.target_fps (supports 90Hz)
  - Improve video quality, less banding
  - Reduce motion to photon latency from 34ms to 21ms
  - Remove high power mode from settings (it didn't do anything)

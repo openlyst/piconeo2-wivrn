@@ -223,7 +223,7 @@ pico_video_decoder::pico_video_decoder(
 		      height,
 		      AIMAGE_FORMAT_PRIVATE,
 		      AHARDWAREBUFFER_USAGE_CPU_READ_NEVER | AHARDWAREBUFFER_USAGE_CPU_WRITE_NEVER | AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE,
-		      2,
+		      4,
 		      &ir),
 	      "AImageReader_newWithUsage");
 	image_reader.reset(ir, [](AImageReader * r) { AImageReader_delete(r); });
