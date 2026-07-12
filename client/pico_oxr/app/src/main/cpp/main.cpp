@@ -1621,9 +1621,12 @@ static void render_frame(AppState* app) {
         glBindFramebuffer(GL_FRAMEBUFFER, app->fbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, glImg, 0);
 
-        bool is_streaming_blit = app->stream.streaming.load() && !app->stream.stream_ui_visible.load();
+        bool is_streaming = app->stream.streaming.load();
+        bool ui_visible = app->stream.stream_ui_visible.load();
+        bool is_streaming_blit = is_streaming && !ui_visible;
+        bool is_streaming_overlay = is_streaming && ui_visible;
 
-        if (!is_streaming_blit) {
+        if (is_streaming_overlay || !is_streaming_blit) {
             if (app->depth_rbo_w[eye] != w || app->depth_rbo_h[eye] != h) {
                 glBindRenderbuffer(GL_RENDERBUFFER, app->depth_rbo[eye]);
                 glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
@@ -1634,16 +1637,16 @@ static void render_frame(AppState* app) {
         }
 
         std::shared_ptr<pico_decoded_frame> decoded;
-        if (app->stream.streaming.load())
+        if (is_streaming)
         {
             decoded = render_frames[eye];
         }
 
-        if (is_streaming_blit) {
-            static int blit_log_count = 0;
-            if (eye == 0 && (blit_log_count++ % 300 == 0)) LOGI("STREAMING: blit path active");
-
+        if (is_streaming_blit || is_streaming_overlay) {
             if (eye == 0) {
+                static int blit_log_count = 0;
+                if (blit_log_count++ % 300 == 0) LOGI("STREAMING: %s path active", is_streaming_overlay ? "overlay" : "blit");
+
                 static int sync_log_count = 0;
                 bool has_both = render_frames[0] && render_frames[0]->valid && render_frames[1] && render_frames[1]->valid;
                 if (has_both)
@@ -1671,33 +1674,22 @@ static void render_frame(AppState* app) {
                     render_frames[1] ? render_frames[1]->frame_index : 0);
                 g_stutter.on_frame_end();
                 g_stutter.log_summary();
-
-                static int fov_cmp_count = 0;
-                if (fov_cmp_count++ % 30 == 0 && render_frames[0] && render_frames[0]->valid)
-                {
-                    for (int e = 0; e < 2; e++)
-                    {
-                        const XrFovf &cf = app->stream.eye_fov[e];
-                        const XrFovf &sf = render_frames[e] ? render_frames[e]->server_fov[e] : XrFovf{};
-                        constexpr float rad2deg = 180.0f / 3.14159265358979f;
-                        float client_h_fov = (cf.angleRight - cf.angleLeft) * rad2deg;
-                        float client_v_fov = (cf.angleUp - cf.angleDown) * rad2deg;
-                        float server_h_fov = (sf.angleRight - sf.angleLeft) * rad2deg;
-                        float server_v_fov = (sf.angleUp - sf.angleDown) * rad2deg;
-                        float h_ratio = (server_h_fov > 0.001f) ? client_h_fov / server_h_fov : 0;
-                        float v_ratio = (server_v_fov > 0.001f) ? client_v_fov / server_v_fov : 0;
-                        const XrPosef &sp = render_frames[e]->server_pose[e];
-                        LOGI("FOV_CMP eye=%d | client: H=%.1f V=%.1f deg | server: H=%.1f V=%.1f deg | ratio: H=%.2f V=%.2f%s | server_pose: q=(%.3f,%.3f,%.3f,%.3f) p=(%.3f,%.3f,%.3f)",
-                             e, client_h_fov, client_v_fov, server_h_fov, server_v_fov,
-                             h_ratio, v_ratio,
-                             (h_ratio < 0.95f || h_ratio > 1.05f) ? " [MISMATCH]" : "",
-                             sp.orientation.x, sp.orientation.y, sp.orientation.z, sp.orientation.w,
-                             sp.position.x, sp.position.y, sp.position.z);
-                    }
-                }
             }
 
+            // Blit the stream video to the swapchain texture first
             app->blit.blit(&app->stream.blit_pipeline, render_frames[eye], eye, glImg, w, h);
+
+            if (is_streaming_overlay) {
+                // Re-attach the swapchain texture and depth buffer for lobby overlay
+                glBindFramebuffer(GL_FRAMEBUFFER, app->fbo);
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, glImg, 0);
+                glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, app->depth_rbo[eye]);
+
+                // Draw lobby UI on top of the stream (overlay mode: no color clear)
+                constexpr float k_lobby_fov_half = 101.0f * 0.5f * 0.01745329252f;
+                XrFovf lobby_fov = {-k_lobby_fov_half, k_lobby_fov_half, k_lobby_fov_half, -k_lobby_fov_half};
+                app->lobby.draw(eye, head_orient, head_pos, cs, lobby_fov, ipd, g_ok_pressed.load(), true);
+            }
         } else {
             static int lobby_log_count = 0;
             if (eye == 0 && (lobby_log_count++ % 300 == 0)) LOGI("LOBBY: streaming=%d", (int)app->stream.streaming.load());
@@ -1717,7 +1709,7 @@ static void render_frame(AppState* app) {
         sc_rel_ms += ts_diff(tc, te) * 1000.0f;
 
         layerViews[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
-        if (app->stream.streaming.load() && !app->stream.stream_ui_visible.load() && render_frames[eye] && render_frames[eye]->valid)
+        if (app->stream.streaming.load() && render_frames[eye] && render_frames[eye]->valid)
         {
             layerViews[eye].pose = render_frames[eye]->server_pose[eye];
             layerViews[eye].fov = render_frames[eye]->server_fov[eye];
@@ -1821,7 +1813,7 @@ static void render_frame(AppState* app) {
     fe.layerCount = 1;
     fe.layers = layerHeaders;
 
-    if (app->stream.streaming.load() && !app->stream.stream_ui_visible.load())
+    if (app->stream.streaming.load())
     {
         struct timespec submit_ts;
         clock_gettime(CLOCK_MONOTONIC, &submit_ts);
