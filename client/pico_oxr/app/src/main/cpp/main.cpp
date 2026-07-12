@@ -29,6 +29,7 @@
 #include "streaming/streaming_client.h"
 #include "streaming/oxr_blit.h"
 #include "streaming/eye_tracking.h"
+#include "streaming/pvr_renderer.h"
 #include "pico_stutter.h"
 #include "latency_tracker.h"
 
@@ -231,8 +232,11 @@ struct AppState {
 
     streaming_client stream;
     oxr_blit blit;
+    pvr_renderer pvr_render;
 
     bool shouldExit = false;
+    bool pvr_mode = false;
+    bool openxr_session_destroyed = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -2164,7 +2168,7 @@ extern "C" void android_main(struct android_app* androidApp) {
         for (;;) {
             int events;
             struct android_poll_source* source;
-            int timeout = (!androidState.resumed && !app.sessionRunning) ? -1 : 0;
+            int timeout = (!androidState.resumed && !app.sessionRunning && !app.pvr_mode) ? -1 : 0;
             int ret = ALooper_pollOnce(timeout, nullptr, &events, (void**)&source);
             if (ret == ALOOPER_POLL_TIMEOUT || ret == ALOOPER_POLL_ERROR)
                 break;
@@ -2179,16 +2183,68 @@ extern "C" void android_main(struct android_app* androidApp) {
         if (app.shouldExit)
             break;
 
-        if (app.sessionRunning) {
+        bool want_pvr = app.stream.streaming.load() && !app.stream.stream_ui_visible.load();
+
+        if (want_pvr && !app.pvr_mode && app.sessionRunning && androidState.nativeWindow)
+        {
+            LOGI("Switching to PVR streaming mode");
+            app.sessionRunning = false;
+            if (app.session)
+            {
+                xrRequestExitSession(app.session);
+                poll_events(&app);
+                if (app.session)
+                    xrEndSession(app.session);
+            }
+            openxr_destroy_session(&app);
+            app.openxr_session_destroyed = true;
+            app.pvr_mode = app.pvr_render.activate(
+                androidState.nativeWindow, &app.stream, g_jvm, g_activity);
+            if (!app.pvr_mode)
+            {
+                LOGE("PVR activation failed, recreating OpenXR session");
+                openxr_create_session(&app);
+                app.openxr_session_destroyed = false;
+            }
+        }
+        else if (!want_pvr && app.pvr_mode)
+        {
+            LOGI("Switching back to OpenXR mode");
+            app.pvr_render.deactivate();
+            app.pvr_mode = false;
+            if (app.openxr_session_destroyed)
+            {
+                if (openxr_create_session(&app))
+                    app.openxr_session_destroyed = false;
+                else
+                    LOGE("Failed to re-create OpenXR session");
+            }
+        }
+
+        if (androidState.nativeWindow && app.pvr_mode && !app.pvr_render.is_active())
+        {
+            app.pvr_render.set_window(androidState.nativeWindow);
+        }
+
+        if (app.pvr_mode)
+        {
+            usleep(2000);
+        }
+        else if (app.sessionRunning) {
             render_frame(&app);
         } else {
             usleep(16000);
         }
     }
 
+    if (app.pvr_mode)
+        app.pvr_render.deactivate();
+
     g_stream = nullptr;
     if (app.fbo) glDeleteFramebuffers(1, &app.fbo);
     glDeleteRenderbuffers(NUM_EYES, app.depth_rbo);
+    if (app.openxr_session_destroyed)
+        openxr_create_session(&app);
     openxr_destroy_session(&app);
     if (app.instance)
         xrDestroyInstance(app.instance);
