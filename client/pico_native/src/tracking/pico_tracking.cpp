@@ -579,6 +579,7 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 
 	pkt.interaction_profiles[0] = interaction_profile::bytedance_pico_neo3_controller;
 	pkt.interaction_profiles[1] = interaction_profile::bytedance_pico_neo3_controller;
+	pkt.interaction_profiles[2] = interaction_profile::none;
 
 	neo2::quat hq = neo2::normalize_quat({h_orient[0], h_orient[1], h_orient[2], h_orient[3]});
 
