@@ -404,7 +404,7 @@ void pico_native_tracker::run()
 			}
 		}
 
-		if (!h_valid)
+		if (pvr_sensor_mode.load())
 		{
 			float qx, qy, qz, qw, px, py, pz, vfov, hfov;
 			int viewNum;
@@ -421,6 +421,7 @@ void pico_native_tracker::run()
 				std::memcpy(h_orient, head_orient, sizeof(h_orient));
 				std::memcpy(h_pos, head_pos, sizeof(h_pos));
 
+				hw_velocity_valid = false;
 				neo2::quat hq = neo2::normalize_quat({qx, qy, qz, qw});
 				step_head_filter(h_pos, hq, ts);
 			}

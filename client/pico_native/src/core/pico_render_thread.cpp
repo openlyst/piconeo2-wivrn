@@ -158,6 +158,7 @@ void pico_render_thread::init_sdk()
 	spdlog::info("FOV set to {:.1f}", fov);
 
 	sdk_inited = true;
+	client->tracker.pvr_sensor_mode.store(true);
 
 	if (attached)
 		client->vm->DetachCurrentThread();

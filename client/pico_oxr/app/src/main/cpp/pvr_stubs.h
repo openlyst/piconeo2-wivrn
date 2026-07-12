@@ -1,16 +1,6 @@
 #pragma once
 
-// Stubs for PVR SDK sensor functions not available in OpenXR build
-// Head pose is set from OpenXR via pico_native_tracker::set_head_pose
+// PVR SDK sensor functions are provided by libPvr_NativeSDK.so (linked in CMakeLists.txt).
+// Pvr_GetMainSensorState is used directly when pvr_sensor_mode is enabled in the tracker.
+// Pvr_ResetSensor is used for recentering in both OpenXR and PVR modes.
 
-static inline int Pvr_GetMainSensorState(float* qx, float* qy, float* qz, float* qw,
-                                          float* px, float* py, float* pz,
-                                          float* vfov, float* hfov, int* viewNum)
-{
-    return -1;
-}
-
-static inline int Pvr_ResetSensor(int type)
-{
-    return 0;
-}
