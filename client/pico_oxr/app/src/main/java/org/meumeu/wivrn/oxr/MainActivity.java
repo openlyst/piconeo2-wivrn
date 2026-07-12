@@ -480,6 +480,12 @@ public class MainActivity extends NativeActivity {
         }
     }
 
+    public void onStreamStatsDetailed(float[] data) {
+        if (lobbyView != null) {
+            lobbyView.updateStreamStatsDetailed(data);
+        }
+    }
+
     public void requestPinEntry() {
         if (lobbyView != null) {
             lobbyView.setConnectionState(WivrnLobbyView.STATE_PIN_ENTRY, "");

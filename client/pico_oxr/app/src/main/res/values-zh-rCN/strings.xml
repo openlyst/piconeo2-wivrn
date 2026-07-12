@@ -108,6 +108,17 @@
     <string name="stat_microphone">麦克风</string>
     <string name="stat_disabled">已禁用</string>
     <string name="toggle_overlay_hint">同时按下两个摇杆切换此界面</string>
+    <string name="stat_cpu_time">CPU 时间</string>
+    <string name="stat_gpu_time">GPU 时间</string>
+    <string name="stat_encode">编码</string>
+    <string name="stat_send">发送</string>
+    <string name="stat_network">网络</string>
+    <string name="stat_decode">解码</string>
+    <string name="stat_render_wait">渲染等待</string>
+    <string name="stat_blit">合成</string>
+    <string name="stat_total_latency">总延迟</string>
+    <string name="stat_latency_breakdown">延迟分解</string>
+    <string name="stat_bandwidth">带宽</string>
 
     <!-- Units -->
     <string name="unit_mbit_s">Mbit/s</string>

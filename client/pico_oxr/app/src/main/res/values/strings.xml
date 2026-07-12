@@ -108,6 +108,17 @@
     <string name="stat_microphone">Microphone</string>
     <string name="stat_disabled">Disabled</string>
     <string name="toggle_overlay_hint">Press both thumbsticks to toggle this overlay</string>
+    <string name="stat_cpu_time">CPU Time</string>
+    <string name="stat_gpu_time">GPU Time</string>
+    <string name="stat_encode">Encode</string>
+    <string name="stat_send">Send</string>
+    <string name="stat_network">Network</string>
+    <string name="stat_decode">Decode</string>
+    <string name="stat_render_wait">Render Wait</string>
+    <string name="stat_blit">Blit</string>
+    <string name="stat_total_latency">Total Latency</string>
+    <string name="stat_latency_breakdown">Latency Breakdown</string>
+    <string name="stat_bandwidth">Bandwidth</string>
 
     <!-- Units -->
     <string name="unit_mbit_s">Mbit/s</string>

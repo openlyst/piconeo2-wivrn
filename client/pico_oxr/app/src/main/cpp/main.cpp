@@ -1108,6 +1108,13 @@ static float g_flush_direct_total = 0;
 static float g_inter_total = 0;
 static struct timespec g_prev_end = {};
 
+static int g_stats_frame_count = 0;
+static int64_t g_stats_last_ns = 0;
+static uint64_t g_stats_prev_bytes_rx = 0;
+static uint64_t g_stats_prev_bytes_tx = 0;
+static float g_stats_bw_rx_smooth = 0;
+static float g_stats_bw_tx_smooth = 0;
+
 static double ts_diff(const struct timespec& a, const struct timespec& b) {
     return (a.tv_sec - b.tv_sec) + (a.tv_nsec - b.tv_nsec) * 1e-9;
 }
@@ -1866,6 +1873,74 @@ static void render_frame(AppState* app) {
             g_wait_total = g_render_total = g_end_total = 0;
             g_begin_total = g_locate_total = g_sc_wait_total = g_gl_draw_total = g_sc_rel_total = g_mid_total = g_math_total = g_flush_total = g_flush_direct_total = g_inter_total = 0;
             g_fps_start = now;
+        }
+    }
+
+    // Collect detailed stats for the stats screen every ~200ms
+    g_stats_frame_count++;
+    {
+        struct timespec stats_now;
+        clock_gettime(CLOCK_MONOTONIC, &stats_now);
+        int64_t stats_now_ns = (int64_t)stats_now.tv_sec * 1000000000LL + stats_now.tv_nsec;
+
+        if (g_stats_last_ns == 0)
+            g_stats_last_ns = stats_now_ns;
+
+        int64_t stats_elapsed = stats_now_ns - g_stats_last_ns;
+        if (stats_elapsed >= 200000000LL)
+        {
+            float dt = stats_elapsed * 1e-9f;
+            int fps = (int)(g_stats_frame_count / dt);
+            g_stats_frame_count = 0;
+            g_stats_last_ns = stats_now_ns;
+
+            uint64_t rx = app->stream.session ? app->stream.session->bytes_received() : 0;
+            uint64_t tx = app->stream.session ? app->stream.session->bytes_sent() : 0;
+            float bw_rx = (float)(rx - g_stats_prev_bytes_rx) / dt;
+            float bw_tx = (float)(tx - g_stats_prev_bytes_tx) / dt;
+            g_stats_prev_bytes_rx = rx;
+            g_stats_prev_bytes_tx = tx;
+
+            g_stats_bw_rx_smooth = 0.7f * g_stats_bw_rx_smooth + 0.3f * bw_rx;
+            g_stats_bw_tx_smooth = 0.7f * g_stats_bw_tx_smooth + 0.3f * bw_tx;
+
+            float cpu_ms = (ts_diff(t2, t1) + ts_diff(t3, t2)) * 1000.0f;
+            float gpu_ms = gl_draw_ms;
+
+            int64_t avg_latency_ns = g_latency.get_avg_total_latency_ns();
+            float total_latency_ms = avg_latency_ns > 0 ? avg_latency_ns / 1e6f : 0;
+
+            float bitrate_mbps = (float)app->stream.current_bitrate_mbps.load();
+
+            // Get latency breakdown from the latency tracker
+            float encode_ms = 0, send_ms = 0, network_ms = 0, decode_ms = 0, render_wait_ms = 0, blit_ms = 0;
+            {
+                auto breakdown = g_latency.get_avg_breakdown_ms();
+                encode_ms = breakdown[0];
+                send_ms = breakdown[1];
+                network_ms = breakdown[2];
+                decode_ms = breakdown[3];
+                render_wait_ms = breakdown[4];
+                blit_ms = breakdown[5];
+            }
+
+            // Pack into float array for JNI
+            float stats_data[] = {
+                (float)fps,
+                total_latency_ms,
+                g_stats_bw_rx_smooth * 8,
+                g_stats_bw_tx_smooth * 8,
+                bitrate_mbps,
+                cpu_ms,
+                gpu_ms,
+                encode_ms,
+                send_ms,
+                network_ms,
+                decode_ms,
+                render_wait_ms,
+                blit_ms
+            };
+            app->stream.notify_stream_stats_detailed(stats_data, 13);
         }
     }
 }
