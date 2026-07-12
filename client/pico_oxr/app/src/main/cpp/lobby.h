@@ -93,7 +93,8 @@ public:
 	void set_resolution(int w, int h);
 	void draw(int eye, const float head_orient[4], const float head_pos[3],
 	          const controller_sample controllers[2],
-	          const XrFovf & fov, float ipd, bool head_trigger);
+	          const XrFovf & fov, float ipd, bool head_trigger,
+	          bool overlay = false);
 	bool is_initialized() const { return initialized; }
 
 	void recenter();
