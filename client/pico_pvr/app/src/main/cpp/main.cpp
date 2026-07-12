@@ -14,12 +14,16 @@
 #include <spdlog/sinks/android_sink.h>
 
 #include <EGL/egl.h>
+#include <EGL/eglext.h>
 #include <GLES3/gl3.h>
 #include <GLES2/gl2ext.h>
 
 #include "lobby.h"
 #include "pico_sdk.h"
 #include "pico_tracking.h"
+#include "streaming/streaming_client.h"
+#include "streaming/pvr_blit.h"
+#include "streaming/eye_tracking.h"
 
 #define LOG_TAG "WiVRn-PVR"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
@@ -62,6 +66,9 @@ static std::atomic<float> gIpd{0.064f};
 static std::atomic<bool> gRecenterRequested{false};
 
 static int prevTouchHand = -1;
+static bool prevTouchDown = false;
+static float prevTouchX = -1.0f;
+static float prevTouchY = -1.0f;
 
 static std::mutex gHapticMutex;
 struct haptic_cmd { float amplitude = 0; float duration_ms = 0; };
@@ -69,6 +76,10 @@ static haptic_cmd gPendingHaptics[2];
 
 // Lobby instance (shared between JNI and render thread)
 static pico_lobby gLobby;
+
+// Streaming client
+static streaming_client g_stream_inst;
+static pvr_blit g_blit;
 
 // ---------------------------------------------------------------------------
 // Window hand-off
@@ -423,30 +434,25 @@ static void renderLobby(RenderState& rs)
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    // Touch callback to Java
+    // Touch callback to Java — send every frame while hovering so the
+    // cursor follows the controller ray continuously, not just on edges.
     if (gVM && gActivity && g_onLobbyTouchMethod)
     {
-        bool anyHit = false;
         int hitHand = -1;
         for (int h = 0; h < 2; h++)
         {
-            bool hasHit = gLobby.lobby_touch_x[h] >= 0;
-            bool hasClick = gLobby.lobby_touch_down[h] || gLobby.lobby_touch_pressed[h];
-            if (hasHit || hasClick)
+            if (gLobby.lobby_touch_x[h] >= 0 || gLobby.lobby_touch_down[h])
             {
-                anyHit = true;
                 hitHand = h;
                 break;
             }
         }
 
-        bool prevAny = (prevTouchHand >= 0);
-        bool stateChanged = (anyHit != prevAny) || (hitHand != prevTouchHand);
-
         float tx = -1.0f, ty = -1.0f;
         bool tdown = false, tpressed = false;
         float tthumb = 0.0f;
-        if (anyHit)
+
+        if (hitHand >= 0)
         {
             tx = gLobby.lobby_touch_x[hitHand];
             ty = gLobby.lobby_touch_y[hitHand];
@@ -454,8 +460,21 @@ static void renderLobby(RenderState& rs)
             tpressed = gLobby.lobby_touch_pressed[hitHand];
             tthumb = gLobby.lobby_thumbstick_y[hitHand];
         }
+        else if (gLobby.head_touch_x >= 0 || gLobby.head_touch_down)
+        {
+            tx = gLobby.head_touch_x;
+            ty = gLobby.head_touch_y;
+            tdown = gLobby.head_touch_down;
+            tpressed = gLobby.head_touch_pressed;
+            hitHand = -2;
+        }
 
-        if (stateChanged || (anyHit && (tdown || tpressed)))
+        bool stateChanged = (hitHand != prevTouchHand) ||
+                            (tdown != prevTouchDown) ||
+                            (tx != prevTouchX) ||
+                            (ty != prevTouchY);
+
+        if (hitHand >= 0 || stateChanged)
         {
             JNIEnv* env = nullptr;
             bool attached = false;
@@ -474,7 +493,11 @@ static void renderLobby(RenderState& rs)
             if (attached)
                 gVM->DetachCurrentThread();
         }
-        prevTouchHand = anyHit ? hitHand : -1;
+
+        prevTouchHand = hitHand;
+        prevTouchDown = tdown;
+        prevTouchX = tx;
+        prevTouchY = ty;
     }
 
     for (int e = 0; e < 2; e++)
@@ -498,8 +521,186 @@ static void renderLobby(RenderState& rs)
 }
 
 // ---------------------------------------------------------------------------
-// Render thread entry point
+// Render streaming frame (blit decoded video to swapchain textures)
 // ---------------------------------------------------------------------------
+
+static void renderStream(RenderState& rs)
+{
+    float hOrient[4], hPos[3];
+    {
+        std::lock_guard<std::mutex> lk(gStateMutex);
+        memcpy(hOrient, gHeadOrient, sizeof(hOrient));
+        memcpy(hPos, gHeadPos, sizeof(hPos));
+    }
+
+    controller_sample cs[2];
+    {
+        std::lock_guard<std::mutex> lk(gStateMutex);
+        memcpy(cs, gControllers, sizeof(cs));
+    }
+
+    gLobby.flush_pending_texture();
+
+    bool is_streaming = g_stream->streaming.load();
+    bool ui_visible = g_stream->stream_ui_visible.load();
+    bool is_streaming_blit = is_streaming && !ui_visible;
+    bool is_streaming_overlay = is_streaming && ui_visible;
+
+    // Get latest decoded frames
+    std::shared_ptr<pico_decoded_frame> render_frames[2];
+    if (is_streaming)
+    {
+        for (int e = 0; e < 2; e++)
+        {
+            uint64_t idx = g_stream->latest_decoded_frame_index_per_stream[e].load(std::memory_order_acquire);
+            if (idx > 0)
+            {
+                auto &buf = g_stream->decoded_frame_buffers[e];
+                auto &slot = buf[idx % buf.size()];
+                if (slot && slot->valid && slot->frame_index == idx)
+                    render_frames[e] = slot;
+            }
+        }
+    }
+
+    float ipd = gIpd.load();
+
+    glBindFramebuffer(GL_FRAMEBUFFER, rs.streamFbo);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+
+    for (int eye = 0; eye < 2; eye++)
+    {
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+            GL_TEXTURE_2D, rs.swapTex[eye][rs.swapIdx], 0);
+        glViewport(0, 0, eye_width, eye_height);
+
+        if (is_streaming_blit || is_streaming_overlay)
+        {
+            // Blit decoded video to swapchain texture
+            g_blit.blit(&g_stream->blit_pipeline, render_frames[eye], eye,
+                        rs.swapTex[eye][rs.swapIdx], eye_width, eye_height);
+
+            if (is_streaming_overlay)
+            {
+                // Draw lobby UI on top of stream
+                glBindFramebuffer(GL_FRAMEBUFFER, rs.streamFbo);
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                    GL_TEXTURE_2D, rs.swapTex[eye][rs.swapIdx], 0);
+                gLobby.draw(eye, hOrient, hPos, cs, rs.eyeFov[eye], ipd, false, true);
+            }
+        }
+        else
+        {
+            // Lobby only
+            glClearColor(0.05f, 0.06f, 0.09f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            gLobby.draw(eye, hOrient, hPos, cs, rs.eyeFov[eye], ipd, false);
+        }
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // Touch callback (same as lobby)
+    if (gVM && gActivity && g_onLobbyTouchMethod)
+    {
+        int hitHand = -1;
+        for (int h = 0; h < 2; h++)
+        {
+            if (gLobby.lobby_touch_x[h] >= 0 || gLobby.lobby_touch_down[h])
+            {
+                hitHand = h;
+                break;
+            }
+        }
+
+        float tx = -1.0f, ty = -1.0f;
+        bool tdown = false, tpressed = false;
+        float tthumb = 0.0f;
+
+        if (hitHand >= 0)
+        {
+            tx = gLobby.lobby_touch_x[hitHand];
+            ty = gLobby.lobby_touch_y[hitHand];
+            tdown = gLobby.lobby_touch_down[hitHand];
+            tpressed = gLobby.lobby_touch_pressed[hitHand];
+            tthumb = gLobby.lobby_thumbstick_y[hitHand];
+        }
+        else if (gLobby.head_touch_x >= 0 || gLobby.head_touch_down)
+        {
+            tx = gLobby.head_touch_x;
+            ty = gLobby.head_touch_y;
+            tdown = gLobby.head_touch_down;
+            tpressed = gLobby.head_touch_pressed;
+            hitHand = -2;
+        }
+
+        bool stateChanged = (hitHand != prevTouchHand) ||
+                            (tdown != prevTouchDown) ||
+                            (tx != prevTouchX) ||
+                            (ty != prevTouchY);
+
+        if (hitHand >= 0 || stateChanged)
+        {
+            JNIEnv* env = nullptr;
+            bool attached = false;
+            if (gVM->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK)
+            {
+                if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK)
+                    attached = true;
+            }
+
+            if (env)
+            {
+                env->CallVoidMethod(gActivity, g_onLobbyTouchMethod,
+                                    tx, ty, tdown, tpressed, tthumb);
+            }
+
+            if (attached)
+                gVM->DetachCurrentThread();
+        }
+
+        prevTouchHand = hitHand;
+        prevTouchDown = tdown;
+        prevTouchX = tx;
+        prevTouchY = ty;
+    }
+
+    // Store pose for this slot
+    for (int e = 0; e < 2; e++)
+    {
+        if (is_streaming && render_frames[e] && render_frames[e]->valid)
+        {
+            // Use server pose for streaming
+            XrPosef &sp = render_frames[e]->server_pose[e];
+            rs.slots[rs.swapIdx].poseOrient[e][0] = sp.orientation.x;
+            rs.slots[rs.swapIdx].poseOrient[e][1] = sp.orientation.y;
+            rs.slots[rs.swapIdx].poseOrient[e][2] = sp.orientation.z;
+            rs.slots[rs.swapIdx].poseOrient[e][3] = sp.orientation.w;
+            rs.slots[rs.swapIdx].posePos[e][0] = sp.position.x;
+            rs.slots[rs.swapIdx].posePos[e][1] = sp.position.y;
+            rs.slots[rs.swapIdx].posePos[e][2] = sp.position.z;
+        }
+        else
+        {
+            memcpy(rs.slots[rs.swapIdx].poseOrient[e], hOrient, sizeof(float) * 4);
+            memcpy(rs.slots[rs.swapIdx].posePos[e], hPos, sizeof(float) * 3);
+        }
+    }
+
+    if (rs.slots[rs.swapIdx].fence) glDeleteSync(rs.slots[rs.swapIdx].fence);
+    rs.slots[rs.swapIdx].fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    glFlush();
+
+    if (rs.prevSwapValid)
+        submitToWarp(rs, rs.prevSwapIdx, 5000000ULL);
+    else
+        submitToWarp(rs, rs.swapIdx, 50000000ULL);
+
+    rs.prevSwapIdx = rs.swapIdx;
+    rs.prevSwapValid = true;
+    rs.swapIdx = (rs.swapIdx + 1) % kSwapLen;
+}
 
 static void* renderThread(void*)
 {
@@ -525,6 +726,21 @@ static void* renderThread(void*)
     }
 
     initSwapchain(rs);
+
+    // Init streaming client
+    g_stream = &g_stream_inst;
+    g_stream->vm = gVM;
+    g_stream->activity = gActivity;
+    g_stream->eye_width.store(eye_width);
+    g_stream->eye_height.store(eye_height);
+    g_stream->stream_eye_width.store(eye_width);
+    g_stream->stream_eye_height.store(eye_height);
+    g_blit.init(rs.dpy, eye_width, eye_height);
+    g_stream->blit_pipeline.set_resolution(eye_width, eye_height);
+    load_egl_procs();
+
+    // Start eye tracking if supported
+    initEyeTracking();
 
     gReady.store(true);
     LOGI("render thread ready");
@@ -579,7 +795,7 @@ static void* renderThread(void*)
             memcpy(gHeadPos, hPos, sizeof(hPos));
         }
 
-        renderLobby(rs);
+        renderStream(rs);
 
         frame++;
 
@@ -658,6 +874,7 @@ Java_org_meumeu_wivrn_pvr_MainActivity_nativeStart(JNIEnv* env, jobject thiz, jo
     }
     env->GetJavaVM(&gVM);
     gActivity = env->NewGlobalRef(activity);
+    g_stream = &g_stream_inst;
 
     jclass actClass = env->GetObjectClass(activity);
     g_onLobbyTouchMethod = env->GetMethodID(actClass, "onLobbyTouch", "(FFZZF)V");
@@ -774,6 +991,27 @@ JNIEXPORT jboolean JNICALL
 Java_org_meumeu_wivrn_pvr_MainActivity_nativeDrainHaptic(JNIEnv* env, jobject thiz, jint hand, jfloatArray out)
 {
     if (hand < 0 || hand > 1 || !out) return JNI_FALSE;
+
+    // Check streaming haptics first
+    {
+        std::lock_guard<std::mutex> lk(g_stream->haptics_mutex);
+        auto& slot = g_stream->rumble[hand];
+        if (slot.active && slot.amplitude > 0)
+        {
+            jfloat* arr = env->GetFloatArrayElements(out, nullptr);
+            if (arr && env->GetArrayLength(out) >= 2)
+            {
+                arr[0] = slot.amplitude;
+                arr[1] = slot.duration_ms;
+            }
+            env->ReleaseFloatArrayElements(out, arr, 0);
+            slot.active = false;
+            slot.amplitude = 0;
+            return JNI_TRUE;
+        }
+    }
+
+    // Check local haptics
     std::lock_guard<std::mutex> lk(gHapticMutex);
     if (gPendingHaptics[hand].amplitude <= 0) return JNI_FALSE;
     jfloat* arr = env->GetFloatArrayElements(out, nullptr);
@@ -824,22 +1062,199 @@ Java_org_meumeu_wivrn_pvr_MainActivity_nativeReady(JNIEnv* env, jobject thiz)
 JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_pvr_MainActivity_nativeSetIpd(JNIEnv* env, jobject thiz, jfloat ipdMm)
 {
-    gIpd.store(ipdMm * 0.001f);
+    float ipd_m = ipdMm * 0.001f;
+    gIpd.store(ipd_m);
+    g_stream->tracker.soft_ipd.store(ipd_m);
+    LOGI("Software IPD set to %.1f mm", ipdMm);
 }
 
-// Streaming stubs
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_pvr_MainActivity_nativeConnectServer(JNIEnv*, jobject, jstring, jint, jboolean) {}
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_pvr_MainActivity_nativeDisconnectServer(JNIEnv*, jobject) {}
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_pvr_MainActivity_nativeSetPin(JNIEnv*, jobject, jstring) {}
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_pvr_MainActivity_nativeSetBitrate(JNIEnv*, jobject, jint) {}
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_pvr_MainActivity_nativeSetDynamicBitrate(JNIEnv*, jobject, jboolean) {}
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_pvr_MainActivity_nativeRequestAppList(JNIEnv*, jobject) {}
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_pvr_MainActivity_nativeStartApp(JNIEnv*, jobject, jstring) {}
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_pvr_MainActivity_nativeRequestRunningApps(JNIEnv*, jobject) {}
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_pvr_MainActivity_nativeSetActiveApp(JNIEnv*, jobject, jint) {}
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_pvr_MainActivity_nativeStopApp(JNIEnv*, jobject, jint) {}
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_pvr_MainActivity_nativeSetMicrophone(JNIEnv*, jobject, jboolean) {}
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_pvr_MainActivity_nativeSetStreamResolution(JNIEnv*, jobject, jint, jint) {}
-JNIEXPORT void JNICALL Java_org_meumeu_wivrn_pvr_MainActivity_nativeSetRenderResolution(JNIEnv*, jobject, jint, jint) {}
+// Streaming JNI implementations
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_pvr_MainActivity_nativeConnectServer(JNIEnv* env, jobject thiz, jstring host, jint port, jboolean tcpOnly)
+{
+    const char* h = env->GetStringUTFChars(host, nullptr);
+    LOGI("nativeConnectServer: %s:%d tcp=%d", h, port, tcpOnly);
+    g_stream->server_host = h;
+    g_stream->server_port = port;
+    g_stream->tcp_only = tcpOnly;
+    env->ReleaseStringUTFChars(host, h);
+    g_stream->shutdown = false;
+    g_stream->auto_reconnect.store(false);
+    g_stream->try_connect();
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_pvr_MainActivity_nativeDisconnectServer(JNIEnv* env, jobject thiz)
+{
+    LOGI("nativeDisconnectServer");
+    g_stream->auto_reconnect.store(false);
+    g_stream->shutdown = true;
+    if (g_stream->session)
+    {
+        int fd = g_stream->session->get_control_fd();
+        ::shutdown(fd, SHUT_RDWR);
+    }
+    std::thread([] {
+        std::lock_guard lock(g_stream->connect_mutex);
+        if (g_stream->connect_thread.joinable())
+            g_stream->connect_thread.join();
+        if (g_stream->network_thread.joinable())
+            g_stream->network_thread.join();
+        g_stream->session.reset();
+        g_stream->reset_stream_state();
+        g_stream->shutdown = false;
+    }).detach();
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_pvr_MainActivity_nativeSetPin(JNIEnv* env, jobject thiz, jstring pin)
+{
+    const char* p = env->GetStringUTFChars(pin, nullptr);
+    g_stream->pairing_pin = p;
+    env->ReleaseStringUTFChars(pin, p);
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_pvr_MainActivity_nativeSetBitrate(JNIEnv* env, jobject thiz, jint bitrateMbps)
+{
+    LOGI("nativeSetBitrate: %d Mbps", bitrateMbps);
+    g_stream->bitrate_mbps.store(bitrateMbps);
+    g_stream->max_bitrate_mbps.store(bitrateMbps);
+    g_stream->current_bitrate_mbps.store(bitrateMbps);
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_pvr_MainActivity_nativeSetDynamicBitrate(JNIEnv* env, jobject thiz, jboolean enabled)
+{
+    g_stream->dynamic_bitrate_enabled.store(enabled);
+    LOGI("Dynamic bitrate %s", enabled ? "enabled" : "disabled");
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_pvr_MainActivity_nativeSetMicrophone(JNIEnv* env, jobject thiz, jboolean enabled)
+{
+    g_stream->microphone_enabled.store(enabled);
+    if (g_stream->audio_handle)
+        g_stream->audio_handle->set_mic_state(enabled);
+    LOGI("Microphone %s", enabled ? "enabled" : "disabled");
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_pvr_MainActivity_nativeSetStreamResolution(JNIEnv* env, jobject thiz, jint width, jint height)
+{
+    int old_w = g_stream->stream_eye_width.load();
+    int old_h = g_stream->stream_eye_height.load();
+    g_stream->stream_eye_width.store(width);
+    g_stream->stream_eye_height.store(height);
+    if ((width != old_w || height != old_h) && g_stream->session)
+    {
+        g_stream->send_headset_info();
+        LOGI("Sent updated stream resolution to server: %dx%d", width, height);
+    }
+    LOGI("Stream resolution set to %dx%d", width, height);
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_pvr_MainActivity_nativeSetRenderResolution(JNIEnv* env, jobject thiz, jint width, jint height)
+{
+    int old_w = g_stream->eye_width.load();
+    int old_h = g_stream->eye_height.load();
+    g_stream->eye_width.store(width);
+    g_stream->eye_height.store(height);
+    gLobby.set_resolution(width, height);
+    g_stream->blit_pipeline.set_resolution(width, height);
+    if (width != old_w || height != old_h)
+        g_stream->resolution_dirty.store(true);
+    LOGI("Render resolution set to %dx%d", width, height);
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_pvr_MainActivity_nativeRequestAppList(JNIEnv* env, jobject thiz)
+{
+    if (!g_stream->session) return;
+    LOGI("nativeRequestAppList");
+    try
+    {
+        g_stream->session->send_control(wivrn::from_headset::get_application_list{
+            .language = "en",
+            .country = "US",
+            .variant = "",
+        });
+    }
+    catch (std::exception& e)
+    {
+        LOGE("Failed to request app list: %s", e.what());
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_pvr_MainActivity_nativeStartApp(JNIEnv* env, jobject thiz, jstring appId)
+{
+    if (!g_stream->session) return;
+    const char* app_id_str = env->GetStringUTFChars(appId, nullptr);
+    if (app_id_str)
+    {
+        LOGI("nativeStartApp: %s", app_id_str);
+        try
+        {
+            g_stream->session->send_control(wivrn::from_headset::start_app{
+                .app_id = app_id_str,
+            });
+        }
+        catch (std::exception& e)
+        {
+            LOGE("Failed to start app: %s", e.what());
+        }
+        env->ReleaseStringUTFChars(appId, app_id_str);
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_pvr_MainActivity_nativeRequestRunningApps(JNIEnv* env, jobject thiz)
+{
+    if (!g_stream->session) return;
+    try
+    {
+        g_stream->session->send_control(wivrn::from_headset::get_running_applications{});
+    }
+    catch (std::exception& e)
+    {
+        LOGE("Failed to request running apps: %s", e.what());
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_pvr_MainActivity_nativeSetActiveApp(JNIEnv* env, jobject thiz, jint appId)
+{
+    if (!g_stream->session) return;
+    LOGI("nativeSetActiveApp: %d", (int)appId);
+    try
+    {
+        g_stream->session->send_control(wivrn::from_headset::set_active_application{
+            .id = (uint32_t)appId,
+        });
+    }
+    catch (std::exception& e)
+    {
+        LOGE("Failed to set active app: %s", e.what());
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_pvr_MainActivity_nativeStopApp(JNIEnv* env, jobject thiz, jint appId)
+{
+    if (!g_stream->session) return;
+    LOGI("nativeStopApp: %d", (int)appId);
+    try
+    {
+        g_stream->session->send_control(wivrn::from_headset::stop_application{
+            .id = (uint32_t)appId,
+        });
+    }
+    catch (std::exception& e)
+    {
+        LOGE("Failed to stop app: %s", e.what());
+    }
+}
 
 } // extern "C"

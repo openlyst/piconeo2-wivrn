@@ -1,0 +1,28 @@
+#pragma once
+
+#include "pico_blit.h"
+#include "pico_decoder.h"
+
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES3/gl3.h>
+#include <android/hardware_buffer.h>
+
+class pvr_blit
+{
+	EGLDisplay dpy = EGL_NO_DISPLAY;
+	GLuint eye_textures[3]{0, 0, 0};
+	EGLImageKHR eye_egl_images[3]{EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR};
+	EGLImageKHR eye_prev_egl_images[3]{EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR};
+	AHardwareBuffer * last_hb[3]{nullptr, nullptr, nullptr};
+	GLuint fbo = 0;
+	bool initialized = false;
+
+public:
+	pvr_blit() = default;
+	~pvr_blit();
+
+	void init(EGLDisplay display, int eye_w, int eye_h);
+	void blit(pico_blit_pipeline * pipeline, std::shared_ptr<pico_decoded_frame> frame, int eye, GLuint dst_tex, int eye_w, int eye_h);
+	bool is_initialized() const { return initialized; }
+};

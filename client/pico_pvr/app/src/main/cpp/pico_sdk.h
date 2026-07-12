@@ -27,6 +27,21 @@ int   Pvr_GetMainSensorState(float *x, float *y, float *z, float *w,
                              float *px, float *py, float *pz,
                              float *vfov, float *hfov, int *viewNumber);
 int   Pvr_ResetSensor(int option);
+
+// Eye tracking (Neo 2 EYE)
+int   Pvr_GetTrackingMode();
+bool  Pvr_SetTrackingMode(int mode);
+bool  Pvr_GetEyeTrackingData(int *ls, int *rs, int *cs,
+                             float *lpx, float *lpy, float *lpz,
+                             float *rpx, float *rpy, float *rpz,
+                             float *cpx, float *cpy, float *cpz,
+                             float *lvx, float *lvy, float *lvz,
+                             float *rvx, float *rvy, float *rvz,
+                             float *cvx, float *cvy, float *cvz,
+                             float *lo, float *ro, float *lpd, float *rpd,
+                             float *lgx, float *lgy, float *lgz,
+                             float *rgx, float *rgy, float *rgz,
+                             float *fgx, float *fgy, float *fgz, int *fgs);
 }
 
 enum { EV_InitRenderThread = 1024, EV_Pause = 1025, EV_Resume = 1026 };
