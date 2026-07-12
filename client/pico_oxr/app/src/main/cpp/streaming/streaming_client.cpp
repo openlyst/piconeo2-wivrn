@@ -969,6 +969,7 @@ void streaming_client::send_headset_info()
 	info.user_presence = false;
 	info.passthrough = false;
 	info.face_tracking = gEyeSupported.load() ? from_headset::face_type::fb2 : from_headset::face_type::none;
+	info.body_tracking = from_headset::body_type::none;
 	info.num_generic_trackers = 0;
 
 	// Request 10-bit encoding for better quality (eliminates banding

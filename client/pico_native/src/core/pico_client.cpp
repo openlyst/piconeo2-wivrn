@@ -814,6 +814,7 @@ void pico_client::send_headset_info()
 	info.user_presence = false;
 	info.passthrough = false;
 	info.face_tracking = from_headset::face_type::none;
+	info.body_tracking = from_headset::body_type::none;
 	info.num_generic_trackers = 0;
 
 	{

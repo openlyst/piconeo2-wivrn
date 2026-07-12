@@ -578,6 +578,7 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 
 	pkt.interaction_profiles[0] = interaction_profile::bytedance_pico_neo3_controller;
 	pkt.interaction_profiles[1] = interaction_profile::bytedance_pico_neo3_controller;
+	pkt.interaction_profiles[2] = interaction_profile::none;
 
 	neo2::quat hq = neo2::normalize_quat({h_orient[0], h_orient[1], h_orient[2], h_orient[3]});
 
@@ -602,12 +603,12 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 	from_headset::tracking::pose head_tp{};
 	head_tp.pose = head_pose;
 	head_tp.device = device_id::HEAD;
-	head_tp.flags = from_headset::tracking::orientation_valid |
-	                from_headset::tracking::position_valid |
-	                from_headset::tracking::orientation_tracked |
-	                from_headset::tracking::position_tracked |
-	                from_headset::tracking::linear_velocity_valid |
-	                from_headset::tracking::angular_velocity_valid;
+	head_tp.flags = from_headset::pose_flags::orientation_valid |
+	                from_headset::pose_flags::position_valid |
+	                from_headset::pose_flags::orientation_tracked |
+	                from_headset::pose_flags::position_tracked |
+	                from_headset::pose_flags::linear_velocity_valid |
+	                from_headset::pose_flags::angular_velocity_valid;
 	head_tp.linear_velocity = {
 		head_lin_vel[0] * k_predict,
 		head_lin_vel[1] * k_predict,
@@ -640,12 +641,12 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 
 		bool is_left = (h == 0);
 
-		uint8_t pose_flags = from_headset::tracking::orientation_valid |
-		                     from_headset::tracking::position_valid |
-		                     from_headset::tracking::orientation_tracked |
-		                     from_headset::tracking::position_tracked |
-		                     from_headset::tracking::linear_velocity_valid |
-		                     from_headset::tracking::angular_velocity_valid;
+		uint8_t pose_flags = from_headset::pose_flags::orientation_valid |
+		                     from_headset::pose_flags::position_valid |
+		                     from_headset::pose_flags::orientation_tracked |
+		                     from_headset::pose_flags::position_tracked |
+		                     from_headset::pose_flags::linear_velocity_valid |
+		                     from_headset::pose_flags::angular_velocity_valid;
 
 		from_headset::tracking::pose grip_p{};
 		grip_p.pose = ctrl_pose;
@@ -742,8 +743,8 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 			gGazeQuat[3].load()};
 		gaze_p.pose.position = {0, 0, 0};
 		gaze_p.device = device_id::EYE_GAZE;
-		gaze_p.flags = from_headset::tracking::orientation_valid |
-		               from_headset::tracking::orientation_tracked;
+		gaze_p.flags = from_headset::pose_flags::orientation_valid |
+		               from_headset::pose_flags::orientation_tracked;
 		pkt.device_poses.push_back(gaze_p);
 	}
 
