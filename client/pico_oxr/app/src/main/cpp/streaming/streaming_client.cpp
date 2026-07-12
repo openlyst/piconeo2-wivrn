@@ -113,6 +113,40 @@ void streaming_client::notify_stream_stats(int fps, int latency_ms, float bandwi
 		vm->DetachCurrentThread();
 }
 
+void streaming_client::notify_stream_stats_detailed(const float * data, int count)
+{
+	if (!vm || !activity || !data || count <= 0)
+		return;
+
+	JNIEnv * env = nullptr;
+	bool attached = false;
+	if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
+	{
+		if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK)
+			attached = true;
+	}
+
+	if (env && activity)
+	{
+		jclass clazz = env->GetObjectClass(activity);
+		jmethodID method = env->GetMethodID(clazz, "onStreamStatsDetailed", "([F)V");
+		if (method)
+		{
+			jfloatArray arr = env->NewFloatArray(count);
+			if (arr)
+			{
+				env->SetFloatArrayRegion(arr, 0, count, data);
+				env->CallVoidMethod(activity, method, arr);
+				env->DeleteLocalRef(arr);
+			}
+		}
+		env->DeleteLocalRef(clazz);
+	}
+
+	if (attached)
+		vm->DetachCurrentThread();
+}
+
 void streaming_client::notify_application_list(const std::vector<std::pair<std::string, std::string>> & apps)
 {
 	if (!vm || !activity)

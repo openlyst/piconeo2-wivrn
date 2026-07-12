@@ -10,6 +10,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
@@ -56,6 +57,24 @@ public class WivrnLobbyView {
     private int streamGpuMs = 0;
     private float streamBandwidthRx = 0;
     private float streamBandwidthTx = 0;
+
+    private static final int STATS_HISTORY_SIZE = 150;
+    private float[] fpsHistory = new float[STATS_HISTORY_SIZE];
+    private float[] latencyHistory = new float[STATS_HISTORY_SIZE];
+    private float[] bwRxHistory = new float[STATS_HISTORY_SIZE];
+    private float[] bwTxHistory = new float[STATS_HISTORY_SIZE];
+    private float[] cpuTimeHistory = new float[STATS_HISTORY_SIZE];
+    private float[] gpuTimeHistory = new float[STATS_HISTORY_SIZE];
+    private int statsHistoryOffset = 0;
+    private int statsHistoryCount = 0;
+
+    private float streamEncodeMs = 0;
+    private float streamSendMs = 0;
+    private float streamNetworkMs = 0;
+    private float streamDecodeMs = 0;
+    private float streamRenderWaitMs = 0;
+    private float streamBlitMs = 0;
+    private float streamTotalLatencyMs = 0;
     private String[] runningApps = new String[0];
     private int[] runningAppIds = new int[0];
     private boolean[] runningAppOverlays = new boolean[0];
@@ -757,6 +776,40 @@ public class WivrnLobbyView {
         this.streamBandwidthRx = bandwidthRxBps;
         this.streamBandwidthTx = bandwidthTxBps;
         this.streamBitrateMbps = bitrateMbps;
+        if (connectionState == STATE_CONNECTED) {
+            markDirty();
+        }
+    }
+
+    public void updateStreamStatsDetailed(float[] data) {
+        if (data == null || data.length < 13)
+            return;
+
+        this.streamFps = (int) data[0];
+        this.streamTotalLatencyMs = data[1];
+        this.streamLatencyMs = (int) data[1];
+        this.streamBandwidthRx = data[2];
+        this.streamBandwidthTx = data[3];
+        this.streamBitrateMbps = (int) data[4];
+        this.streamCpuMs = (int) data[5];
+        this.streamGpuMs = (int) data[6];
+        this.streamEncodeMs = data[7];
+        this.streamSendMs = data[8];
+        this.streamNetworkMs = data[9];
+        this.streamDecodeMs = data[10];
+        this.streamRenderWaitMs = data[11];
+        this.streamBlitMs = data[12];
+
+        fpsHistory[statsHistoryOffset] = data[0];
+        latencyHistory[statsHistoryOffset] = data[1];
+        bwRxHistory[statsHistoryOffset] = data[2] * 1e-6f;
+        bwTxHistory[statsHistoryOffset] = data[3] * 1e-6f;
+        cpuTimeHistory[statsHistoryOffset] = data[5];
+        gpuTimeHistory[statsHistoryOffset] = data[6];
+        statsHistoryOffset = (statsHistoryOffset + 1) % STATS_HISTORY_SIZE;
+        if (statsHistoryCount < STATS_HISTORY_SIZE)
+            statsHistoryCount++;
+
         if (connectionState == STATE_CONNECTED) {
             markDirty();
         }
@@ -1708,53 +1761,283 @@ public class WivrnLobbyView {
     }
 
     private void renderStreamStats(float x, float w) {
-        float y = 40;
+        float y = 20;
         canvas.drawText(i18n.s(R.string.perf_stats), x, y + 30, textLargePaint);
-        y += 70;
+        y += 55;
 
         String mbitUnit = i18n.s(R.string.unit_mbit_s);
-        String[][] stats = {
-            {i18n.s(R.string.stat_fps), streamFps > 0 ? streamFps + " " + i18n.s(R.string.unit_fps) : "--"},
-            {i18n.s(R.string.stat_mtp_latency), streamLatencyMs > 0 ? streamLatencyMs + " " + i18n.s(R.string.unit_ms) : "--"},
-            {i18n.s(R.string.stat_download), String.format("%.1f %s", streamBandwidthRx * 1e-6f, mbitUnit)},
-            {i18n.s(R.string.stat_upload), String.format("%.1f %s", streamBandwidthTx * 1e-6f, mbitUnit)},
-            {i18n.s(R.string.stat_bitrate), streamBitrateMbps + " " + mbitUnit},
-        };
+        String msUnit = i18n.s(R.string.unit_ms);
+        String fpsUnit = i18n.s(R.string.unit_fps);
 
-        float labelW = 320;
-        float valueX = x + labelW;
+        float colW = (w - 20) / 2;
+        float col1X = x;
+        float col2X = x + colW + 20;
 
-        for (String[] stat : stats) {
-            textSmallPaint.setColor(Color.rgb(140, 150, 165));
-            canvas.drawText(stat[0], x, y, textSmallPaint);
-            textPaint.setColor(Color.rgb(230, 235, 245));
-            canvas.drawText(stat[1], valueX, y, textPaint);
-            y += 42;
-        }
+        // Top row: FPS + latency summary
+        float summaryY = y;
+        drawStatSummary(col1X, summaryY, colW, i18n.s(R.string.stat_fps),
+                streamFps > 0 ? streamFps + " " + fpsUnit : "--",
+                fpsHistory, statsHistoryOffset, statsHistoryCount, Color.rgb(80, 200, 120), 0, 120);
+        drawStatSummary(col2X, summaryY, colW, i18n.s(R.string.stat_mtp_latency),
+                streamLatencyMs > 0 ? streamLatencyMs + " " + msUnit : "--",
+                latencyHistory, statsHistoryOffset, statsHistoryCount, Color.rgb(220, 140, 60), 0, 100);
+        y += 160;
 
-        textSmallPaint.setColor(Color.rgb(140, 150, 165));
+        // Second row: bandwidth download + upload
+        drawStatSummary(col1X, y, colW, i18n.s(R.string.stat_download),
+                String.format("%.1f %s", streamBandwidthRx * 1e-6f, mbitUnit),
+                bwRxHistory, statsHistoryOffset, statsHistoryCount, Color.rgb(80, 160, 240), 0, 0);
+        drawStatSummary(col2X, y, colW, i18n.s(R.string.stat_upload),
+                String.format("%.1f %s", streamBandwidthTx * 1e-6f, mbitUnit),
+                bwTxHistory, statsHistoryOffset, statsHistoryCount, Color.rgb(200, 100, 200), 0, 0);
+        y += 160;
 
-        y += 20;
+        // Third row: CPU time + GPU time
+        drawStatSummary(col1X, y, colW, i18n.s(R.string.stat_cpu_time),
+                streamCpuMs > 0 ? String.format("%.1f %s", (float)streamCpuMs, msUnit) : "--",
+                cpuTimeHistory, statsHistoryOffset, statsHistoryCount, Color.rgb(240, 180, 60), 0, 0);
+        drawStatSummary(col2X, y, colW, i18n.s(R.string.stat_gpu_time),
+                streamGpuMs > 0 ? String.format("%.1f %s", (float)streamGpuMs, msUnit) : "--",
+                gpuTimeHistory, statsHistoryOffset, statsHistoryCount, Color.rgb(100, 200, 220), 0, 0);
+        y += 160;
+
+        // Latency breakdown bar chart
+        y += 10;
+        canvas.drawText(i18n.s(R.string.stat_latency_breakdown), x, y + 20, textPaint);
+        textPaint.setColor(Color.rgb(230, 235, 245));
+        y += 35;
+        drawLatencyBreakdown(x, y, w, msUnit);
+        y += 120;
+
+        // Bitrate + resolution + mic info row
+        y += 15;
         Paint sepPaint = new Paint();
         sepPaint.setColor(Color.rgb(50, 60, 75));
         canvas.drawRect(x, y, x + w, y + 1, sepPaint);
         y += 20;
 
+        float labelW = 200;
+        float valueX = x + labelW;
+        float lineH = 36;
+
+        textSmallPaint.setColor(Color.rgb(140, 150, 165));
+        canvas.drawText(i18n.s(R.string.stat_bitrate), x, y, textSmallPaint);
+        textPaint.setColor(Color.rgb(230, 235, 245));
+        canvas.drawText(streamBitrateMbps + " " + mbitUnit, valueX, y, textPaint);
+        y += lineH;
+
+        textSmallPaint.setColor(Color.rgb(140, 150, 165));
+        canvas.drawText(i18n.s(R.string.stat_total_latency), x, y, textSmallPaint);
+        textPaint.setColor(Color.rgb(230, 235, 245));
+        canvas.drawText(streamTotalLatencyMs > 0 ? String.format("%.1f %s", streamTotalLatencyMs, msUnit) : "--", valueX, y, textPaint);
+        y += lineH;
+
         textSmallPaint.setColor(Color.rgb(90, 95, 105));
         canvas.drawText(i18n.s(R.string.stat_resolution), x, y, textSmallPaint);
         textPaint.setColor(Color.rgb(90, 95, 105));
         canvas.drawText(streamResolutionScale + "%", valueX, y, textPaint);
-        y += 42;
+        y += lineH;
 
         canvas.drawText(i18n.s(R.string.stat_microphone), x, y, textSmallPaint);
         textPaint.setColor(Color.rgb(90, 95, 105));
         canvas.drawText(i18n.s(R.string.stat_disabled), valueX, y, textPaint);
-        y += 42;
+        y += lineH;
 
-        y += 30;
+        y += 20;
         textDimPaint.setColor(Color.rgb(100, 110, 125));
         canvas.drawText(i18n.s(R.string.toggle_overlay_hint), x, y, textDimPaint);
         textDimPaint.setColor(Color.rgb(100, 110, 125));
+    }
+
+    private void drawStatSummary(float x, float y, float w, String label, String value,
+                                 float[] history, int offset, int count, int color,
+                                 float fixedMin, float fixedMax) {
+        Paint labelPaint = new Paint();
+        labelPaint.setColor(Color.rgb(140, 150, 165));
+        labelPaint.setTextSize(20);
+        labelPaint.setAntiAlias(true);
+
+        Paint valuePaint = new Paint();
+        valuePaint.setColor(Color.rgb(230, 235, 245));
+        valuePaint.setTextSize(26);
+        valuePaint.setTypeface(Typeface.DEFAULT_BOLD);
+        valuePaint.setAntiAlias(true);
+
+        canvas.drawText(label, x, y + 20, labelPaint);
+        canvas.drawText(value, x, y + 48, valuePaint);
+
+        float chartTop = y + 60;
+        float chartH = 80;
+        float chartW = w;
+
+        drawLineChart(x, chartTop, chartW, chartH, history, offset, count, color, fixedMin, fixedMax);
+    }
+
+    private void drawLineChart(float x, float y, float w, float h, float[] history,
+                               int offset, int count, int color, float fixedMin, float fixedMax) {
+        if (count < 2)
+            return;
+
+        Paint bgPaint = new Paint();
+        bgPaint.setColor(Color.argb(40, 32, 32, 32));
+        canvas.drawRect(x, y, x + w, y + h, bgPaint);
+
+        Paint borderPaint = new Paint();
+        borderPaint.setColor(Color.rgb(40, 45, 55));
+        borderPaint.setStyle(Paint.Style.STROKE);
+        borderPaint.setStrokeWidth(1);
+        canvas.drawRect(x, y, x + w, y + h, borderPaint);
+
+        float min = fixedMin;
+        float max = fixedMax;
+        if (max <= min) {
+            min = Float.MAX_VALUE;
+            max = Float.MIN_VALUE;
+            for (int i = 0; i < count; i++) {
+                int idx = (offset - count + i + STATS_HISTORY_SIZE) % STATS_HISTORY_SIZE;
+                float v = history[idx];
+                if (v < min) min = v;
+                if (v > max) max = v;
+            }
+            if (max <= min) {
+                max = min + 1;
+            }
+            float range = max - min;
+            max += range * 0.1f;
+            if (min > 0) min = 0;
+        }
+
+        Paint linePaint = new Paint();
+        linePaint.setColor(color);
+        linePaint.setAntiAlias(true);
+        linePaint.setStyle(Paint.Style.STROKE);
+        linePaint.setStrokeWidth(2);
+
+        Paint fillPaint = new Paint();
+        fillPaint.setColor(Color.argb(60, Color.red(color), Color.green(color), Color.blue(color)));
+        fillPaint.setAntiAlias(true);
+        fillPaint.setStyle(Paint.Style.FILL);
+
+        float stepX = w / (STATS_HISTORY_SIZE - 1);
+
+        Path linePath = new Path();
+        Path fillPath = new Path();
+
+        for (int i = 0; i < count; i++) {
+            int idx = (offset - count + i + STATS_HISTORY_SIZE) % STATS_HISTORY_SIZE;
+            float v = history[idx];
+            float px = x + i * stepX;
+            float py = y + h - (v - min) / (max - min) * h;
+            py = Math.max(y, Math.min(y + h, py));
+
+            if (i == 0) {
+                linePath.moveTo(px, py);
+                fillPath.moveTo(px, y + h);
+                fillPath.lineTo(px, py);
+            } else {
+                linePath.lineTo(px, py);
+                fillPath.lineTo(px, py);
+            }
+        }
+
+        if (count > 0) {
+            int lastIdx = (offset - 1 + STATS_HISTORY_SIZE) % STATS_HISTORY_SIZE;
+            float lastX = x + (count - 1) * stepX;
+            fillPath.lineTo(lastX, y + h);
+            fillPath.close();
+            canvas.drawPath(fillPath, fillPaint);
+        }
+
+        canvas.drawPath(linePath, linePaint);
+
+        // Current value dot
+        if (count > 0) {
+            int lastIdx = (offset - 1 + STATS_HISTORY_SIZE) % STATS_HISTORY_SIZE;
+            float lastV = history[lastIdx];
+            float lastPx = x + (count - 1) * stepX;
+            float lastPy = y + h - (lastV - min) / (max - min) * h;
+            lastPy = Math.max(y, Math.min(y + h, lastPy));
+
+            Paint dotPaint = new Paint();
+            dotPaint.setColor(color);
+            dotPaint.setAntiAlias(true);
+            canvas.drawCircle(lastPx, lastPy, 3, dotPaint);
+        }
+    }
+
+    private void drawLatencyBreakdown(float x, float y, float w, String unit) {
+        float[] stages = {streamEncodeMs, streamSendMs, streamNetworkMs, streamDecodeMs, streamRenderWaitMs, streamBlitMs};
+        String[] labels = {
+            i18n.s(R.string.stat_encode),
+            i18n.s(R.string.stat_send),
+            i18n.s(R.string.stat_network),
+            i18n.s(R.string.stat_decode),
+            i18n.s(R.string.stat_render_wait),
+            i18n.s(R.string.stat_blit)
+        };
+        int[] colors = {
+            Color.rgb(240, 100, 100),
+            Color.rgb(240, 180, 60),
+            Color.rgb(100, 200, 120),
+            Color.rgb(80, 160, 240),
+            Color.rgb(200, 100, 200),
+            Color.rgb(100, 200, 220)
+        };
+
+        float total = 0;
+        for (float s : stages) total += s;
+        if (total <= 0) {
+            textDimPaint.setColor(Color.rgb(100, 110, 125));
+            canvas.drawText("--", x + 10, y + 30, textDimPaint);
+            textDimPaint.setColor(Color.rgb(100, 110, 125));
+            return;
+        }
+
+        float barH = 28;
+        float barY = y;
+        float barX = x;
+        float barW = w;
+
+        float accumX = barX;
+        for (int i = 0; i < stages.length; i++) {
+            if (stages[i] <= 0) continue;
+            float segW = stages[i] / total * barW;
+            Paint segPaint = new Paint();
+            segPaint.setColor(colors[i]);
+            segPaint.setAntiAlias(true);
+            canvas.drawRect(accumX, barY, accumX + segW, barY + barH, segPaint);
+            accumX += segW;
+        }
+
+        Paint borderPaint = new Paint();
+        borderPaint.setColor(Color.rgb(40, 45, 55));
+        borderPaint.setStyle(Paint.Style.STROKE);
+        borderPaint.setStrokeWidth(1);
+        canvas.drawRect(barX, barY, barX + barW, barY + barH, borderPaint);
+
+        // Legend below
+        float legendY = barY + barH + 18;
+        float legendX = barX;
+        float legendSpacing = barW / 3;
+        Paint legendPaint = new Paint();
+        legendPaint.setTextSize(18);
+        legendPaint.setAntiAlias(true);
+
+        for (int i = 0; i < stages.length; i++) {
+            float col = i % 3;
+            float row = i / 3;
+            float lx = barX + col * legendSpacing;
+            float ly = legendY + row * 24;
+
+            Paint swatchPaint = new Paint();
+            swatchPaint.setColor(colors[i]);
+            swatchPaint.setAntiAlias(true);
+            canvas.drawRect(lx, ly - 12, lx + 12, ly, swatchPaint);
+
+            legendPaint.setColor(Color.rgb(160, 170, 185));
+            canvas.drawText(labels[i] + " " + String.format("%.1f", stages[i]) + unit,
+                    lx + 16, ly, legendPaint);
+        }
     }
 
     private void renderTouchCursor() {

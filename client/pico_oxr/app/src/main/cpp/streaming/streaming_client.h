@@ -60,6 +60,16 @@ struct streaming_client
 	float stats_bandwidth_tx = 0;
 	int64_t stats_last_encode_begin = 0;
 
+	float stats_cpu_time_ms = 0;
+	float stats_gpu_time_ms = 0;
+	float stats_encode_ms = 0;
+	float stats_send_ms = 0;
+	float stats_network_ms = 0;
+	float stats_decode_ms = 0;
+	float stats_render_wait_ms = 0;
+	float stats_blit_ms = 0;
+	float stats_total_latency_ms = 0;
+
 	static constexpr float k_pico_fov_half = 101.0f * 0.5f * 0.01745329252f;
 	XrFovf eye_fov[2]{
 		XrFovf{-k_pico_fov_half, k_pico_fov_half, k_pico_fov_half, -k_pico_fov_half},
@@ -197,6 +207,7 @@ struct streaming_client
 
 	void notify_connection_state(int state, const std::string & msg);
 	void notify_stream_stats(int fps, int latency_ms, float bandwidth_rx, float bandwidth_tx, int bitrate_mbps);
+	void notify_stream_stats_detailed(const float * data, int count);
 	void notify_application_list(const std::vector<std::pair<std::string, std::string>> & apps);
 	void notify_application_icon(const std::string & app_id, const std::vector<std::byte> & png_data);
 	void notify_running_applications(const std::vector<to_headset::running_applications::application> & apps);
