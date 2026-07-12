@@ -336,7 +336,8 @@ void pico_lobby::init(int w, int h)
 
 void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[3],
                       const controller_sample controllers[2],
-                      const XrFovf & fov, float ipd, bool head_trigger)
+                      const XrFovf & fov, float ipd, bool head_trigger,
+                      bool overlay)
 {
 	if (!initialized)
 	{
@@ -355,8 +356,15 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	glDepthFunc(GL_LEQUAL);
 	glDisable(GL_CULL_FACE);
 
-	glClearColor(0.05f, 0.06f, 0.09f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	if (overlay)
+	{
+		glClear(GL_DEPTH_BUFFER_BIT);
+	}
+	else
+	{
+		glClearColor(0.05f, 0.06f, 0.09f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	}
 
 	debug_frame_count++;
 
