@@ -2,6 +2,7 @@
 
 #include <spdlog/spdlog.h>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -199,6 +200,41 @@ public:
 		if (count == 0)
 			return 0;
 		return sum / count;
+	}
+
+	std::array<float, 6> get_avg_breakdown_ms()
+	{
+		std::lock_guard lock(mutex);
+		std::array<float, 6> result{0, 0, 0, 0, 0, 0};
+		if (records.empty())
+			return result;
+
+		float encode_sum = 0, send_sum = 0, network_sum = 0, decode_sum = 0, render_wait_sum = 0, blit_sum = 0;
+		int count = 0;
+		for (const auto & r : records)
+		{
+			if (!r.complete || !r.has_server_timing) continue;
+			if (!r.recv_first || !r.recv_last || !r.decoder_in || !r.decoded || !r.rendered || !r.submitted)
+				continue;
+
+			encode_sum      += (r.encode_end - r.encode_begin) / 1e6f;
+			send_sum        += (r.send_end - r.send_begin) / 1e6f;
+			network_sum     += (r.recv_first - r.send_end) / 1e6f;
+			decode_sum      += (r.decoded - r.decoder_in) / 1e6f;
+			render_wait_sum += (r.rendered - r.decoded) / 1e6f;
+			blit_sum        += (r.submitted - r.rendered) / 1e6f;
+			count++;
+		}
+		if (count == 0)
+			return result;
+
+		result[0] = encode_sum / count;
+		result[1] = send_sum / count;
+		result[2] = network_sum / count;
+		result[3] = decode_sum / count;
+		result[4] = render_wait_sum / count;
+		result[5] = blit_sum / count;
+		return result;
 	}
 
 private:
