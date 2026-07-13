@@ -194,22 +194,10 @@ static void generate_placeholder_texture(GLuint tex, int w, int h)
 		for (int x = 0; x < w; x++)
 		{
 			int idx = (y * w + x) * 4;
-			float fx = (float)x / w;
-			float fy = (float)y / h;
-
-			uint8_t r = (uint8_t)(20 + 30 * (1.0f - fy));
-			uint8_t g = (uint8_t)(25 + 35 * (1.0f - fy));
-			uint8_t b = (uint8_t)(45 + 55 * (1.0f - fy));
-
-			int border = 8;
-			if (x < border || x >= w - border || y < border || y >= h - border)
-			{
-				r = 80; g = 120; b = 200;
-			}
-
-			data[idx] = r;
-			data[idx + 1] = g;
-			data[idx + 2] = b;
+			// DEBUG bright red
+			data[idx] = 255;
+			data[idx + 1] = 0;
+			data[idx + 2] = 0;
 			data[idx + 3] = 255;
 		}
 	}
@@ -588,13 +576,14 @@ void pico_lobby::set_resolution(int w, int h)
 	eye_height.store(h);
 }
 
-void pico_lobby::recenter()
+void pico_lobby::recenter(const float head_pos[3], float head_yaw)
 {
-	panel_pos[0] = 0;
-	panel_pos[1] = 0;
-	panel_pos[2] = -2.5f;
-	panel_yaw = 0;
-	LOGI("Lobby recentered, panel reset to eye level");
+	float cy = std::cosf(head_yaw), sy = std::sinf(head_yaw);
+	panel_pos[0] = (head_pos ? head_pos[0] : 0.0f) + sy * 2.5f;
+	panel_pos[1] = head_pos ? head_pos[1] : 0.0f;
+	panel_pos[2] = (head_pos ? head_pos[2] : 0.0f) - cy * 2.5f;
+	panel_yaw = head_yaw;
+	LOGI("Lobby recentered, panel pos=(%.2f,%.2f,%.2f) yaw=%.2f", panel_pos[0], panel_pos[1], panel_pos[2], panel_yaw);
 }
 
 void pico_lobby::update_interaction(const float head_orient[4], const float head_pos[3],

@@ -2208,6 +2208,15 @@ void *renderThread(void *) {
             LOGI("frame %d q=(%.3f,%.3f,%.3f,%.3f) p=(%.3f,%.3f,%.3f) vr=%d surf=%d",
                  frame, qx,qy,qz,qw, px,py,pz, vrStarted, (sfc != EGL_NO_SURFACE));
 
+        // Auto-recenter the WiVRn lobby panel to the current head height/yaw once.
+        static bool sLobbyRecentered = false;
+        if (gLobby && !sLobbyRecentered && px != 0 && py != 0 && pz != 0) {
+            float head_yaw = std::atan2f(2.0f * (qw * qz + qx * qy), 1.0f - 2.0f * (qy * qy + qz * qz));
+            float head_pos[3] = {px, py, pz};
+            gLobby->recenter(head_pos, head_yaw);
+            sLobbyRecentered = true;
+        }
+
         const uint64_t ts = nowNs();
 
         // Persist a changed Software IPD once it settles (~0.5s after the last
@@ -3584,7 +3593,7 @@ void *renderThread(void *) {
                 }
                 constexpr float k_lobby_fov_half = 101.0f * 0.5f * 0.01745329252f;
                 XrFovf lobby_fov = {-k_lobby_fov_half, k_lobby_fov_half, k_lobby_fov_half, -k_lobby_fov_half};
-                gLobby->draw(eyeIdx, head_orient, head_pos, cs, lobby_fov, softIpdM() * 1000.0f, gOkHeld.load(), true);
+                gLobby->draw(eyeIdx, head_orient, head_pos, cs, lobby_fov, softIpdM(), gOkHeld.load(), true);
             }
 
             glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);

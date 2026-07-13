@@ -144,7 +144,7 @@ public:
 	          bool overlay = false);
 	bool is_initialized() const { return initialized; }
 
-	void recenter();
+	void recenter(const float head_pos[3] = nullptr, float head_yaw = 0.0f);
 
 	void update_texture(int width, int height, const void * pixels);
 	void flush_pending_texture();

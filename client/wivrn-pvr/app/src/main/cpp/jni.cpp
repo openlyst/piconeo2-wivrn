@@ -228,9 +228,16 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeOnLobbyTouch(
 // Recenter the lobby panel in front of the user.
 extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeRecenter(JNIEnv *env, jobject thiz) {
-    (void) env; (void) thiz;
+    (void) thiz;
     if (!gLobby) return;
-    gLobby->recenter();
+    float head[7] = {0,0,0,1,0,0,0};
+    {
+        std::lock_guard<std::mutex> lk(gHeadMutex);
+        for (int i = 0; i < 7; i++) head[i] = gHeadData[i];
+    }
+    float qx = head[0], qy = head[1], qz = head[2], qw = head[3];
+    float yaw = std::atan2f(2.0f * (qw * qz + qx * qy), 1.0f - 2.0f * (qy * qy + qz * qz));
+    gLobby->recenter(&head[4], yaw);
 }
 
 // Poll the latest controller ray interaction against the lobby panel for `hand`.
