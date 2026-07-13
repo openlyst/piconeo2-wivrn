@@ -60,6 +60,13 @@ android {
     }
 }
 
+tasks.register('copyAlvrLibs', Copy) {
+    from file('../../../.alvr-ref/app/src/main/jniLibs/armeabi-v7a')
+    into file('src/main/jniLibs/armeabi-v7a')
+    include 'libPvr_UnitySDK.so', 'libtracking_module.so'
+}
+preBuild.dependsOn copyAlvrLibs
+
 dependencies {
     implementation name: 'PvrSDK-Native-release', ext: 'aar'
 }
