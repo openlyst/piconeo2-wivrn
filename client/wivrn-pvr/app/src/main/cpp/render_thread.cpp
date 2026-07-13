@@ -2208,15 +2208,6 @@ void *renderThread(void *) {
             LOGI("frame %d q=(%.3f,%.3f,%.3f,%.3f) p=(%.3f,%.3f,%.3f) vr=%d surf=%d",
                  frame, qx,qy,qz,qw, px,py,pz, vrStarted, (sfc != EGL_NO_SURFACE));
 
-        // Auto-recenter the WiVRn lobby panel to the current head height/yaw once.
-        static bool sLobbyRecentered = false;
-        if (gLobby && !sLobbyRecentered && px != 0 && py != 0 && pz != 0) {
-            float head_yaw = std::atan2f(2.0f * (qw * qz + qx * qy), 1.0f - 2.0f * (qy * qy + qz * qz));
-            float head_pos[3] = {px, py, pz};
-            gLobby->recenter(head_pos, head_yaw);
-            sLobbyRecentered = true;
-        }
-
         const uint64_t ts = nowNs();
 
         // Persist a changed Software IPD once it settles (~0.5s after the last
@@ -3127,6 +3118,19 @@ void *renderThread(void *) {
         // refresh occasionally, and keep retrying while we still have no numeric IP
         if ((frame % 120) == 0 || !(gIpText[0] >= '0' && gIpText[0] <= '9')) refreshDeviceIp();
         const float kHudDist = 2.0f;         // panel distance in front of the user at anchor time
+
+        // WiVRn lobby UI panel: world-anchor once to match the existing HUD.
+        static bool sLobbyAnchored = false;
+        if (gLobby && !sLobbyAnchored) {
+            float fx = -headRot.m[8], fz = -headRot.m[10];
+            float fn = sqrtf(fx*fx + fz*fz);
+            if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
+            float ax = px + fx * kHudDist, az = pz + fz * kHudDist;
+            float yaw = atan2f(-fx, -fz);
+            float hp[3] = {ax, py, az};
+            gLobby->recenter(hp, yaw);
+            sLobbyAnchored = true;
+        }
         // Three lines, sized by "points" relative to the IP line: model = IP+2pt,
         // status = IP-2pt. We model 1 "point" as 10% of the IP pixel size.
         const float pxI = 0.012f;            // IP (base) metres per font pixel
@@ -3296,7 +3300,19 @@ void *renderThread(void *) {
         // head on its rising edge (like the streaming recenter).
         {
             static bool recenterPrev = false;
-            if (recenterDown && !recenterPrev) hudAnchored = false;
+            if (recenterDown && !recenterPrev) {
+                hudAnchored = false;
+                if (gLobby) {
+                    const float kReDist = 2.0f;
+                    float fx = -headRot.m[8], fz = -headRot.m[10];
+                    float fn = sqrtf(fx*fx + fz*fz);
+                    if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
+                    float ax = px + fx * kReDist, az = pz + fz * kReDist;
+                    float yaw = atan2f(-fx, -fz);
+                    float hp[3] = {ax, py, az};
+                    gLobby->recenter(hp, yaw);
+                }
+            }
             recenterPrev = recenterDown;
         }
 
@@ -3593,7 +3609,7 @@ void *renderThread(void *) {
                 }
                 constexpr float k_lobby_fov_half = 101.0f * 0.5f * 0.01745329252f;
                 XrFovf lobby_fov = {-k_lobby_fov_half, k_lobby_fov_half, k_lobby_fov_half, -k_lobby_fov_half};
-                gLobby->draw(eyeIdx, head_orient, head_pos, cs, lobby_fov, softIpdM(), gOkHeld.load(), true);
+                gLobby->draw(eyeIdx, head_orient, head_pos, cs, lobby_fov, softIpdM(), gOkHeld.load(), true, false);
             }
 
             glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);

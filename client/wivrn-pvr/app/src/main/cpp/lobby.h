@@ -141,7 +141,7 @@ public:
 	void draw(int eye, const float head_orient[4], const float head_pos[3],
 	          const controller_sample controllers[2],
 	          const XrFovf & fov, float ipd, bool head_trigger,
-	          bool overlay = false);
+	          bool overlay = false, bool draw_controllers = true);
 	bool is_initialized() const { return initialized; }
 
 	void recenter(const float head_pos[3] = nullptr, float head_yaw = 0.0f);
