@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.meumeu.wivrn.neo2.pvr">
 
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -19,8 +20,9 @@
     <uses-permission android:name="com.picovr.permission.EYE_TRACKING" />
 
     <application
-        android:label="ALVR"
-        android:icon="@mipmap/ic_launcher"
+        android:label="wivrn"
+        android:icon="@mipmap/ic_wivrn_launcher"
+        android:roundIcon="@mipmap/ic_wivrn_launcher"
         android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
         android:allowBackup="false">
 
@@ -35,7 +37,7 @@
 
         <activity
             android:name=".MainActivity"
-            android:label="ALVR"
+            android:label="wivrn"
             android:screenOrientation="landscape"
             android:launchMode="singleTask"
             android:configChanges="screenSize|orientation|keyboardHidden|keyboard"

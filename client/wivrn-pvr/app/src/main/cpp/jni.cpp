@@ -14,7 +14,7 @@
 
 // Called once (onCreate) to start the long-lived render thread.
 extern "C" JNIEXPORT void JNICALL
-Java_com_alvr_pico2_MainActivity_nativeStart(JNIEnv *env, jobject thiz,
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thiz,
                                                 jobject activity) {
     (void) thiz;
     if (gRunning.load()) { LOGI("nativeStart ignored (already running)"); return; }
@@ -37,7 +37,7 @@ Java_com_alvr_pico2_MainActivity_nativeStart(JNIEnv *env, jobject thiz,
 
 // surfaceCreated/Changed -> hand the (new) window to the render thread.
 extern "C" JNIEXPORT void JNICALL
-Java_com_alvr_pico2_MainActivity_nativeSurfaceChanged(JNIEnv *env, jobject thiz,
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSurfaceChanged(JNIEnv *env, jobject thiz,
                                                          jobject surface) {
     (void) thiz;
     ANativeWindow *win = ANativeWindow_fromSurface(env, surface);  // ref held until render thread releases
@@ -47,7 +47,7 @@ Java_com_alvr_pico2_MainActivity_nativeSurfaceChanged(JNIEnv *env, jobject thiz,
 
 // surfaceDestroyed -> tell the render thread to drop the surface (pause).
 extern "C" JNIEXPORT void JNICALL
-Java_com_alvr_pico2_MainActivity_nativeSurfaceDestroyed(JNIEnv *env, jobject thiz) {
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSurfaceDestroyed(JNIEnv *env, jobject thiz) {
     (void) env; (void) thiz;
     LOGI("nativeSurfaceDestroyed");
     setWindow(nullptr);
@@ -59,7 +59,7 @@ Java_com_alvr_pico2_MainActivity_nativeSurfaceDestroyed(JNIEnv *env, jobject thi
 // DPAD_CENTER/BUTTON_A kept as alternates. We only latch an edge here; the actual
 // value comes from the gaze-vs-slider hit computed on the render thread.
 extern "C" JNIEXPORT void JNICALL
-Java_com_alvr_pico2_MainActivity_nativeKeyEvent(JNIEnv *env, jobject thiz,
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeKeyEvent(JNIEnv *env, jobject thiz,
                                                    jint keyCode, jboolean down) {
     (void) env; (void) thiz;
     bool isOk = (keyCode == 1001 || keyCode == 66 || keyCode == 23 || keyCode == 96);
@@ -74,7 +74,7 @@ Java_com_alvr_pico2_MainActivity_nativeKeyEvent(JNIEnv *env, jobject thiz,
 // hand 0=left/1=right; sensor = float[7]{qx,qy,qz,qw,px,py,pz}; angVel=float[3];
 // keys = int[] (touchpad x,y then button slots).
 extern "C" JNIEXPORT void JNICALL
-Java_com_alvr_pico2_MainActivity_nativeGetHeadData(
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeGetHeadData(
         JNIEnv *env, jobject thiz, jfloatArray out) {
     (void) thiz;
     if (!out) return;
@@ -85,7 +85,7 @@ Java_com_alvr_pico2_MainActivity_nativeGetHeadData(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_alvr_pico2_MainActivity_nativeControllerState(
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeControllerState(
         JNIEnv *env, jobject thiz, jint hand, jint conn,
         jfloatArray sensor, jfloatArray angVel, jintArray keys) {
     (void) thiz;
@@ -147,7 +147,7 @@ Java_com_alvr_pico2_MainActivity_nativeControllerState(
 // out[1]=durationMs when a pulse is waiting; the Java poller then calls
 // ControllerClient.vibrateCV2ControllerStrength(out[0], (int)out[1], hand).
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_alvr_pico2_MainActivity_nativeDrainHaptic(
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeDrainHaptic(
         JNIEnv *env, jobject thiz, jint hand, jfloatArray out) {
     (void) thiz;
     if (hand < 0 || hand > 1 || !out || env->GetArrayLength(out) < 2) return JNI_FALSE;
@@ -167,7 +167,7 @@ Java_com_alvr_pico2_MainActivity_nativeDrainHaptic(
 // Proximity sleep toggle from the Java proximity listener. true = off-head timeout
 // elapsed -> the render thread pauses the stream; false = donned -> resume.
 extern "C" JNIEXPORT void JNICALL
-Java_com_alvr_pico2_MainActivity_nativeSetSleep(JNIEnv *env, jobject thiz, jboolean sleep) {
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetSleep(JNIEnv *env, jobject thiz, jboolean sleep) {
     (void) env; (void) thiz;
     gSleepReq.store(sleep == JNI_TRUE);
     LOGI("nativeSetSleep(%d)", (int)(sleep == JNI_TRUE));
@@ -177,7 +177,7 @@ Java_com_alvr_pico2_MainActivity_nativeSetSleep(JNIEnv *env, jobject thiz, jbool
 // popup at `pct` without waiting for a real battery crossing. Sets exactly the state
 // pollBatteryWarn() would, so the render loop's drawBatteryWarn picks it up.
 extern "C" JNIEXPORT void JNICALL
-Java_com_alvr_pico2_MainActivity_nativeTestBatteryWarn(JNIEnv *env, jobject thiz, jint pct) {
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeTestBatteryWarn(JNIEnv *env, jobject thiz, jint pct) {
     (void) env; (void) thiz;
     int p = (int) pct; if (p < 0) p = 0; if (p > 100) p = 100;
     gBattWarnPct.store(p);
@@ -186,7 +186,7 @@ Java_com_alvr_pico2_MainActivity_nativeTestBatteryWarn(JNIEnv *env, jobject thiz
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_alvr_pico2_MainActivity_nativeStop(JNIEnv *env, jobject thiz) {
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStop(JNIEnv *env, jobject thiz) {
     (void) thiz;
     if (!gRunning.exchange(false)) return;
     pthread_join(gThread, nullptr);

@@ -15,11 +15,11 @@ def versionProps = new Properties()
 rootProject.file('version.properties').withInputStream { versionProps.load(it) }
 
 android {
-    namespace 'com.alvr.pico2'
+    namespace 'org.meumeu.wivrn.neo2.pvr'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.alvr.pico2"
+        applicationId "org.meumeu.wivrn.neo2.pvr"
         minSdk 26
         targetSdk 34
         versionCode versionProps['VERSION_CODE'].toInteger()

@@ -1,4 +1,4 @@
-package com.alvr.pico2;
+package org.meumeu.wivrn.neo2.pvr;
 
 import android.app.Activity;
 import android.content.BroadcastReceiver;
@@ -36,7 +36,7 @@ import com.picovr.picovrlib.cvcontrollerclient.BindControllerCallback;
  */
 public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
-    private static final String TAG = "P2ALVR";
+    private static final String TAG = "wivrn";
 
     static {
         System.loadLibrary("tracking_module");
@@ -179,9 +179,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     // ---- adb test hook: fire in-app popups without the real trigger condition ----
     // Exported broadcast that arms the low-battery popup, for QA on device:
-    //   adb shell am broadcast -a com.alvr.pico2.TEST_BATTERY_WARN --ei pct 15 -p com.alvr.pico2
+    //   adb shell am broadcast -a org.meumeu.wivrn.neo2.pvr.TEST_BATTERY_WARN --ei pct 15 -p org.meumeu.wivrn.neo2.pvr
     // Omit --ei pct to default to 15%; use --ei pct 5 for the critical (red) variant.
-    static final String ACTION_TEST_BATTERY_WARN = "com.alvr.pico2.TEST_BATTERY_WARN";
+    static final String ACTION_TEST_BATTERY_WARN = "org.meumeu.wivrn.neo2.pvr.TEST_BATTERY_WARN";
     private final BroadcastReceiver mTestReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context ctx, Intent intent) {
             if (intent == null) return;
