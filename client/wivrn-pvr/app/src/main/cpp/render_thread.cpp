@@ -643,19 +643,56 @@ static void buildReticle() {
     glBindVertexArray(0);
 }
 
-// Simple 2D box + text test overlay, head-locked at a fixed depth.
-static void buildTestOverlay() {
+// WiVRn-style dashboard POC overlay, head-locked at a fixed depth.
+// Purely visual: non-functional widgets to see what a ported UI could look like.
+static void buildUiPocOverlay() {
     std::vector<float> v;
-    const char *msg = "NI HAO WO SHI ZHENXI";
-    const float px = 0.004f;
-    int n = (int)strlen(msg);
-    float lineW = (n * 6 - 1) * px;
-    float x0 = -lineW * 0.5f;
-    float y0 = 0.05f;             // slightly above centre
-    float pad = 0.02f;
-    appendQuad(v, x0 - pad, y0 + pad * 1.5f, x0 + lineW + pad, y0 - 7 * px - pad,
-               0.10f, 0.10f, 0.10f);
-    appendTextLine(v, msg, y0, px, 0.95f, 0.95f, 0.95f);
+
+    // Main window panel: dark slate.
+    appendQuad(v, -0.30f,  0.22f,  0.30f, -0.22f,  0.08f, 0.08f, 0.08f);
+    // Blue title bar.
+    appendQuad(v, -0.30f,  0.22f,  0.30f,  0.18f,  kUiFill[0], kUiFill[1], kUiFill[2]);
+    uiTextC(v, "WIVRN DASHBOARD", 0.0f, 0.195f, 0.004f, 1.0f, 1.0f, 1.0f);
+
+    // Left sidebar tabs.
+    appendQuad(v, -0.30f,  0.18f, -0.12f, -0.22f,  0.11f, 0.11f, 0.11f);
+    const char *tabs[] = { "APPLICATIONS", "SETTINGS", "STATS" };
+    for (int i = 0; i < 3; i++) {
+        float yTop = 0.14f - i * 0.06f;
+        bool active = (i == 1); // highlight SETTINGS
+        float tr = active ? kUiFill[0] * 0.35f : 0.11f;
+        float tg = active ? kUiFill[1] * 0.35f : 0.11f;
+        float tb = active ? kUiFill[2] * 0.35f : 0.11f;
+        appendQuad(v, -0.28f, yTop, -0.14f, yTop - 0.045f, tr, tg, tb);
+        uiTextC(v, tabs[i], -0.21f, yTop - 0.008f, 0.0035f,
+                active ? 1.0f : 0.65f, active ? 1.0f : 0.65f, active ? 1.0f : 0.65f);
+    }
+
+    // Content area dividers.
+    appendQuad(v, -0.10f,  0.18f, -0.10f, -0.22f,  0.18f, 0.18f, 0.18f);
+
+    // Fake rows in the SETTINGS tab.
+    float rowY = 0.14f;
+    uiTextL(v, "ENCODER", -0.07f, rowY, 0.004f, 0.85f, 0.85f, 0.85f);
+    UiRect encBox = { 0.12f, rowY - 0.012f, 0.16f, 0.035f };
+    uiBox(v, encBox, kUiBg);
+    uiTextC(v, "H.264", encBox.cx, encBox.cy + 0.002f, 0.0035f, 0.75f, 0.75f, 0.75f);
+
+    rowY -= 0.06f;
+    uiTextL(v, "RESOLUTION", -0.07f, rowY, 0.004f, 0.85f, 0.85f, 0.85f);
+    UiRect resFader = { 0.12f, rowY - 0.012f, 0.16f, 0.012f };
+    uiHFader(v, resFader, 0.65f, false);
+
+    rowY -= 0.06f;
+    uiToggle(v, {0.07f, rowY, 0.34f, 0.035f}, "HAND TRACKING", false, false, 1.0f, true);
+
+    rowY -= 0.05f;
+    uiToggle(v, {0.07f, rowY, 0.34f, 0.035f}, "MICROPHONE", true, false, 1.0f, true);
+
+    rowY -= 0.06f;
+    UiRect btn = { 0.07f, rowY, 0.16f, 0.04f };
+    uiButton(v, btn, "CONNECT", false, true);
+
     gTestVertCount = (int)(v.size() / 6);
     glGenVertexArrays(1, &gTestVao);
     glBindVertexArray(gTestVao);
@@ -1910,7 +1947,7 @@ void *renderThread(void *) {
     buildGazeMarker();       // eye-gaze debug disc (shown only on Neo 2 EYE)
     buildTextBuffers();      // dynamic VBO for the lobby IP/status HUD text + slider
     buildReticle();          // head-gaze crosshair (shown in lobby, no controllers)
-    buildTestOverlay();      // simple 2D box + text test
+    buildUiPocOverlay();     // WiVRn-style dashboard POC overlay
     buildGridFloor();        // lobby floor grid (spatial reference, not a void)
     buildControllerMeshes(); // Neo 2 controller wireframes (from /system OBJ)
 
