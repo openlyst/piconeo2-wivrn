@@ -96,6 +96,7 @@ public:
 	void recenter_height();
 	void get_controllers(controller_sample out[2]);
 	void set_prediction_ns(int64_t ns);
+	void set_latency_correction_ns(int64_t ns);
 	std::atomic<bool> floor_relative{false};
 	std::atomic<float> height_offset{1.5f};
 	std::atomic<float> soft_ipd{0.064f};
@@ -135,6 +136,10 @@ private:
 	std::atomic<int64_t> prediction_ns{0};
 	std::atomic<int64_t> base_prediction_ns{0};
 	std::atomic<int64_t> latency_correction_ns{0};
+
+public:
+	// Exposed so streaming_client can add a latency correction from measured data.
+	int64_t get_base_prediction_ns() const { return base_prediction_ns.load(); }
 	std::atomic<bool> recenter_requested{false};
 
 	float ctrl_lin_vel[2][3]{{0, 0, 0}, {0, 0, 0}};

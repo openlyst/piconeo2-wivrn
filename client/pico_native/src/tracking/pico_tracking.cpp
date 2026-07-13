@@ -157,6 +157,12 @@ void pico_native_tracker::set_prediction_ns(int64_t ns)
 	prediction_ns.store(ns + latency_correction_ns.load());
 }
 
+void pico_native_tracker::set_latency_correction_ns(int64_t ns)
+{
+	latency_correction_ns.store(ns);
+	prediction_ns.store(base_prediction_ns.load() + ns);
+}
+
 void pico_native_tracker::get_head_pose(float out_orient[4], float out_pos[3])
 {
 	std::lock_guard lock(state_mutex);
@@ -505,22 +511,25 @@ void pico_native_tracker::run()
 		if (do_uplink && new_pose && session)
 		{
 			last_tx_seq = cur_seq;
-			if ((frame_counter % 150) == 0)
+			if ((frame_counter % 30) == 0)
 			{
 				int64_t measured = g_latency.get_avg_total_latency_ns();
 				if (measured > 0)
 				{
 					int64_t base = base_prediction_ns.load();
-					int64_t correction = measured - base;
+					constexpr int64_t photon_safety_ns = 7'000000LL;
+					int64_t target = measured + photon_safety_ns;
+					int64_t correction = target - base;
 					if (correction < 0) correction = 0;
 					if (correction > 50000000LL) correction = 50000000LL;
 					int64_t prev = latency_correction_ns.load();
-					int64_t smoothed = (prev * 3 + correction) / 4;
+					int64_t smoothed = (prev + correction) / 2;
 					latency_correction_ns.store(smoothed);
 					prediction_ns.store(base + smoothed);
-					spdlog::info("Prediction adjusted: base={}ms measured={}ms correction={}ms total={}ms",
+					spdlog::info("Prediction adjusted: base={}ms measured={}ms target={}ms correction={}ms total={}ms",
 						base / 1000000, measured / 1000000,
-						smoothed / 1000000, (base + smoothed) / 1000000);
+						target / 1000000, smoothed / 1000000,
+						(base + smoothed) / 1000000);
 				}
 			}
 
