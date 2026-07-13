@@ -1,23 +1,32 @@
 package org.meumeu.wivrn;
 
 import android.app.Activity;
-import android.app.NativeActivity;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.KeyEvent;
+import android.view.Surface;
+import android.view.SurfaceHolder;
+import android.view.WindowManager;
+import android.graphics.PixelFormat;
 
 import com.picovr.picovrlib.cvcontrollerclient.ControllerClient;
 import com.picovr.picovrlib.cvcontrollerclient.BindControllerCallback;
+import com.unity3d.player.UnityPlayer;
 
-public class MainActivity extends NativeActivity {
+public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private static final String TAG = "WiVRn-Pico";
 
     static {
         System.loadLibrary("wivrn_pvr");
     }
+
+    // The Pico SDK reaches into the activity for this field and pulls the
+    // render Surface out of its first child. Shape must match exactly.
+    public UnityPlayer mUnityPlayer;
 
     private volatile boolean mCtrlRunning = false;
     private Thread mCtrlThread;
@@ -50,6 +59,7 @@ public class MainActivity extends NativeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         try {
             WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
@@ -59,6 +69,10 @@ public class MainActivity extends NativeActivity {
         } catch (Exception e) {
             Log.e(TAG, "multicast lock failed", e);
         }
+
+        mUnityPlayer = new UnityPlayer(this);
+        setContentView(mUnityPlayer);
+        mUnityPlayer.surfaceView.getHolder().addCallback(this);
 
         nativeStart(this, getIntent());
         handleWivrnIntent(getIntent());
@@ -116,6 +130,21 @@ public class MainActivity extends NativeActivity {
     @Override protected void onDestroy() {
         nativeStop();
         super.onDestroy();
+    }
+
+    @Override public void surfaceCreated(SurfaceHolder holder) {
+        holder.setFormat(PixelFormat.RGBA_8888);
+    }
+
+    @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+        Surface surface = holder.getSurface();
+        if (surface != null && surface.isValid()) {
+            nativeSurfaceChanged(surface);
+        }
+    }
+
+    @Override public void surfaceDestroyed(SurfaceHolder holder) {
+        nativeSurfaceDestroyed();
     }
 
     private void setupControllers() {
@@ -230,6 +259,8 @@ public class MainActivity extends NativeActivity {
     private native void nativePause();
     private native void nativeResume();
     private native void nativeNewIntent(Intent intent);
+    private native void nativeSurfaceChanged(Surface surface);
+    private native void nativeSurfaceDestroyed();
     private native void nativeGetHeadData(float[] out);
     private native void nativeControllerState(int hand, int conn, float[] sensor, float[] angVel, int[] keys);
     private native boolean nativeDrainHaptic(int hand, float[] out);

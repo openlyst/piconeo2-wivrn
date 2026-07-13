@@ -115,68 +115,22 @@ std::optional<std::string> parse_pin_from_uri(const std::string & uri)
 	return query.substr(value_start, value_end - value_start);
 }
 
-bool g_pvr_sdk_inited = false;
+jclass g_vr_class = nullptr;
+
+static jclass find_vr_activity_class(JNIEnv * env)
+{
+	jclass local = env->FindClass("com/psmart/vrlib/VrActivity");
+	if (!local)
+	{
+		env->ExceptionClear();
+		local = env->FindClass("com/picovr/vractivity/VRActivity");
+		if (!local)
+			env->ExceptionClear();
+	}
+	return local;
+}
 
 extern "C" {
-
-void wivrn_pvr_init_sdk(JNIEnv * env, jobject activity)
-{
-	if (g_pvr_sdk_inited)
-		return;
-
-	JNIEnv * env_local = env;
-	bool attached = false;
-	if (!env_local)
-	{
-		if (!g_client || !g_client->vm)
-			return;
-		if (g_client->vm->GetEnv((void **)&env_local, JNI_VERSION_1_6) != JNI_OK)
-		{
-			if (g_client->vm->AttachCurrentThread(&env_local, nullptr) == JNI_OK)
-				attached = true;
-		}
-	}
-
-	jobject act = activity ? activity : (g_client ? g_client->activity : nullptr);
-	if (!env_local || !act)
-		return;
-
-	jclass actClass = env_local->GetObjectClass(act);
-	jclass vrClass = (jclass)env_local->NewGlobalRef(actClass);
-	env_local->DeleteLocalRef(actClass);
-
-	Pvr_SetInitActivity((void *)act, (void *)vrClass);
-	Pvr_Enable6DofModule(true);
-	int initRc = Pvr_Init(0);
-	int sensRc = InitSensor();
-	int startRc = Pvr_StartSensor(0);
-	spdlog::info("main thread Pvr_Init={} InitSensor={} Pvr_StartSensor={}", initRc, sensRc, startRc);
-
-	Pvr_ResetSensor(PXR_RESET_ALL);
-	Pvr_SetTrackingMode(3);
-	spdlog::info("reset sensor and set tracking mode 3");
-
-	bool guardian = Pvr_BoundaryGetConfigured();
-	int originType = guardian ? 2 : 1;
-	bool originRc = Pvr_SetTrackingOriginType(originType);
-	spdlog::info("Pvr_SetTrackingOriginType({})={} floorHeight={:.3f} guardian={}",
-		guardian ? "StageLevel" : "FloorLevel", originRc, Pvr_GetFloorHeight(), guardian);
-
-	Pvr_DisableBoundary();
-	Pvr_ShutdownSDKBoundary();
-
-	float fov = 101.0f;
-	Pvr_SetProjectionFov(fov, fov);
-	spdlog::info("FOV set to {:.1f}", fov);
-
-	int vrModeRc = StartVrMode();
-	spdlog::info("StartVrMode={}", vrModeRc);
-
-	g_pvr_sdk_inited = true;
-
-	if (attached)
-		g_client->vm->DetachCurrentThread();
-}
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeStart(JNIEnv * env, jobject thiz, jobject activity, jobject intent)
 {
@@ -191,6 +145,14 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeStart(JNIEnv * e
 
 	env->GetJavaVM(&client->vm);
 	client->activity = env->NewGlobalRef(thiz);
+
+	{
+		jclass local_vr = find_vr_activity_class(env);
+		if (local_vr)
+			g_vr_class = (jclass)env->NewGlobalRef(local_vr);
+		else
+			spdlog::warn("VrActivity class not found");
+	}
 
 	auto uri = get_server_uri_from_intent(env, intent);
 	if (uri)
@@ -215,26 +177,36 @@ JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeStart(JNIEnv * e
 		client->server_port = 5353;
 	}
 
-	// Render thread is started from android_main once the NativeActivity window is ready.
+	g_render_thread.start(client);
 }
 
-void wivrn_pvr_set_window(ANativeWindow * window)
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeSurfaceChanged(JNIEnv * env, jobject thiz, jobject surface)
 {
-	if (!g_client)
-		return;
-
-	if (!g_render_thread.is_running())
-		g_render_thread.start(g_client);
-
-	if (window)
-		g_render_thread.set_surface(window);
-	else
+	if (!surface)
+	{
 		g_render_thread.clear_surface();
+		return;
+	}
+
+	ANativeWindow * win = ANativeWindow_fromSurface(env, surface);
+	if (win)
+		g_render_thread.set_surface(win);
+}
+
+JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeSurfaceDestroyed(JNIEnv * env, jobject thiz)
+{
+	g_render_thread.clear_surface();
 }
 
 JNIEXPORT void JNICALL Java_org_meumeu_wivrn_MainActivity_nativeStop(JNIEnv * env, jobject thiz)
 {
 	g_render_thread.stop();
+
+	if (g_vr_class)
+	{
+		env->DeleteGlobalRef(g_vr_class);
+		g_vr_class = nullptr;
+	}
 
 	if (g_client)
 	{

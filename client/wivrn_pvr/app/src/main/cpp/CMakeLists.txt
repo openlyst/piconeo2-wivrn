@@ -12,14 +12,6 @@ find_library(jnigraphics-lib jnigraphics)
 find_library(media-lib mediandk)
 find_library(aaudio-lib aaudio)
 
-# Native app glue for NativeActivity
-add_library(native_app_glue OBJECT
-    ${ANDROID_NDK}/sources/android/native_app_glue/android_native_app_glue.c
-)
-target_include_directories(native_app_glue PUBLIC
-    ${ANDROID_NDK}/sources/android/native_app_glue
-)
-
 # Pvr Native SDK
 add_library(Pvr_NativeSDK SHARED IMPORTED)
 set_target_properties(Pvr_NativeSDK PROPERTIES
@@ -107,9 +99,8 @@ set(PVR_CORE_SOURCES
     ${PICO_NATIVE_DIR}/src/core/main.cpp
     ${PICO_NATIVE_DIR}/src/core/pico_client.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/core/pico_jni.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/native_entry.cpp
     ${PICO_NATIVE_DIR}/src/core/pico_render.cpp
-    ${PICO_NATIVE_DIR}/src/core/pico_render_thread.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/pico_render_thread.cpp
     ${PICO_NATIVE_DIR}/src/net/wivrn_client_pico.cpp
     ${PICO_NATIVE_DIR}/src/video/pico_decoder.cpp
     ${PICO_NATIVE_DIR}/src/audio/pico_audio.cpp
@@ -122,14 +113,12 @@ set(PVR_CORE_SOURCES
 
 add_library(wivrn_pvr SHARED
     ${PVR_CORE_SOURCES}
-    $<TARGET_OBJECTS:native_app_glue>
 )
 
 target_include_directories(wivrn_pvr PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/openxr
     ${CMAKE_CURRENT_SOURCE_DIR}/streaming
-    ${ANDROID_NDK}/sources/android/native_app_glue
     ${PICO_NATIVE_DIR}/common
     ${PICO_NATIVE_DIR}/src/core
     ${PICO_NATIVE_DIR}/src/net
