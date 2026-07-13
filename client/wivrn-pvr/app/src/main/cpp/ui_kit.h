@@ -45,9 +45,9 @@ void uiTextL(std::vector<float> &v, const char *s, float xLeft, float yTop, floa
              float r, float g, float b);
 void uiLabel(std::vector<float> &v, const char *s, float cx, float cy, float px,
              const float col[3]);
-void uiButton(std::vector<float> &v, const UiRect &r, const char *label, bool hot);
-void uiToggle(std::vector<float> &v, const UiRect &r, const char *label, bool on, bool hot, float textScale = 1.0f);
-void uiVFader(std::vector<float> &v, const UiRect &r, float frac, bool hot);
-void uiHFader(std::vector<float> &v, const UiRect &r, float frac, bool hot);
-void uiDropdownHeader(std::vector<float> &v, const UiRect &r, const char *label, bool open, bool hot);
-void uiDropdownItem(std::vector<float> &v, const UiRect &r, const char *label, bool hot);
+void uiButton(std::vector<float> &v, const UiRect &r, const char *label, bool hot, bool disabled = false);
+void uiToggle(std::vector<float> &v, const UiRect &r, const char *label, bool on, bool hot, float textScale = 1.0f, bool disabled = false);
+void uiVFader(std::vector<float> &v, const UiRect &r, float frac, bool hot, bool disabled = false);
+void uiHFader(std::vector<float> &v, const UiRect &r, float frac, bool hot, bool disabled = false);
+void uiDropdownHeader(std::vector<float> &v, const UiRect &r, const char *label, bool open, bool hot, bool disabled = false);
+void uiDropdownItem(std::vector<float> &v, const UiRect &r, const char *label, bool hot, bool disabled = false);

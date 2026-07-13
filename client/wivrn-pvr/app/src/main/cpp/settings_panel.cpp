@@ -97,8 +97,28 @@ static void eqAct(const MenuHover &h, bool click, bool grab, float cx, float cy)
     }
 }
 
+// Helper for greyed-out wivrn placeholders: visible but non-interactive.
+static inline MenuItem wivrnToggle(const char *label, std::atomic<bool> &val) {
+    MenuItem it; it.kind = MK_TOGGLE; it.label = label; it.disabled = true;
+    it.get = [&]{ return val.load() ? 1.0f : 0.0f; };
+    it.set = [&](float v){ val.store(v > 0.5f); };
+    return it;
+}
+
 // ---- model assembly --------------------------------------------------------
 static void buildCoreModel(MenuModel &m) {
+    // CONNECTION ------------------------------------------------------------
+    MenuCategory conn; conn.name = "CONNECT";
+    {
+        conn.items.push_back(wivrnToggle("TCP ONLY", gWivrnTcpOnly));
+
+        MenuItem pin; pin.kind = MK_BUTTON; pin.label = "PAIRING PIN";
+        pin.disabled = true;
+        pin.onClick = []{ /* TODO: wire up native PIN entry for wivrn handshake */ };
+        conn.items.push_back(pin);
+    }
+    m.push_back(conn);
+
     // VIDEO -----------------------------------------------------------------
     MenuCategory video; video.name = "VIDEO";
     {
@@ -113,24 +133,45 @@ static void buildCoreModel(MenuModel &m) {
         br.vmin = 0.0f; br.vmax = 1.0f;
         br.get = []{ return gBrightnessFrac.load(); };
         br.set = [](float f){ gBrightnessFrac.store(f); gBrightnessSaved.store(true); gBrightnessApply.store(true); };
-        br.valueText = [](char *b,int n){ snprintf(b,n,"%d PERCENT",(int)(gBrightnessFrac.load()*100.0f+0.5f)); };   // no '%' glyph in the font
+        br.valueText = [](char *b,int n){ snprintf(b,n,"%d PERCENT",(int)(gBrightnessFrac.load()*100.0f+0.5f)); };
         br.onCommit = []{ saveBrightness(); };
         video.items.push_back(br);
 
-        // FIELD OF VIEW (higher-DPI lever): lower the per-eye FOV so the fixed server
-        // buffer packs more pixels into the visible lens cone. A release-commit slider:
-        // set() only updates the displayed value live during the drag (the "NN DEG"
-        // readout above the bar follows the knob); the expensive apply -- warp mesh
-        // rebuild (Pvr_SetProjectionFov + fEyeTextureFov globals) + resend view_params
-        // -- fires ONCE on release via onCommit -> gFovDirty, so dragging doesn't churn
-        // a warp re-point every frame. Range 50 deg .. headset native (kFovMax).
         MenuItem fov; fov.kind = MK_FADER; fov.label = "FIELD OF VIEW";
         fov.vmin = kFovMin; fov.vmax = kFovMax;
         fov.get = []{ return gStreamFovDeg.load(); };
-        fov.set = [](float v){ gStreamFovDeg.store(roundf(v)); };   // live readout only (integer deg); no apply
+        fov.set = [](float v){ gStreamFovDeg.store(roundf(v)); };
         fov.valueText = [](char *b,int n){ snprintf(b,n,"%.0f DEG", gStreamFovDeg.load()); };
-        fov.onCommit = []{ gFovDirty.store(true); };                // apply + save on release
+        fov.onCommit = []{ gFovDirty.store(true); };
         video.items.push_back(fov);
+
+        MenuItem res; res.kind = MK_FADER; res.label = "RESOLUTION SCALE";
+        res.vmin = 0.5f; res.vmax = 2.0f; res.disabled = true;
+        res.get = []{ return gWivrnResolutionScale.load(); };
+        res.set = [](float v){ gWivrnResolutionScale.store(v); };
+        res.valueText = [](char *b,int n){ snprintf(b,n,"%.2f X", gWivrnResolutionScale.load()); };
+        video.items.push_back(res);
+
+        MenuItem bit; bit.kind = MK_FADER; bit.label = "BITRATE";
+        bit.vmin = 5.0f; bit.vmax = 200.0f; bit.disabled = true;
+        bit.get = []{ return gWivrnBitrateMbps.load(); };
+        bit.set = [](float v){ gWivrnBitrateMbps.store(v); };
+        bit.valueText = [](char *b,int n){ snprintf(b,n,"%.0f MBPS", gWivrnBitrateMbps.load()); };
+        video.items.push_back(bit);
+
+        MenuItem codec; codec.kind = MK_DROPDOWN; codec.label = "CODEC";
+        codec.disabled = true;
+        codec.options = { "H264", "H265", "AV1" };
+        codec.get = []{ return (float)gWivrnCodec.load(); };
+        codec.set = [](float v){ gWivrnCodec.store((int)(v+0.5f)); };
+        video.items.push_back(codec);
+
+        MenuItem fovq; fovq.kind = MK_DROPDOWN; fovq.label = "FOVEATION";
+        fovq.disabled = true;
+        fovq.options = { "OFF", "LOW", "MEDIUM", "HIGH" };
+        fovq.get = []{ return (float)gWivrnFoveation.load(); };
+        fovq.set = [](float v){ gWivrnFoveation.store((int)(v+0.5f)); };
+        video.items.push_back(fovq);
     }
     m.push_back(video);
 
@@ -140,8 +181,37 @@ static void buildCoreModel(MenuModel &m) {
         MenuItem eq; eq.kind = MK_CUSTOM; eq.customH = 0.66f;
         eq.cBuild = eqBuild; eq.cHit = eqHit; eq.cAct = eqAct;
         audio.items.push_back(eq);
+
+        audio.items.push_back(wivrnToggle("MICROPHONE", gWivrnMicrophone));
     }
     m.push_back(audio);
+
+    // INPUT -----------------------------------------------------------------
+    MenuCategory input; input.name = "INPUT";
+    {
+        input.items.push_back(wivrnToggle("HAND TRACKING", gWivrnHandTracking));
+
+        MenuItem vib; vib.kind = MK_FADER; vib.label = "CONTROLLER VIBRATION";
+        vib.vmin = 0.0f; vib.vmax = 1.0f; vib.disabled = true;
+        vib.get = []{ return gWivrnCtrlVibration.load(); };
+        vib.set = [](float v){ gWivrnCtrlVibration.store(v); };
+        vib.valueText = [](char *b,int n){ snprintf(b,n,"%d PCT", (int)(gWivrnCtrlVibration.load()*100.0f+0.5f)); };
+        input.items.push_back(vib);
+    }
+    m.push_back(input);
+
+    // SYSTEM ----------------------------------------------------------------
+    MenuCategory sys; sys.name = "SYSTEM";
+    {
+        sys.items.push_back(wivrnToggle("EYE TRACKING", gWivrnEyeTracking));
+        sys.items.push_back(wivrnToggle("PASSTHROUGH", gWivrnPassthrough));
+
+        MenuItem rec; rec.kind = MK_BUTTON; rec.label = "RECENTER";
+        rec.disabled = true;
+        rec.onClick = []{ gWivrnRecenterReq.store(true); };
+        sys.items.push_back(rec);
+    }
+    m.push_back(sys);
 
     // DEBUG -----------------------------------------------------------------
     MenuCategory dbg; dbg.name = "DEBUG";

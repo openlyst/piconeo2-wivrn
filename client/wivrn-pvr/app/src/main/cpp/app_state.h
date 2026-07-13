@@ -32,6 +32,21 @@ extern std::atomic<bool>  gThemeAmber;   // lobby UI theme: false=cold blue, tru
 extern std::atomic<float> gBrightnessFrac; // HMD panel brightness 0..1 (VIDEO tab slider)
 extern std::atomic<bool>  gBrightnessSaved; // a brightness value was persisted (vs. panel default)
 
+// ---- wivrn client option placeholders (server/protocol supports them; client
+//      side either not wired yet or controlled by the server). Stored so the
+//      settings panel can render them and grey out the unimplemented ones.
+extern std::atomic<bool>   gWivrnTcpOnly;
+extern std::atomic<int>    gWivrnCodec;        // 0=h264, 1=h265, 2=av1
+extern std::atomic<int>    gWivrnFoveation;    // 0=off, 1=low, 2=medium, 3=high
+extern std::atomic<float>  gWivrnBitrateMbps;  // 0..200
+extern std::atomic<float>  gWivrnResolutionScale; // 0.5..2.0
+extern std::atomic<bool>   gWivrnHandTracking;
+extern std::atomic<bool>   gWivrnEyeTracking;
+extern std::atomic<bool>   gWivrnPassthrough;
+extern std::atomic<bool>   gWivrnMicrophone;
+extern std::atomic<float>  gWivrnCtrlVibration; // 0..1
+extern std::atomic<bool>   gWivrnRecenterReq;   // one-shot button flag
+
 // ---- Stream FOV (higher-DPI lever) -----------------------------------------
 // The server renders into a FIXED per-eye buffer (1664^2) at whatever FOV the
 // CLIENT commands via alvr view_params. The Neo 2 lens tube masks off the outer

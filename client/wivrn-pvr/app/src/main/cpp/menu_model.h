@@ -35,6 +35,10 @@ struct MenuItem {
     // Stepper / fader range.
     float vmin = 0.0f, vmax = 1.0f, vstep = 0.1f;
 
+    // Greyed-out / not yet implemented: still drawn, but ignores input and uses
+    // muted colours so the user can see what the client will support.
+    bool disabled = false;
+
     // MK_DROPDOWN: the choices (get() returns the selected index, set() picks one).
     // dropOpen is runtime expand state (the model persists, so it lives here).
     std::vector<const char *> options;

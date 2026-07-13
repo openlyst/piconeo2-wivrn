@@ -151,59 +151,67 @@ void uiLabel(std::vector<float> &v, const char *s, float cx, float cy, float px,
     uiTextC(v, s, cx, cy + 3.5f*px, px, col[0], col[1], col[2]);
 }
 // BUTTON: filled box + centred label.
-void uiButton(std::vector<float> &v, const UiRect &r, const char *label, bool hot) {
-    uiBox(v, r, hot ? kUiBgHot : kUiBg);
-    uiTextC(v, label, r.cx, r.cy + 3.5f*kUiText, kUiText, 1,1,1);
+void uiButton(std::vector<float> &v, const UiRect &r, const char *label, bool hot, bool disabled) {
+    const float *bg = disabled ? kUiTrack : (hot ? kUiBgHot : kUiBg);
+    uiBox(v, r, bg);
+    float txt[3] = { disabled ? 0.50f : 1.0f, disabled ? 0.52f : 1.0f, disabled ? 0.56f : 1.0f };
+    uiTextC(v, label, r.cx, r.cy + 3.5f*kUiText, kUiText, txt[0], txt[1], txt[2]);
 }
 // TOGGLE SWITCH: row box + left label + sliding pill (green on / grey off) at right.
-void uiToggle(std::vector<float> &v, const UiRect &r, const char *label, bool on, bool hot, float textScale) {
-    uiBox(v, r, hot ? kUiBgHot : kUiBg);
+void uiToggle(std::vector<float> &v, const UiRect &r, const char *label, bool on, bool hot, float textScale, bool disabled) {
+    uiBox(v, r, disabled ? kUiTrack : (hot ? kUiBgHot : kUiBg));
     float sw = 0.11f, sh = r.h * 0.60f;
     float tpx = kUiText * textScale;
-    // Auto-shrink the label so it never clips under the pill: cap the font size to
-    // the room between the label's left edge and the pill's left edge. Glyph advance
-    // is 6 px (5 + 1 gap) and the last glyph drops the trailing gap -> width =
-    // (n*6 - 1)*px. Only ever shrinks; short labels keep their requested size.
     int n = (int) strlen(label);
     if (n > 0) {
         float labelLeft = r.cx - r.w*0.5f + 0.012f;
         float pillLeft  = r.cx + r.w*0.5f - sw - 0.012f;
-        float avail = pillLeft - labelLeft - 0.010f;     // small gap before the pill
+        float avail = pillLeft - labelLeft - 0.010f;
         if (avail > 0.0f) { float fit = avail / (n*6 - 1); if (fit < tpx) tpx = fit; }
     }
-    uiTextL(v, label, r.cx - r.w*0.5f + 0.012f, r.cy + 3.5f*tpx, tpx, 0.85f,0.88f,0.92f);
+    float txt[3] = { disabled ? 0.45f : 0.85f, disabled ? 0.48f : 0.88f, disabled ? 0.52f : 0.92f };
+    uiTextL(v, label, r.cx - r.w*0.5f + 0.012f, r.cy + 3.5f*tpx, tpx, txt[0], txt[1], txt[2]);
     float scx = r.cx + r.w*0.5f - sw*0.5f - 0.012f;
     UiRect track = { scx, r.cy, sw, sh };
-    uiBox(v, track, on ? kUiOn : kUiOff);
+    const float *trackCol = on ? kUiOn : kUiOff;
+    float dimTrack[3] = { trackCol[0]*0.55f, trackCol[1]*0.55f, trackCol[2]*0.55f };
+    uiBox(v, track, disabled ? dimTrack : trackCol);
     float kx = on ? (scx + sw*0.22f) : (scx - sw*0.22f);
     UiRect knob = { kx, r.cy, sw*0.42f, sh*0.82f };
-    uiBox(v, knob, kUiWhite);
+    float dimWhite[3] = { disabled ? 0.55f : 1.0f, disabled ? 0.55f : 1.0f, disabled ? 0.55f : 1.0f };
+    uiBox(v, knob, dimWhite);
 }
 // VERTICAL FADER: track + cyan fill from bottom + white knob bar. frac 0..1.
-void uiVFader(std::vector<float> &v, const UiRect &r, float frac, bool hot) {
+void uiVFader(std::vector<float> &v, const UiRect &r, float frac, bool hot, bool disabled) {
     if (frac < 0) frac = 0; else if (frac > 1) frac = 1;
     float th = r.w * 0.30f;
     appendQuad(v, r.cx-th, r.cy+r.h*0.5f, r.cx+th, r.cy-r.h*0.5f, hot?0.30f:kUiTrack[0], hot?0.30f:kUiTrack[1], hot?0.36f:kUiTrack[2]);
     float yb = r.cy - r.h*0.5f, ky = yb + frac*r.h;
-    appendQuad(v, r.cx-th, ky, r.cx+th, yb, kUiFill[0],kUiFill[1],kUiFill[2]);
-    appendQuad(v, r.cx-r.w*0.5f, ky+0.012f, r.cx+r.w*0.5f, ky-0.012f, 1,1,1);
+    float fillDim[3] = { kUiFill[0]*0.45f, kUiFill[1]*0.45f, kUiFill[2]*0.45f };
+    appendQuad(v, r.cx-th, ky, r.cx+th, yb, disabled?fillDim[0]:kUiFill[0], disabled?fillDim[1]:kUiFill[1], disabled?fillDim[2]:kUiFill[2]);
+    float knob[3] = { disabled ? 0.55f : 1.0f, disabled ? 0.55f : 1.0f, disabled ? 0.55f : 1.0f };
+    appendQuad(v, r.cx-r.w*0.5f, ky+0.012f, r.cx+r.w*0.5f, ky-0.012f, knob[0], knob[1], knob[2]);
 }
 // HORIZONTAL SLIDER: track + cyan fill from left + white knob bar. frac 0..1.
-void uiHFader(std::vector<float> &v, const UiRect &r, float frac, bool hot) {
+void uiHFader(std::vector<float> &v, const UiRect &r, float frac, bool hot, bool disabled) {
     if (frac < 0) frac = 0; else if (frac > 1) frac = 1;
     float th = r.h * 0.30f;
     appendQuad(v, r.cx-r.w*0.5f, r.cy+th, r.cx+r.w*0.5f, r.cy-th, hot?0.30f:kUiTrack[0], hot?0.30f:kUiTrack[1], hot?0.36f:kUiTrack[2]);
     float xl = r.cx - r.w*0.5f, kx = xl + frac*r.w;
-    appendQuad(v, xl, r.cy+th, kx, r.cy-th, kUiFill[0],kUiFill[1],kUiFill[2]);
-    appendQuad(v, kx-0.012f, r.cy+r.h*0.5f, kx+0.012f, r.cy-r.h*0.5f, 1,1,1);
+    float fillDim[3] = { kUiFill[0]*0.45f, kUiFill[1]*0.45f, kUiFill[2]*0.45f };
+    appendQuad(v, xl, r.cy+th, kx, r.cy-th, disabled?fillDim[0]:kUiFill[0], disabled?fillDim[1]:kUiFill[1], disabled?fillDim[2]:kUiFill[2]);
+    float knob[3] = { disabled ? 0.55f : 1.0f, disabled ? 0.55f : 1.0f, disabled ? 0.55f : 1.0f };
+    appendQuad(v, kx-0.012f, r.cy+r.h*0.5f, kx+0.012f, r.cy-r.h*0.5f, knob[0], knob[1], knob[2]);
 }
 // DROPDOWN header: box + label + up/down arrow glyph (open/closed).
-void uiDropdownHeader(std::vector<float> &v, const UiRect &r, const char *label, bool open, bool hot) {
-    uiBox(v, r, hot ? kUiBgHot : kUiBg);
+void uiDropdownHeader(std::vector<float> &v, const UiRect &r, const char *label, bool open, bool hot, bool disabled) {
+    uiBox(v, r, disabled ? kUiTrack : (hot ? kUiBgHot : kUiBg));
     char buf[48]; snprintf(buf, sizeof(buf), "%s %s", label, open ? "^" : "~");
-    uiTextC(v, buf, r.cx, r.cy + 3.5f*kUiText, kUiText, 1,1,1);
+    float txt[3] = { disabled ? 0.50f : 1.0f, disabled ? 0.52f : 1.0f, disabled ? 0.56f : 1.0f };
+    uiTextC(v, buf, r.cx, r.cy + 3.5f*kUiText, kUiText, txt[0], txt[1], txt[2]);
 }
-void uiDropdownItem(std::vector<float> &v, const UiRect &r, const char *label, bool hot) {
-    uiBox(v, r, hot ? kUiBgHot : kUiOff);
-    uiTextC(v, label, r.cx, r.cy + 3.5f*kUiText, kUiText, 1,1,1);
+void uiDropdownItem(std::vector<float> &v, const UiRect &r, const char *label, bool hot, bool disabled) {
+    uiBox(v, r, disabled ? kUiTrack : (hot ? kUiBgHot : kUiOff));
+    float txt[3] = { disabled ? 0.50f : 1.0f, disabled ? 0.52f : 1.0f, disabled ? 0.56f : 1.0f };
+    uiTextC(v, label, r.cx, r.cy + 3.5f*kUiText, kUiText, txt[0], txt[1], txt[2]);
 }

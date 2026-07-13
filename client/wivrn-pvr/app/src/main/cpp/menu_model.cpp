@@ -55,6 +55,10 @@ float menuContentH(const MenuCategory &c) {
 }
 
 // ---- build -----------------------------------------------------------------
+// Greyed-out label colour for disabled rows.
+static const float kUiDisabledText[3] = {0.45f, 0.48f, 0.52f};
+static const float kUiDisabledTitle[3] = {0.40f, 0.45f, 0.50f};
+
 void menuBuild(std::vector<float> &v, const MenuCategory &c, const MenuHover &h) {
     if (c.custom && !c.items.empty() && c.items[0].cBuild) { c.items[0].cBuild(v, h); return; }
 
@@ -62,14 +66,15 @@ void menuBuild(std::vector<float> &v, const MenuCategory &c, const MenuHover &h)
         const MenuItem &it = c.items[i];
         float yTop = menuRowTop(c, i);
         bool hov = (h.item == i);
+        const float *titleCol = it.disabled ? kUiDisabledTitle : kUiTitle;
         switch (it.kind) {
         case MK_TOGGLE: {
             bool on = it.get && it.get() > 0.5f;
-            uiToggle(v, rToggle(yTop), it.label, on, hov);
+            uiToggle(v, rToggle(yTop), it.label, on, hov, 1.0f, it.disabled);
             break;
         }
         case MK_BUTTON:
-            uiButton(v, rButton(yTop), it.label, hov);
+            uiButton(v, rButton(yTop), it.label, hov, it.disabled);
             break;
         case MK_FADER: {
             float frac = it.get ? clampf((it.get() - it.vmin) / (it.vmax - it.vmin), 0.0f, 1.0f) : 0.0f;
@@ -77,28 +82,31 @@ void menuBuild(std::vector<float> &v, const MenuCategory &c, const MenuHover &h)
             if (it.valueText) { char vb[24]; it.valueText(vb, sizeof(vb));
                                 snprintf(lbl, sizeof(lbl), "%s  %s", it.label, vb); }
             else snprintf(lbl, sizeof(lbl), "%s", it.label);
-            uiTextC(v, lbl, 0.0f, yTop, 0.004f, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
-            uiHFader(v, rFader(yTop), frac, hov);
+            uiTextC(v, lbl, 0.0f, yTop, 0.004f, titleCol[0], titleCol[1], titleCol[2]);
+            uiHFader(v, rFader(yTop), frac, hov, it.disabled);
             break;
         }
         case MK_STEPPER: {
-            uiTextC(v, it.label, 0.0f, yTop, 0.0045f, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+            uiTextC(v, it.label, 0.0f, yTop, 0.0045f, titleCol[0], titleCol[1], titleCol[2]);
             char vb[24];
             if (it.valueText) it.valueText(vb, sizeof(vb));
             else snprintf(vb, sizeof(vb), "%.2f", it.get ? it.get() : 0.0f);
-            uiTextC(v, vb, 0.0f, yTop - 0.05f, 0.0052f, 1, 1, 1);
-            uiButton(v, rStepMinus(yTop), "-", hov && h.part == 0);
-            uiButton(v, rStepPlus(yTop),  "+", hov && h.part == 1);
+            uiTextC(v, vb, 0.0f, yTop - 0.05f, 0.0052f,
+                    it.disabled ? kUiDisabledText[0] : 1.0f,
+                    it.disabled ? kUiDisabledText[1] : 1.0f,
+                    it.disabled ? kUiDisabledText[2] : 1.0f);
+            uiButton(v, rStepMinus(yTop), "-", hov && h.part == 0, it.disabled);
+            uiButton(v, rStepPlus(yTop),  "+", hov && h.part == 1, it.disabled);
             break;
         }
         case MK_DROPDOWN: {
-            uiTextC(v, it.label, 0.0f, yTop, 0.0045f, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+            uiTextC(v, it.label, 0.0f, yTop, 0.0045f, titleCol[0], titleCol[1], titleCol[2]);
             int sel = it.get ? (int)(it.get() + 0.5f) : 0;
             const char *cur = (sel >= 0 && sel < (int)it.options.size()) ? it.options[sel] : "";
-            uiDropdownHeader(v, rDropHdr(yTop), cur, it.dropOpen, hov && h.part == 0);
+            uiDropdownHeader(v, rDropHdr(yTop), cur, it.dropOpen, hov && h.part == 0, it.disabled);
             if (it.dropOpen)
                 for (int k = 0; k < (int)it.options.size(); k++)
-                    uiDropdownItem(v, rDropItem(yTop, k), it.options[k], hov && h.part == 100 + k);
+                    uiDropdownItem(v, rDropItem(yTop, k), it.options[k], hov && h.part == 100 + k, it.disabled);
             break;
         }
         case MK_CUSTOM:
@@ -115,6 +123,7 @@ MenuHover menuHit(const MenuCategory &c, float cx, float cy) {
 
     for (int i = 0; i < (int)c.items.size(); i++) {
         const MenuItem &it = c.items[i];
+        if (it.disabled) continue;
         float yTop = menuRowTop(c, i);
         switch (it.kind) {
         case MK_TOGGLE: if (uiHit(rToggle(yTop), cx, cy)) { h.item=i; h.part=0; h.grab=true; } break;
@@ -158,6 +167,7 @@ void menuApply(int catId, MenuCategory &c, const MenuHover &h,
     if (c.custom && !c.items.empty() && c.items[0].cAct) { c.items[0].cAct(h, click, grab, cx, cy); return; }
     if (h.item < 0 || h.item >= (int)c.items.size()) { if (!grab) { sHoldKey = -1; } return; }
     MenuItem &it = c.items[h.item];
+    if (it.disabled) { if (!grab) { sHoldKey = -1; sFadeKey = -1; } return; }
 
     switch (it.kind) {
     case MK_TOGGLE:
