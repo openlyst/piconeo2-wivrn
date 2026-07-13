@@ -84,7 +84,7 @@ void pico_render_thread::init_egl()
 
 	const EGLint cfgAttribs[] = {
 		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
-		EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
+		EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
 		EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
 		EGL_DEPTH_SIZE, 24, EGL_NONE
 	};
@@ -96,13 +96,12 @@ void pico_render_thread::init_egl()
 		return;
 	}
 
-	const EGLint ctxAttribsLow[] = {
+	const EGLint ctxAttribs[] = {
 		EGL_CONTEXT_CLIENT_VERSION, 3,
-		EGL_CONTEXT_PRIORITY_LEVEL_IMG, EGL_CONTEXT_PRIORITY_LOW_IMG,
 		EGL_NONE
 	};
 
-	ctx = eglCreateContext(dpy, cfg, EGL_NO_CONTEXT, ctxAttribsLow);
+	ctx = eglCreateContext(dpy, cfg, EGL_NO_CONTEXT, ctxAttribs);
 	if (ctx == EGL_NO_CONTEXT)
 	{
 		const EGLint ctxFallback[] = { EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
@@ -405,6 +404,11 @@ void pico_render_thread::blit_decoded_to_swap(std::shared_ptr<pico_decoded_frame
 
 void pico_render_thread::submit_to_warp(int slot_idx, uint64_t fence_wait_ns)
 {
+	static int submit_log_count = 0;
+	if (++submit_log_count <= 10 || (submit_log_count % 120) == 0)
+		spdlog::info("submit_to_warp slot={} texL={} texR={}", slot_idx,
+			swap_tex[0][slot_idx], swap_tex[1][slot_idx]);
+
 	if (slots[slot_idx].fence)
 	{
 		GLenum w = glClientWaitSync(slots[slot_idx].fence, GL_SYNC_FLUSH_COMMANDS_BIT, fence_wait_ns);
@@ -416,8 +420,12 @@ void pico_render_thread::submit_to_warp(int slot_idx, uint64_t fence_wait_ns)
 		}
 	}
 
-	PVR_CameraEndFrame(0, swap_tex[0][slot_idx]);
-	PVR_CameraEndFrame(1, swap_tex[1][slot_idx]);
+	for (int e = 0; e < 2; e++)
+	{
+		glBindTexture(GL_TEXTURE_2D, swap_tex[e][slot_idx]);
+		PVR_CameraEndFrame(e, swap_tex[e][slot_idx]);
+	}
+	glBindTexture(GL_TEXTURE_2D, 0);
 
 	for (int e = 0; e < 2; e++)
 	{
@@ -450,9 +458,9 @@ void pico_render_thread::submit_to_warp(int slot_idx, uint64_t fence_wait_ns)
 		blk.v[1] = pose.orientation.y;
 		blk.v[2] = pose.orientation.z;
 		blk.v[3] = pose.orientation.w;
-		blk.v[4] = eye_offset;
-		blk.v[5] = 0;
-		blk.v[6] = 0;
+		blk.v[4] = pose.position.x + eye_offset;
+		blk.v[5] = pose.position.y;
+		blk.v[6] = pose.position.z;
 		PVR_ChangeRenderPose(e, 0, blk);
 	}
 
