@@ -484,13 +484,17 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 					head_pred = std::max(head_pred, s.prediction_ns);
 				}
 			}
-			if (head_pred == 0 && p.motions_to_photons > 0)
-				head_pred = p.motions_to_photons;
+			// The server-reported motions-to-photons is the total pipeline latency estimate.
+			// Use it even when the HEAD pattern gives a smaller per-device prediction.
+			if (p.motions_to_photons > 0)
+				head_pred = std::max(head_pred, p.motions_to_photons);
 			if (head_pred == 0)
 				head_pred = 30000000; // 30ms default prediction
 
 			tracker.set_prediction_ns(head_pred);
-			spdlog::info("Head prediction: {}ns", head_pred);
+			spdlog::info("Head prediction: base={}ns m2p={}ns pattern={}ns",
+				head_pred, p.motions_to_photons,
+				[&]{ int64_t m=0; for (auto&s:p.pattern) if(s.device==device_id::HEAD) m=std::max(m,s.prediction_ns); return m; }());
 		}
 		else if constexpr (std::is_same_v<T, to_headset::haptics>)
 		{
