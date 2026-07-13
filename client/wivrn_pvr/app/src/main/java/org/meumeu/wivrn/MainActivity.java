@@ -247,6 +247,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (mCtrlThread != null) { mCtrlThread.interrupt(); mCtrlThread = null; }
     }
 
+    public void onLobbyTouch(float x, float y, boolean down, boolean pressed, float thumbstickY) {
+        // Lobby is rendered natively; no Java-side overlay to update.
+    }
+
     public void onConnectionStateChanged(int state, String message) {
         Log.i(TAG, "state=" + state + " msg=" + message);
     }
