@@ -105,26 +105,28 @@ void appendQuad(std::vector<float> &v, float xL, float yTop, float xR, float yBo
 //  Every new panel should build from these so the look stays uniform. Each widget
 //  emits geometry into a vertex vector (pos.xyz+rgb); the caller hit-tests with
 //  uiHit() against the SAME UiRect it passed to draw, then acts on click/drag.
-//  Visual language = the EQ fader: dark slate boxes, cyan accent, green = on.
+//  Visual language: WiVRn dark theme (ImGui dark-inspired). Near-black panels,
+//  soft blue accent (#3d85ff approx), white labels, blue toggles/faders.
 // ============================================================================
 const float kUiText      = 0.0045f;            // standard 1x text size (menu widgets)
-const float kUiBg[3]     = {0.16f, 0.16f, 0.20f};
-const float kUiBgHot[3]  = {0.32f, 0.32f, 0.40f};
-const float kUiTrack[3]  = {0.16f, 0.16f, 0.20f};
-float       kUiFill[3]   = {0.30f, 0.80f, 1.00f};   // accent (themeable)
-const float kUiOn[3]     = {0.25f, 0.95f, 0.40f};   // green = on
-const float kUiOff[3]    = {0.30f, 0.30f, 0.36f};
+const float kUiBg[3]     = {0.13f, 0.13f, 0.13f};   // widget / panel surface
+const float kUiBgHot[3]  = {0.26f, 0.34f, 0.46f};   // hovered widget
+const float kUiTrack[3]  = {0.08f, 0.08f, 0.08f};   // slider track / disabled fill
+float       kUiFill[3]   = {0.24f, 0.52f, 0.88f};   // accent (themeable)
+const float kUiOn[3]     = {0.24f, 0.52f, 0.88f};   // toggle on = accent
+const float kUiOff[3]    = {0.18f, 0.18f, 0.18f};   // toggle off
 const float kUiWhite[3]  = {1.0f, 1.0f, 1.0f};
-float       kUiTitle[3]  = {0.70f, 0.90f, 1.00f};   // title/label (themeable)
+float       kUiTitle[3]  = {0.90f, 0.90f, 0.92f};   // labels / titles
 
 void applyUiTheme(bool amber) {
     if (amber) {
-        // 1970s amber terminal: blue accent -> orange, light-blue title -> cream.
-        kUiFill[0]  = 0.95f; kUiFill[1]  = 0.72f; kUiFill[2]  = 0.10f;   // yellow-amber (less red)
-        kUiTitle[0] = 0.98f; kUiTitle[1] = 0.92f; kUiTitle[2] = 0.70f;   // warm cream
+        // 1970s amber terminal: blue accent -> orange, light title -> cream.
+        kUiFill[0]  = 0.95f; kUiFill[1]  = 0.72f; kUiFill[2]  = 0.10f;
+        kUiTitle[0] = 0.98f; kUiTitle[1] = 0.92f; kUiTitle[2] = 0.70f;
     } else {
-        kUiFill[0]  = 0.30f; kUiFill[1]  = 0.80f; kUiFill[2]  = 1.00f;   // cyan
-        kUiTitle[0] = 0.70f; kUiTitle[1] = 0.90f; kUiTitle[2] = 1.00f;   // light blue
+        // WiVRn dark blue.
+        kUiFill[0]  = 0.24f; kUiFill[1]  = 0.52f; kUiFill[2]  = 0.88f;
+        kUiTitle[0] = 0.90f; kUiTitle[1] = 0.90f; kUiTitle[2] = 0.92f;
     }
 }
 

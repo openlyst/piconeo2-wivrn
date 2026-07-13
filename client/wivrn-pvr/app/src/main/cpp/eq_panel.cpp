@@ -66,9 +66,9 @@ void buildEqVerts(std::vector<float> &v, int hoverBand, bool resetHover,
     for (int b = 0; b < kEqBands; b++) {
         float cx = eqColCenterX(b);
         bool hot = (b == hoverBand);
-        float tr = hot ? 0.30f : 0.16f, tg = hot ? 0.30f : 0.16f, tb = hot ? 0.36f : 0.20f;
+        float tr = hot ? 0.24f : 0.10f, tg = hot ? 0.24f : 0.10f, tb = hot ? 0.30f : 0.10f;
         appendQuad(v, cx-trackHalf, kEqYTrackTop, cx+trackHalf, kEqYTrackBot, tr, tg, tb);
-        appendQuad(v, cx-trackHalf, y0dB+0.003f, cx+trackHalf, y0dB-0.003f, 0.45f, 0.45f, 0.5f);  // 0 dB tick
+        appendQuad(v, cx-trackHalf, y0dB+0.003f, cx+trackHalf, y0dB-0.003f, 0.40f, 0.40f, 0.45f);  // 0 dB tick
         float ky = eqGainToY(gEqGains[b]);
         float fr_, fg_, fb_;
         if (gEqGains[b] >= 0) { fr_=kUiFill[0]; fg_=kUiFill[1]; fb_=kUiFill[2]; }  // boost = accent

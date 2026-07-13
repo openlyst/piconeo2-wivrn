@@ -318,8 +318,9 @@ void buildSettingsPanel(std::vector<float> &v, float offX, float offY, float con
         appendQuad(v, kSetPanelL, kSetPanelTop, kSetPanelR, kSetPanelBot, 0.09f, 0.06f, 0.03f);
         appendQuad(v, kSetPanelL, kSetPanelTop, -0.45f, kSetPanelBot, 0.15f, 0.10f, 0.04f);
     } else {
-        appendQuad(v, kSetPanelL, kSetPanelTop, kSetPanelR, kSetPanelBot, 0.06f, 0.07f, 0.10f);
-        appendQuad(v, kSetPanelL, kSetPanelTop, -0.45f, kSetPanelBot, 0.10f, 0.12f, 0.16f);
+        // WiVRn dark: near-black panel, dark sidebar.
+        appendQuad(v, kSetPanelL, kSetPanelTop, kSetPanelR, kSetPanelBot, 0.08f, 0.08f, 0.08f);
+        appendQuad(v, kSetPanelL, kSetPanelTop, -0.45f, kSetPanelBot, 0.10f, 0.10f, 0.10f);
     }
     uiTextC(v, m[cat].name, (kCtX0 + kCtX1) * 0.5f, kSetHdrY, 0.0055f, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
     uiButton(v, kSetClose, "X", closeHover);
@@ -331,9 +332,9 @@ void buildSettingsPanel(std::vector<float> &v, float offX, float offY, float con
         float xL = r.cx - r.w*0.5f, xR = r.cx + r.w*0.5f;
         float yT = r.cy + r.h*0.5f, yB = r.cy - r.h*0.5f;
         float c0,c1,c2;
-        if (active)            { c0=kUiFill[0]*0.40f; c1=kUiFill[1]*0.40f; c2=kUiFill[2]*0.40f; }
-        else if (tabHover==i)  { c0=0.18f; c1=0.20f; c2=0.26f; }
-        else                   { c0=0.10f; c1=0.11f; c2=0.15f; }
+        if (active)            { c0=kUiFill[0]*0.35f; c1=kUiFill[1]*0.35f; c2=kUiFill[2]*0.35f; }
+        else if (tabHover==i)  { c0=0.18f; c1=0.22f; c2=0.30f; }
+        else                   { c0=0.10f; c1=0.10f; c2=0.10f; }
         appendQuad(v, xL, yT, xR, yB, c0, c1, c2);
         const float *tc = active ? kUiWhite : kUiTitle;
         uiTextC(v, m[i].name, r.cx, r.cy + 3.0f*0.005f, 0.005f, tc[0], tc[1], tc[2]);
@@ -356,7 +357,7 @@ void buildSettingsPanel(std::vector<float> &v, float offX, float offY, float con
 
     // reference scrollbar
     if (contentH > kSetViewportH + 1e-4f) {
-        appendQuad(v, kSbX, kCtTop, kSbX + kSbW, kCtBot, 0.14f, 0.15f, 0.20f);
+        appendQuad(v, kSbX, kCtTop, kSbX + kSbW, kCtBot, 0.08f, 0.08f, 0.08f);
         float maxScroll = contentH - kSetViewportH;
         float thumbH = kSetViewportH * (kSetViewportH / contentH); if (thumbH < 0.04f) thumbH = 0.04f;
         float frac = (maxScroll > 1e-5f) ? (gSettingsScroll[cat] / maxScroll) : 0.0f;

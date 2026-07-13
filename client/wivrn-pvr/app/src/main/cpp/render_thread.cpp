@@ -306,7 +306,7 @@ static void buildGazeMarker() {
         float a0 = (float)i       / kSeg * 2.0f * (float)M_PI;
         float a1 = (float)(i + 1) / kSeg * 2.0f * (float)M_PI;
         // center, then two rim points -> one triangle per segment
-        const float g[3] = { 0.1f, 1.0f, 0.2f };   // bright green
+        const float g[3] = { 0.2f, 0.55f, 1.0f };   // WiVRn blue
         v.insert(v.end(), { 0,0,0, g[0],g[1],g[2] });
         v.insert(v.end(), { cosf(a0)*kR, sinf(a0)*kR, 0, g[0],g[1],g[2] });
         v.insert(v.end(), { cosf(a1)*kR, sinf(a1)*kR, 0, g[0],g[1],g[2] });
@@ -334,9 +334,9 @@ static int    gGridVertCount = 0;
 static void buildGridFloor() {
     std::vector<float> v;
     const float ext = 5.0f, step = 0.5f;
-    // Themed floor: cold blue-grey or warm amber-grey. Brighter centre axes.
+    // WiVRn dark theme: dark grey grid, blue accent axes.
     bool amber = gThemeAmber.load();
-    const float c0 = amber ? 0.34f : 0.16f, c1 = amber ? 0.22f : 0.26f, c2 = amber ? 0.08f : 0.40f;
+    const float c0 = amber ? 0.34f : 0.14f, c1 = amber ? 0.22f : 0.14f, c2 = amber ? 0.08f : 0.14f;
     const float a0 = amber ? 0.60f : 0.30f, a1 = amber ? 0.44f : 0.36f, a2 = amber ? 0.18f : 0.42f;
     for (float i = -ext; i <= ext + 1e-3f; i += step) {
         bool axis = (i > -1e-3f && i < 1e-3f);
@@ -412,7 +412,7 @@ static void loadCtrlObjLines(const char *path, std::vector<float> &out) {
 }
 static void buildControllerMeshes() {
     bool amber = gThemeAmber.load();
-    const float cr = amber?0.98f:0.80f, cg = amber?0.80f:0.90f, cb = amber?0.45f:1.00f;  // themed, bright
+    const float cr = amber?0.98f:0.35f, cg = amber?0.80f:0.65f, cb = amber?0.45f:0.95f;  // WiVRn blue accent
     for (int h=0; h<2; h++) {
         if (gCtrlPos[h].empty()) loadCtrlObjLines(kCtrlObjPath[h], gCtrlPos[h]);
         std::vector<float> v; v.reserve(gCtrlPos[h].size()*2);
@@ -617,8 +617,8 @@ static void createVideoDecoder() {
 // metres at the reticle's display distance). Drawn head-locked at view centre.
 static void buildReticle() {
     std::vector<float> v;
-    appendQuad(v, -0.020f,  0.0025f, 0.020f, -0.0025f, 0.9f, 1.0f, 0.9f);  // horizontal arm
-    appendQuad(v, -0.0025f, 0.020f,  0.0025f, -0.020f, 0.9f, 1.0f, 0.9f);  // vertical arm
+    appendQuad(v, -0.020f,  0.0025f, 0.020f, -0.0025f, 0.85f, 0.90f, 1.0f);  // horizontal arm
+    appendQuad(v, -0.0025f, 0.020f,  0.0025f, -0.020f, 0.85f, 0.90f, 1.0f);  // vertical arm
     gReticleVertCount = (int)(v.size() / 6);
     glGenVertexArrays(1, &gReticleVao);
     glBindVertexArray(gReticleVao);
@@ -3452,9 +3452,9 @@ void *renderThread(void *) {
             if (ptrFromController) {
                 const float L = laserLen;
                 float exr = laserOx + laserDx*L, eyr = laserOy + laserDy*L, ezr = laserOz + laserDz*L;
-                // Solid red beam, full length (no fade).
-                float lv[12] = { laserOx,laserOy,laserOz, 1.0f,0.25f,0.25f,
-                                 exr,eyr,ezr,                   1.0f,0.25f,0.25f };
+                // WiVRn-style pointer beam: soft blue-white.
+                float lv[12] = { laserOx,laserOy,laserOz, 0.70f,0.82f,1.00f,
+                                 exr,eyr,ezr,                   0.70f,0.82f,1.00f };
                 glBindBuffer(GL_ARRAY_BUFFER, gLaserVbo);
                 glBufferData(GL_ARRAY_BUFFER, sizeof(lv), lv, GL_DYNAMIC_DRAW);
                 Mat4 lMvp = mat4Mul(sproj, sview);   // verts already in world space
