@@ -22,6 +22,7 @@
 #include "secrets.h"
 #include "smp.h"
 #include "wivrn_packets.h"
+#include <android/log.h>
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <netinet/ip.h>
@@ -61,6 +62,7 @@ void wivrn_session_pico::handshake(T address, bool tcp_only, crypto::key & heads
                                    std::function<std::string(int fd)> pin_enter,
                                    std::atomic<bool> & shutdown_flag)
 {
+	__android_log_print(ANDROID_LOG_INFO, "wivrn-native", "handshake: enter, tcp_only=%d", (int)tcp_only);
 	pollfd fds{};
 	fds.events = POLLIN;
 	fds.fd = control.get_fd();
@@ -105,7 +107,7 @@ void wivrn_session_pico::handshake(T address, bool tcp_only, crypto::key & heads
 		}
 	};
 
-	spdlog::warn("handshake: sending crypto_handshake");
+	__android_log_print(ANDROID_LOG_INFO, "wivrn-native", "handshake: sending crypto_handshake");
 	send_control(from_headset::crypto_handshake{
 	        .protocol_version = wivrn::protocol_version,
 	        .public_key = headset_keypair.public_key(),
@@ -242,7 +244,7 @@ wivrn_session_pico::wivrn_session_pico(in6_addr address, int port, bool tcp_only
                                        const std::string & model_name,
                                        std::function<std::string(int fd)> pin_enter,
                                        std::atomic<bool> & shutdown_flag) :
-        control(address, port, 10000), stream(-1), address(address)
+        control(address, port), stream(-1), address(address)
 {
 	handshake(address, tcp_only, headset_keypair, model_name, pin_enter, shutdown_flag);
 }
@@ -252,7 +254,7 @@ wivrn_session_pico::wivrn_session_pico(in_addr address, int port, bool tcp_only,
                                        const std::string & model_name,
                                        std::function<std::string(int fd)> pin_enter,
                                        std::atomic<bool> & shutdown_flag) :
-        control(address, port, 10000), stream(-1), address(address)
+        control(address, port), stream(-1), address(address)
 {
 	handshake(address, tcp_only, headset_keypair, model_name, pin_enter, shutdown_flag);
 }

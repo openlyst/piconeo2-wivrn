@@ -12,6 +12,7 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
@@ -79,12 +80,28 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     // Ported WiVRn lobby UI (matches pico_oxr).
     private native void nativeUpdateLobbyTexture(byte[] pixels, int width, int height);
     public native void nativeSetFov(float fovDeg);
+    private native boolean nativeReady();
     private native void nativeConnect(String hostname, int port, boolean tcpOnly);
     private native void nativeDisconnect();
-    private native void nativeSubmitPin(String pin);
+    private native void nativeSetPin(String pin);
+    public native void nativeSetBitrate(int bitrateMbps);
+    public native void nativeSetDynamicBitrate(boolean enabled);
+    private native void nativeSetIpd(float ipdMm);
+    private native void nativeSetMicrophone(boolean enabled);
+    private native void nativeSetStreamResolution(int width, int height);
+    private native void nativeSetRenderResolution(int width, int height);
     private WivrnLobbyView lobbyView;
     private volatile boolean mUiRenderRunning = false;
     private Thread mUiRenderThread;
+
+    // Pending WiVRn dashboard connection (flushed once nativeReady() is true).
+    private String pendingHost;
+    private int pendingPort;
+    private boolean pendingTcpOnly;
+    private String pendingPin;
+    private boolean hasPendingConnection = false;
+    private long lastConnectFlushMs = 0;
+    private static final long CONNECT_DEBOUNCE_MS = 2000;
 
     // Pico CV controller service: bound once, then polled on a background thread
     // and pushed to native. headDof/handDof = 1,1 requests 6DoF.
@@ -239,18 +256,116 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         setupControllers();
         setupProximitySleep();
         registerTestReceiver();
+        handleWivrnIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleWivrnIntent(intent);
+    }
+
+    private void handleWivrnIntent(Intent intent) {
+        if (intent == null || intent.getData() == null) return;
+        Uri uri = intent.getData();
+        String scheme = uri.getScheme();
+        if (scheme == null) return;
+        if (!scheme.equals("wivrn") && !scheme.equals("wivrn+tcp") && !scheme.equals("wivrn+udp")) return;
+
+        String host = uri.getHost();
+        int port = uri.getPort();
+        if (port <= 0) port = 9757;
+        boolean tcpOnly = scheme.equals("wivrn+tcp");
+        String tcpOnlyParam = uri.getQueryParameter("tcp_only");
+        if (tcpOnlyParam != null && !tcpOnlyParam.isEmpty()) {
+            tcpOnly = tcpOnlyParam.equals("1") || tcpOnlyParam.equalsIgnoreCase("true");
+        }
+
+        String pin = null;
+        String userInfo = uri.getUserInfo();
+        if (userInfo != null) {
+            int colon = userInfo.indexOf(':');
+            if (colon >= 0 && colon + 1 < userInfo.length()) {
+                pin = userInfo.substring(colon + 1);
+            }
+        }
+        if (pin == null || pin.isEmpty()) {
+            String query = uri.getQueryParameter("pin");
+            if (query != null && !query.isEmpty()) pin = query;
+        }
+
+        Log.i(TAG, "wivrn intent: host=" + host + " port=" + port + " tcp=" + tcpOnly + " pin=" + (pin != null ? "yes" : "no"));
+
+        if (host != null && !host.isEmpty()) {
+            boolean sameTarget = host.equals(pendingHost) && port == pendingPort && tcpOnly == pendingTcpOnly;
+            long now = System.currentTimeMillis();
+            if (sameTarget && hasPendingConnection && (now - lastConnectFlushMs) < CONNECT_DEBOUNCE_MS) {
+                if (pin != null && !pin.isEmpty()) {
+                    Log.i(TAG, "intent debounce: updating pin only for " + host + ":" + port);
+                    pendingPin = pin;
+                    nativeSetPin(pin);
+                } else {
+                    Log.i(TAG, "intent debounce: ignoring duplicate for " + host + ":" + port);
+                }
+                return;
+            }
+            pendingHost = host;
+            pendingPort = port;
+            pendingTcpOnly = tcpOnly;
+            pendingPin = pin;
+            hasPendingConnection = true;
+            if (lobbyView != null) {
+                lobbyView.addOrUpdateServer(host, host, port, tcpOnly);
+                lobbyView.setConnectionState(WivrnLobbyView.STATE_CONNECTING, "Connecting...");
+            }
+            flushPendingConnection();
+        }
+    }
+
+    private void flushPendingConnection() {
+        if (!hasPendingConnection) return;
+        if (!nativeReady()) {
+            Log.d(TAG, "native not ready, waiting to flush pending connection");
+            new Thread(() -> {
+                for (int i = 0; i < 50 && !nativeReady(); i++) {
+                    try { Thread.sleep(100); } catch (InterruptedException e) { return; }
+                }
+                runOnUiThread(() -> flushPendingConnection());
+            }, "pending-conn").start();
+            return;
+        }
+        Log.i(TAG, "flushing pending connection: " + pendingHost + ":" + pendingPort + " tcp=" + pendingTcpOnly);
+        lastConnectFlushMs = System.currentTimeMillis();
+        if (lobbyView != null) {
+            nativeSetBitrate(lobbyView.getBitrate());
+        }
+        nativeConnect(pendingHost, pendingPort, pendingTcpOnly);
+        if (pendingPin != null && !pendingPin.isEmpty()) {
+            nativeSetPin(pendingPin);
+        }
+        hasPendingConnection = false;
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        mForeground = true;   // resume forwarding controller input + haptics
+        mForeground = true;
+        if (lobbyView != null) {
+            lobbyView.updateWifiStatus();
+            lobbyView.startDiscovery();
+        }
+        flushPendingConnection();
+        if (!hasPendingConnection && lobbyView != null) {
+            lobbyView.tryAutoconnect();
+        }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        mForeground = false;  // backgrounded -> stop controller tracking + haptics
+        mForeground = false;
+        if (lobbyView != null) lobbyView.stopDiscovery();
     }
 
     // Listen to the headset's proximity sensor for don/doff. "far" starts the
@@ -620,30 +735,42 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (mUiRenderThread != null) { mUiRenderThread.interrupt(); mUiRenderThread = null; }
     }
 
-    // ---- WiVRn lobby view callbacks (stubs; functionality to be wired later) ----
+    // ---- WiVRn lobby view callbacks ----
     public void onServerConnect(String hostname, int port, boolean tcpOnly) {
         Log.i(TAG, "lobby: connect requested " + hostname + ":" + port + " tcp=" + tcpOnly);
         try { nativeConnect(hostname, port, tcpOnly); } catch (Throwable t) { Log.e(TAG, "nativeConnect failed", t); }
     }
-    public void nativeSetBitrate(int bitrate) {}
-    public void onIpdChanged(float ipdMm) {}
-    public void onMicrophoneChanged(boolean enabled) {}
-    public void nativeSetDynamicBitrate(boolean enabled) {}
+    public void onIpdChanged(float ipdMm) {
+        try { nativeSetIpd(ipdMm); } catch (Throwable t) { Log.e(TAG, "nativeSetIpd failed", t); }
+    }
+    public void onMicrophoneChanged(boolean enabled) {
+        try { nativeSetMicrophone(enabled); } catch (Throwable t) { Log.e(TAG, "nativeSetMicrophone failed", t); }
+    }
     public void onPinCancelled() {}
     public void onPinEntered(String pin) {
-        try { nativeSubmitPin(pin); } catch (Throwable t) { Log.e(TAG, "nativeSubmitPin failed", t); }
+        try { nativeSetPin(pin); } catch (Throwable t) { Log.e(TAG, "nativeSetPin failed", t); }
     }
     public void onDisconnectRequested() {
         try { nativeDisconnect(); } catch (Throwable t) { Log.e(TAG, "nativeDisconnect failed", t); }
     }
     public void onReconnectRequested() {}
-    public void onRenderResolutionChanged(int width, int height) {}
-    public void onStreamResolutionChanged(int width, int height) {}
+    public void onRenderResolutionChanged(int width, int height) {
+        try { nativeSetRenderResolution(width, height); } catch (Throwable t) { Log.e(TAG, "nativeSetRenderResolution failed", t); }
+    }
+    public void onStreamResolutionChanged(int width, int height) {
+        try { nativeSetStreamResolution(width, height); } catch (Throwable t) { Log.e(TAG, "nativeSetStreamResolution failed", t); }
+    }
     public void onRequestAppList() {}
     public void onRequestRunningApps() {}
     public void onSetActiveApp(int appId) {}
     public void onStartApp(String appId) {}
     public void onStopApp(int appId) {}
+
+    public void requestPinEntry() {
+        runOnUiThread(() -> {
+            if (lobbyView != null) lobbyView.setConnectionState(WivrnLobbyView.STATE_PIN_ENTRY, "Enter PIN");
+        });
+    }
 
     // WiVRn streaming_client callbacks.
     public void onConnectionStateChanged(int state, String message) {

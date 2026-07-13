@@ -17,7 +17,7 @@ rootProject.file('version.properties').withInputStream { versionProps.load(it) }
 android {
     namespace 'org.meumeu.wivrn.neo2.pvr'
     compileSdk 34
-    ndkVersion '28.2.13676358'
+    ndkVersion '26.3.11579264'
 
     defaultConfig {
         applicationId "org.meumeu.wivrn.neo2.pvr"
@@ -33,7 +33,7 @@ android {
 
         externalNativeBuild {
             cmake {
-                arguments '-DANDROID_STL=c++_shared'
+                arguments '-DANDROID_STL=c++_static'
             }
         }
     }

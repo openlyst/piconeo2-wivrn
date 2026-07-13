@@ -4,6 +4,8 @@
 #include <jni.h>
 #include <android/native_window_jni.h>
 #include <pthread.h>
+#include <sys/socket.h>
+#include <thread>
 #include <mutex>
 #include <cstdio>
 #include <vector>
@@ -38,6 +40,17 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
         gVrClass = nullptr;
         LOGE("VrActivity class not found; Pico VrActivity calls disabled");
     }
+
+    // Create the WiVRn stream client up front so dashboard intents and the lobby
+    // can connect as soon as the native side is ready.
+    if (!g_stream) {
+        g_stream = new streaming_client();
+        g_stream->vm = gVM;
+        g_stream->activity = gActivity;
+        g_stream->tracker.pvr_sensor_mode.store(true);
+        LOGI("nativeStart: created streaming_client");
+    }
+
     LOGI("nativeStart");
     gRunning.store(true);
     pthread_create(&gThread, nullptr, renderThread, nullptr);
@@ -301,46 +314,125 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeRecenter(JNIEnv *env, jobject 
     gLobby->recenter(&head[4], yaw);
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeReady(JNIEnv *, jobject) {
+    return g_stream ? JNI_TRUE : JNI_FALSE;
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeConnect(JNIEnv *env, jobject thiz,
                                                    jstring hostname, jint port, jboolean tcpOnly) {
     (void) thiz;
     if (!g_stream) {
-        g_stream = new streaming_client();
-        g_stream->vm = gVM;
+        LOGE("nativeConnect: streaming_client not created");
+        return;
     }
-    // Tell the WiVRn tracker to read head pose directly from the Pico SDK sensor.
-    g_stream->tracker.pvr_sensor_mode.store(true);
-    if (g_stream->activity) {
-        env->DeleteGlobalRef(g_stream->activity);
-    }
-    g_stream->activity = env->NewGlobalRef(thiz);
-
     const char *host = env->GetStringUTFChars(hostname, nullptr);
     g_stream->server_host = host;
     g_stream->server_port = port;
     g_stream->tcp_only = (tcpOnly == JNI_TRUE);
+    g_stream->shutdown = false;
+    g_stream->auto_reconnect.store(false);
     env->ReleaseStringUTFChars(hostname, host);
 
-    g_stream->try_connect();
     LOGI("nativeConnect: %s:%d tcp=%d", g_stream->server_host.c_str(), g_stream->server_port, g_stream->tcp_only ? 1 : 0);
+    g_stream->try_connect();
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeDisconnect(JNIEnv *env, jobject thiz) {
     (void) env; (void) thiz;
-    if (g_stream) {
-        g_stream->shutdown = true;
+    if (!g_stream) return;
+
+    LOGI("nativeDisconnect");
+    g_stream->shutdown = true;
+    g_stream->auto_reconnect.store(false);
+    if (g_stream->session)
+    {
+        int fd = g_stream->session->get_control_fd();
+        ::shutdown(fd, SHUT_RDWR);
     }
+    std::thread([s = g_stream] {
+        std::lock_guard lock(s->connect_mutex);
+        if (s->connect_thread.joinable())
+            s->connect_thread.join();
+        if (s->network_thread.joinable())
+            s->network_thread.join();
+        s->session.reset();
+        s->reset_stream_state();
+        s->shutdown = false;
+    }).detach();
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSubmitPin(JNIEnv *env, jobject thiz, jstring pin) {
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetPin(JNIEnv *env, jobject thiz, jstring pin) {
     (void) thiz;
     if (!g_stream) return;
     const char *p = env->GetStringUTFChars(pin, nullptr);
-    g_stream->pin_promise.set_value(p);
+    g_stream->pairing_pin = p;
+    try { g_stream->pin_promise.set_value(p); } catch (...) {}
     env->ReleaseStringUTFChars(pin, p);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetBitrate(JNIEnv *, jobject, jint bitrate_mbps) {
+    if (!g_stream) return;
+    LOGI("nativeSetBitrate: %d Mbps", bitrate_mbps);
+    g_stream->bitrate_mbps.store(bitrate_mbps);
+    g_stream->max_bitrate_mbps.store(bitrate_mbps);
+    g_stream->current_bitrate_mbps.store(bitrate_mbps);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetDynamicBitrate(JNIEnv *, jobject, jboolean enabled) {
+    if (!g_stream) return;
+    g_stream->dynamic_bitrate_enabled.store(enabled == JNI_TRUE);
+    LOGI("Dynamic bitrate %s", enabled == JNI_TRUE ? "enabled" : "disabled");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetIpd(JNIEnv *, jobject, jfloat ipd_mm) {
+    if (!g_stream) return;
+    float ipd_m = ipd_mm * 0.001f;
+    g_stream->tracker.soft_ipd.store(ipd_m);
+    LOGI("Software IPD set to %.1f mm (%.4f m)", ipd_mm, ipd_m);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetMicrophone(JNIEnv *, jobject, jboolean enabled) {
+    if (!g_stream) return;
+    g_stream->microphone_enabled.store(enabled == JNI_TRUE);
+    if (g_stream->audio_handle)
+        g_stream->audio_handle->set_mic_state(enabled == JNI_TRUE);
+    LOGI("Microphone %s", enabled == JNI_TRUE ? "enabled" : "disabled");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetStreamResolution(JNIEnv *, jobject, jint width, jint height) {
+    if (!g_stream) return;
+    int old_w = g_stream->stream_eye_width.load();
+    int old_h = g_stream->stream_eye_height.load();
+    g_stream->stream_eye_width.store(width);
+    g_stream->stream_eye_height.store(height);
+    if ((width != old_w || height != old_h) && g_stream->session)
+    {
+        g_stream->send_headset_info();
+        LOGI("Sent updated stream resolution to server: %dx%d", width, height);
+    }
+    LOGI("Stream resolution set to %dx%d", width, height);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetRenderResolution(JNIEnv *, jobject, jint width, jint height) {
+    if (!g_stream) return;
+    int old_w = g_stream->eye_width.load();
+    int old_h = g_stream->eye_height.load();
+    g_stream->eye_width.store(width);
+    g_stream->eye_height.store(height);
+    g_stream->blit_pipeline.set_resolution(width, height);
+    if (width != old_w || height != old_h)
+        g_stream->resolution_dirty.store(true);
+    LOGI("Render resolution set to %dx%d", width, height);
 }
 
 

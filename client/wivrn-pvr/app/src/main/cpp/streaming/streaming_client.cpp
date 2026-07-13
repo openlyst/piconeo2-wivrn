@@ -4,6 +4,10 @@
 #include "eye_tracking.h"
 
 #include <spdlog/spdlog.h>
+#include <spdlog/sinks/android_sink.h>
+
+#include <android/log.h>
+#define ALOGI(...) __android_log_print(ANDROID_LOG_INFO, "wivrn-native", __VA_ARGS__)
 
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -40,9 +44,23 @@ void load_egl_procs()
 		(void*)g_eglGetNativeClientBufferANDROID, (void*)g_glEGLImageTargetTexture2DOES);
 }
 
+static void init_spdlog()
+{
+	if (spdlog::default_logger_raw()) return;
+	ALOGI("init_spdlog: creating android logger");
+	auto logger = spdlog::android_logger_mt("wivrn", "wivrn-native");
+	spdlog::set_default_logger(logger);
+	spdlog::set_level(spdlog::level::debug);
+	ALOGI("init_spdlog: done, default_logger_raw=%p", (void*)spdlog::default_logger_raw());
+}
+
 streaming_client::streaming_client()
 {
+	ALOGI("streaming_client ctor: start");
+	init_spdlog();
+	ALOGI("streaming_client ctor: spdlog done");
 	load_egl_procs();
+	ALOGI("streaming_client ctor: egl done");
 }
 
 streaming_client::~streaming_client()
@@ -763,31 +781,47 @@ void streaming_client::network_loop()
 
 bool streaming_client::connect_to_server()
 {
+	ALOGI("connect_to_server: enter, host=%s port=%d", server_host.c_str(), server_port);
 	spdlog::info("Connecting to server {}:{}", server_host, server_port);
+	ALOGI("connect_to_server: after spdlog");
 	last_error.clear();
 
 	try
 	{
-		const char * key_dir = "/data/data/org.meumeu.wivrn.neo2.local/files";
-		const char * key_path = "/data/data/org.meumeu.wivrn.neo2.local/files/private_key.pem";
+		const char * key_dir = "/data/data/org.meumeu.wivrn.neo2.pvr/files";
+		const char * key_path = "/data/data/org.meumeu.wivrn.neo2.pvr/files/private_key.pem";
+		ALOGI("connect_to_server: loading keypair from %s", key_path);
 		spdlog::info("connect: loading keypair from {}", key_path);
-		try
+		bool key_loaded = false;
 		{
 			std::ifstream f{key_path};
-			std::string key_str{(std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()};
-			headset_keypair = crypto::key::from_private_key(key_str);
-			spdlog::info("connect: loaded existing keypair");
+			if (f.good())
+			{
+				std::string key_str{(std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()};
+				ALOGI("connect_to_server: key_str len=%zu", key_str.size());
+				if (!key_str.empty())
+				{
+					headset_keypair = crypto::key::from_private_key(key_str);
+					ALOGI("connect_to_server: loaded existing keypair");
+					spdlog::info("connect: loaded existing keypair");
+					key_loaded = true;
+				}
+			}
 		}
-		catch (...)
+		if (!key_loaded)
 		{
+			ALOGI("connect_to_server: generating new keypair");
 			spdlog::info("connect: generating new keypair");
 			mkdir(key_dir, 0700);
 			headset_keypair = crypto::key::generate_x448_keypair();
+			ALOGI("connect_to_server: keypair generated, writing");
 			std::ofstream f{key_path};
 			f << headset_keypair.private_key();
 			f.close();
+			ALOGI("connect_to_server: keypair written");
 		}
 		std::string model_name = "Pico Neo2";
+		ALOGI("connect_to_server: model_name=%s, pin_empty=%d", model_name.c_str(), (int)pairing_pin.empty());
 
 		auto pin_enter = [this](int fd) -> std::string {
 			if (!pairing_pin.empty())
@@ -856,9 +890,19 @@ bool streaming_client::connect_to_server()
 		hints.ai_socktype = SOCK_STREAM;
 
 		struct addrinfo * result = nullptr;
+		ALOGI("connect_to_server: calling getaddrinfo(%s, %d)", server_host.c_str(), server_port);
 		int ret = getaddrinfo(server_host.c_str(), std::to_string(server_port).c_str(), &hints, &result);
+		ALOGI("connect_to_server: getaddrinfo returned %d", ret);
 		if (ret != 0)
 		{
+			std::string local_host = server_host + ".local";
+			ALOGI("connect_to_server: retrying with %s", local_host.c_str());
+			ret = getaddrinfo(local_host.c_str(), std::to_string(server_port).c_str(), &hints, &result);
+			ALOGI("connect_to_server: getaddrinfo(.local) returned %d", ret);
+		}
+		if (ret != 0)
+		{
+			ALOGI("connect_to_server: getaddrinfo failed: %s", gai_strerror(ret));
 			spdlog::error("getaddrinfo failed: {}", gai_strerror(ret));
 			return false;
 		}
@@ -867,6 +911,7 @@ bool streaming_client::connect_to_server()
 		{
 			if (shutdown)
 			{
+				ALOGI("connect_to_server: shutdown requested, aborting");
 				spdlog::info("connect: shutdown requested, aborting");
 				freeaddrinfo(result);
 				return false;
@@ -877,20 +922,25 @@ bool streaming_client::connect_to_server()
 				{
 					auto * addr = (struct sockaddr_in *)rp->ai_addr;
 					in_addr ip = addr->sin_addr;
+					ALOGI("connect_to_server: trying IPv4 %s", inet_ntoa(ip));
 					spdlog::warn("connect: trying IPv4 {}", inet_ntoa(ip));
 
 					try
 					{
+						ALOGI("connect_to_server: creating wivrn_session_pico (IPv4)");
 						session = std::make_unique<wivrn_session_pico>(
 							ip, server_port, tcp_only, headset_keypair, model_name, pin_enter, shutdown);
+						ALOGI("connect_to_server: session created, handshake_ok=%d", (int)(session && session->is_handshake_ok()));
 					}
 					catch (std::exception & e)
 					{
+						ALOGI("connect_to_server: session creation failed: %s", e.what());
 						spdlog::warn("connect: session creation failed: {}", e.what()); last_error = e.what();
 					}
 					if (session && session->is_handshake_ok())
 					{
 						freeaddrinfo(result);
+						ALOGI("connect_to_server: Connected to server (IPv4)");
 						spdlog::info("Connected to server (IPv4)");
 						return true;
 					}
@@ -901,18 +951,25 @@ bool streaming_client::connect_to_server()
 				{
 					auto * addr = (struct sockaddr_in6 *)rp->ai_addr;
 					in6_addr ip = addr->sin6_addr;
+					char ip6str[INET6_ADDRSTRLEN];
+				 inet_ntop(AF_INET6, &ip, ip6str, sizeof(ip6str));
+					ALOGI("connect_to_server: trying IPv6 %s", ip6str);
 					try
 					{
+						ALOGI("connect_to_server: creating wivrn_session_pico (IPv6)");
 						session = std::make_unique<wivrn_session_pico>(
 							ip, server_port, tcp_only, headset_keypair, model_name, pin_enter, shutdown);
+						ALOGI("connect_to_server: session created (IPv6), handshake_ok=%d", (int)(session && session->is_handshake_ok()));
 					}
 					catch (std::exception & e)
 					{
+						ALOGI("connect_to_server: IPv6 session creation failed: %s", e.what());
 						spdlog::warn("connect: IPv6 session creation failed: {}", e.what()); last_error = e.what();
 					}
 					if (session && session->is_handshake_ok())
 					{
 						freeaddrinfo(result);
+						ALOGI("connect_to_server: Connected to server (IPv6)");
 						spdlog::info("Connected to server (IPv6)");
 						return true;
 					}
@@ -922,11 +979,13 @@ bool streaming_client::connect_to_server()
 			}
 			catch (std::exception & e)
 			{
+				ALOGI("connect_to_server: Connection attempt failed: %s", e.what());
 				spdlog::warn("Connection attempt failed: {}", e.what()); last_error = e.what();
 			}
 		}
 
 		freeaddrinfo(result);
+		ALOGI("connect_to_server: Failed to connect to server");
 		spdlog::error("Failed to connect to server");
 		return false;
 	}
@@ -1010,16 +1069,21 @@ void streaming_client::send_headset_info()
 
 void streaming_client::try_connect()
 {
+	ALOGI("try_connect: enter, server_host='%s'", server_host.c_str());
 	if (server_host.empty())
 	{
+		ALOGI("try_connect: server_host is empty");
 		spdlog::warn("try_connect: server_host is empty");
 		notify_connection_state(3, "No server address set");
 		return;
 	}
 
+	ALOGI("try_connect: locking connect_mutex");
 	std::lock_guard lock(connect_mutex);
+	ALOGI("try_connect: locked, connect_thread.joinable=%d", (int)connect_thread.joinable());
 	if (connect_thread.joinable())
 	{
+		ALOGI("try_connect: stopping previous connection");
 		spdlog::info("try_connect: stopping previous connection");
 		shutdown = true;
 		if (session)
@@ -1048,15 +1112,21 @@ void streaming_client::try_connect()
 		return;
 	}
 
+	ALOGI("try_connect: creating connect_thread");
 	connect_thread = std::thread([this] {
+		ALOGI("connect_thread lambda: starting, this=%p", (void*)this);
 		run_connect_loop();
 	});
+	ALOGI("try_connect: connect_thread created, returning");
 }
 
 void streaming_client::run_connect_loop()
 {
+	ALOGI("run_connect_loop: entered, this=%p", (void*)this);
 	spdlog::info("Connection attempt");
+	ALOGI("run_connect_loop: after spdlog info");
 	notify_connection_state(1, "Connecting...");
+	ALOGI("run_connect_loop: after notify_connection_state");
 
 	if (connect_to_server())
 	{
