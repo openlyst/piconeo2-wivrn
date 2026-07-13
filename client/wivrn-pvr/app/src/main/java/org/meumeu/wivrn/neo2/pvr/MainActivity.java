@@ -5,6 +5,9 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Rect;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -73,6 +76,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     // drains it and drives the Pico CV2 wand. out[0]=amplitude(0..1), out[1]=ms.
     private native boolean nativeDrainHaptic(int hand, float[] out);
     private final float[] mHaptic = new float[2];
+
+    // Ported WiVRn lobby UI (matches pico_oxr).
+    private native void nativeUpdateLobbyTexture(byte[] pixels, int width, int height);
+    private native void nativePollLobbyTouch(int hand, float[] out);
+    private WivrnLobbyView lobbyView;
+    private volatile boolean mUiRenderRunning = false;
+    private Thread mUiRenderThread;
 
     // Pico CV controller service: bound once, then polled on a background thread
     // and pushed to native. headDof/handDof = 1,1 requests 6DoF.
@@ -220,6 +230,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         // Long-lived render thread; surface comes/goes via the callbacks below
         // (so sleep/wake = surface destroy/recreate is handled gracefully).
         nativeStart(this);
+
+        lobbyView = new WivrnLobbyView(this);
+        startUiRenderThread();
 
         setupControllers();
         setupProximitySleep();
@@ -557,8 +570,80 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             try { mSensorManager.unregisterListener(mProximityListener); } catch (Throwable t) { /* ignore */ }
         }
         stopControllerPoll();
+        stopUiRenderThread();
         try { ControllerClient.unbindControllerService(this); } catch (Throwable t) { /* ignore */ }
         nativeStop();
         releaseWifiLocks();
     }
+
+    private void startUiRenderThread() {
+        if (mUiRenderRunning) return;
+        mUiRenderRunning = true;
+        mUiRenderThread = new Thread(() -> {
+            final int w = 1400;
+            final int h = 900;
+            int[] pixels = new int[w * h];
+            byte[] rgba = new byte[w * h * 4];
+            float[] touch = new float[5];
+            int frameCount = 0;
+            while (mUiRenderRunning) {
+                try {
+                    for (int hand = 0; hand < 2; hand++) {
+                        nativePollLobbyTouch(hand, touch);
+                        if (touch[0] >= 0) {
+                            boolean down = touch[2] > 0.5f;
+                            boolean pressed = touch[3] > 0.5f;
+                            lobbyView.handleTouch(touch[0], touch[1], down, pressed, touch[4]);
+                        }
+                    }
+                    if (lobbyView.isDirty()) {
+                        lobbyView.render();
+                        Bitmap bmp = lobbyView.getBitmap();
+                        bmp.getPixels(pixels, 0, w, 0, 0, w, h);
+                        for (int i = 0; i < pixels.length; i++) {
+                            int px = pixels[i];
+                            rgba[i * 4]     = (byte) ((px >> 16) & 0xFF); // R
+                            rgba[i * 4 + 1] = (byte) ((px >> 8)  & 0xFF); // G
+                            rgba[i * 4 + 2] = (byte) (px        & 0xFF); // B
+                            rgba[i * 4 + 3] = (byte) ((px >> 24) & 0xFF); // A
+                        }
+                        nativeUpdateLobbyTexture(rgba, w, h);
+                        lobbyView.markClean();
+                        if (++frameCount % 60 == 0)
+                            Log.i(TAG, "lobby UI frame " + frameCount + " uploaded");
+                    }
+                } catch (Throwable t) {
+                    Log.e(TAG, "lobby UI render thread error", t);
+                }
+                try { Thread.sleep(16); } catch (InterruptedException e) { break; }
+            }
+        }, "ui-render");
+        mUiRenderThread.start();
+        Log.i(TAG, "lobby UI render thread started");
+    }
+
+    private void stopUiRenderThread() {
+        mUiRenderRunning = false;
+        if (mUiRenderThread != null) { mUiRenderThread.interrupt(); mUiRenderThread = null; }
+    }
+
+    // ---- WiVRn lobby view callbacks (stubs; functionality to be wired later) ----
+    public void onServerConnect(String hostname, int port, boolean tcpOnly) {
+        Log.i(TAG, "lobby: connect requested " + hostname + ":" + port + " tcp=" + tcpOnly);
+    }
+    public void nativeSetBitrate(int bitrate) {}
+    public void onIpdChanged(float ipdMm) {}
+    public void onMicrophoneChanged(boolean enabled) {}
+    public void nativeSetDynamicBitrate(boolean enabled) {}
+    public void onPinCancelled() {}
+    public void onPinEntered(String pin) {}
+    public void onDisconnectRequested() {}
+    public void onReconnectRequested() {}
+    public void onRenderResolutionChanged(int width, int height) {}
+    public void onStreamResolutionChanged(int width, int height) {}
+    public void onRequestAppList() {}
+    public void onRequestRunningApps() {}
+    public void onSetActiveApp(int appId) {}
+    public void onStartApp(String appId) {}
+    public void onStopApp(int appId) {}
 }

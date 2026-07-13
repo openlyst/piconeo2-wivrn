@@ -30,16 +30,24 @@ add_library(p2alvr SHARED
     lobby_panels.cpp
     menu_model.cpp
     settings_panel.cpp
+    lobby.cpp
     input.cpp
     foveation.cpp
     jni.cpp)
 
 find_library(log-lib log)
 
+# Path to shared pico_oxr sources (OpenXR headers for the ported lobby panel).
+set(PICO_OXR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../client/pico_oxr)
+
 # Thin LTO on OUR translation units + link only (imported prebuilt libs are
 # unaffected -- they're IMPORTED, never compiled here).
 target_compile_options(p2alvr PRIVATE -flto=thin)
 target_link_options(p2alvr PRIVATE -flto=thin)
+
+target_include_directories(p2alvr PRIVATE
+    ${PICO_OXR_DIR}/app/src/main/cpp
+)
 
 target_link_libraries(p2alvr
     Pvr_UnitySDK

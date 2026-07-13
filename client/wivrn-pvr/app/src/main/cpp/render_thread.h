@@ -29,6 +29,9 @@ extern std::atomic<bool> gWindowDirty;  // a change is pending
 // true, donned = false); the render loop acts on the edge (pause/resume ALVR).
 extern std::atomic<bool> gSleepReq;
 
+class pico_lobby;
+extern pico_lobby * gLobby;
+
 // Hand the render thread a new window (or null when the surface is destroyed).
 void  setWindow(ANativeWindow *win);
 // The long-lived render-thread entry point (started via pthread_create).

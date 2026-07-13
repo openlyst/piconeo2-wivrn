@@ -38,6 +38,7 @@
 #include "eq_panel.h"    // 16-band audio EQ: state + persistence + buildEqVerts
 #include "settings_panel.h"  // unified lobby SETTINGS window (sidebar + scroll)
 #include "app_state.h"   // shared lobby/render knobs: IPD, input edges, toggles, diag
+#include "lobby.h"       // ported pico_oxr WiVRn lobby UI panel
 #include "lobby_panels.h"// diagnostics overlay builders
 #include "input.h"       // controller + head-pose shared state
 #include "foveation.h"   // readFoveationParams() from the settings JSON
@@ -94,6 +95,8 @@ static BtnIds   alvrBtn[2] = {};
 std::mutex     gWinMutex;
 ANativeWindow *gPendingWindow = nullptr;   // latest window (or null)
 std::atomic<bool> gWindowDirty{false};     // a change is pending (see render_thread.h)
+
+pico_lobby * gLobby = new pico_lobby();
 
 // Shared "position + per-vertex colour" shader: the grid, HUD text, and eye-gaze
 // marker all reuse this same program (gProg) + uMVP.
@@ -1907,10 +1910,10 @@ void *renderThread(void *) {
     glCullFace(GL_BACK);
     buildGraphics();
     buildLobbyTarget();      // per-eye ring the lobby HUD renders into for the SDK warp
+    if (gLobby) gLobby->init(kLobbySz, kLobbySz);
     buildGazeMarker();       // eye-gaze debug disc (shown only on Neo 2 EYE)
     buildTextBuffers();      // dynamic VBO for the lobby IP/status HUD text + slider
     buildReticle();          // head-gaze crosshair (shown in lobby, no controllers)
-    buildTestOverlay();      // simple 2D box + text test
     buildGridFloor();        // lobby floor grid (spatial reference, not a void)
     buildControllerMeshes(); // Neo 2 controller wireframes (from /system OBJ)
 
@@ -3455,7 +3458,7 @@ void *renderThread(void *) {
         // Render the lobby scene (world floor grid + world-locked HUD + gaze disc)
         // into the currently-bound FBO for the given per-eye projection + view.
         // Shared by the HW-compositor and self-present paths.
-        auto drawLobbyScene = [&](const Mat4 &sproj, const Mat4 &sview, const Mat4 &sEyeShift) {
+        auto drawLobbyScene = [&](const Mat4 &sproj, const Mat4 &sview, const Mat4 &sEyeShift, int eyeIdx) {
             // World-fixed geometry (floor grid, anchored panels) draws through the
             // head-tracked view; player-attached geometry (laser, gaze) uses it too.
             const Mat4 &worldView = sview;
@@ -3469,23 +3472,7 @@ void *renderThread(void *) {
                 glBindVertexArray(0);
             }
             glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE);
-            if (textVertCount > 0) {
-                Mat4 hudMvp = mat4Mul(sproj, mat4Mul(worldView, hudWorld));   // world-locked HUD
-                glUseProgram(gProg);
-                glBindVertexArray(gTextVao);
-                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, hudMvp.m);
-                glDrawArrays(GL_TRIANGLES, 0, textVertCount);
-                glBindVertexArray(0);
-            }
-            // Unified SETTINGS window (world-locked, in front, overlays the HUD).
-            if (sliderVertCount > 0) {
-                Mat4 setMvp = mat4Mul(sproj, mat4Mul(worldView, settingsWorld));
-                glUseProgram(gProg);
-                glBindVertexArray(gSliderVao);
-                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, setMvp.m);
-                glDrawArrays(GL_TRIANGLES, 0, sliderVertCount);
-                glBindVertexArray(0);
-            }
+            // Native HUD text and SETTINGS window replaced by the ported WiVRn lobby UI.
             // Controller laser beam (world-space) when a controller drives the pointer.
             if (ptrFromController) {
                 const float L = laserLen;
@@ -3566,16 +3553,40 @@ void *renderThread(void *) {
                 glDrawArrays(GL_TRIANGLES, 0, gReticleVertCount);
                 glBindVertexArray(0);
             }
-            // Simple 2D box + text test overlay.
-            if (gTestVertCount > 0) {
-                const float kTestDist = 2.0f;
-                Mat4 tMvp = mat4Mul(sproj, mat4Mul(sEyeShift, mat4Translate(0, 0, -kTestDist)));
-                glUseProgram(gProg);
-                glBindVertexArray(gTestVao);
-                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, tMvp.m);
-                glDrawArrays(GL_TRIANGLES, 0, gTestVertCount);
-                glBindVertexArray(0);
+            // Ported WiVRn lobby UI panel (pico_oxr WivrnLobbyView rendered to texture).
+            if (gLobby) {
+                if (eyeIdx == 0)
+                    gLobby->flush_pending_texture();
+                float head_orient[4] = {qx, qy, qz, qw};
+                float head_pos[3] = {px, py, pz};
+                controller_sample cs[2];
+                {
+                    std::lock_guard<std::mutex> lk(gCtrlMutex);
+                    for (int h = 0; h < 2; h++) {
+                        cs[h].connected = (gCtrl[h].conn == 1);
+                        for (int i = 0; i < 4; i++) cs[h].orientation[i] = gCtrl[h].q[i];
+                        for (int i = 0; i < 3; i++) cs[h].position[i] = gCtrl[h].pos[i]; // mm
+                        int trig = 0;
+                        if (gCtrl[h].keyCount > 2) trig = std::max(trig, gCtrl[h].keys[2]);
+                        if (gCtrl[h].keyCount > 8) trig = std::max(trig, gCtrl[h].keys[8]);
+                        cs[h].trigger = trig;
+                        cs[h].button_a = (gCtrl[h].keyCount > 6 && gCtrl[h].keys[6] != 0);
+                        cs[h].button_b = (gCtrl[h].keyCount > 7 && gCtrl[h].keys[7] != 0);
+                        cs[h].menu = (gCtrl[h].keyCount > 5 && gCtrl[h].keys[5] != 0);
+                        cs[h].home = (gCtrl[h].keyCount > 11 && gCtrl[h].keys[11] != 0);
+                        cs[h].grip = (gCtrl[h].keyCount > 3 && gCtrl[h].keys[3] != 0);
+                        cs[h].thumbstick_click = (gCtrl[h].keyCount > 4 && gCtrl[h].keys[4] != 0);
+                        cs[h].touch[0] = (gCtrl[h].keyCount > 0) ? gCtrl[h].keys[0] : 0;
+                        cs[h].touch[1] = (gCtrl[h].keyCount > 1) ? gCtrl[h].keys[1] : 0;
+                        cs[h].battery = 0;
+                        cs[h].has_angular_velocity = false;
+                    }
+                }
+                constexpr float k_lobby_fov_half = 101.0f * 0.5f * 0.01745329252f;
+                XrFovf lobby_fov = {-k_lobby_fov_half, k_lobby_fov_half, k_lobby_fov_half, -k_lobby_fov_half};
+                gLobby->draw(eyeIdx, head_orient, head_pos, cs, lobby_fov, softIpdM() * 1000.0f, gOkHeld.load(), true);
             }
+
             glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);
         };
 
@@ -3612,7 +3623,7 @@ void *renderThread(void *) {
                         glViewport(0, 0, kLobbySz, kLobbySz);
                         glClearColor(0, 0, 0, 1);
                         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-                        drawLobbyScene(proj, view, eyeShift);
+                        drawLobbyScene(proj, view, eyeShift, eye);
                         drawBatteryWarn(eye);   // low-battery popup, layered over lobby content
                     }
                     glBindFramebuffer(GL_FRAMEBUFFER, 0);

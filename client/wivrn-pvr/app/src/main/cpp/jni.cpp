@@ -6,10 +6,12 @@
 #include <pthread.h>
 #include <mutex>
 #include <cstdio>
+#include <vector>
 
 #include "render_thread.h"   // gVM/gActivity/gVrClass/gRunning/gThread, setWindow, renderThread, gSleepReq
 #include "input.h"           // CtrlState, gCtrl/gCtrlMutex, gHeadData/gHeadMutex
 #include "app_state.h"       // gOkHeld/gSideHeld/gOkClick
+#include "lobby.h"
 #include "log.h"
 
 // Called once (onCreate) to start the long-lived render thread.
@@ -193,4 +195,56 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStop(JNIEnv *env, jobject thiz
     if (gActivity) { env->DeleteGlobalRef(gActivity); gActivity = nullptr; }
     if (gVrClass)  { env->DeleteGlobalRef(gVrClass);  gVrClass = nullptr; }
     LOGI("nativeStop done");
+}
+
+// Update the lobby UI texture from Java-side Bitmap pixels (RGBA bytes).
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeUpdateLobbyTexture(
+        JNIEnv *env, jobject thiz, jbyteArray pixels, jint width, jint height) {
+    (void) thiz;
+    if (!gLobby || !pixels) return;
+    jsize n = env->GetArrayLength(pixels);
+    if (n < width * height * 4) return;
+    std::vector<uint8_t> buf(n);
+    env->GetByteArrayRegion(pixels, 0, n, (jbyte *)buf.data());
+    gLobby->update_texture(width, height, buf.data());
+}
+
+// Forward a controller ray interaction against the lobby panel.
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeOnLobbyTouch(
+        JNIEnv *env, jobject thiz,
+        jint hand, jfloat x, jfloat y, jboolean down, jboolean pressed, jfloat thumbstickY) {
+    (void) env; (void) thiz;
+    if (!gLobby) return;
+    if (hand < 0 || hand > 1) return;
+    gLobby->lobby_touch_x[hand] = x;
+    gLobby->lobby_touch_y[hand] = y;
+    gLobby->lobby_touch_down[hand] = (down == JNI_TRUE);
+    gLobby->lobby_touch_pressed[hand] = (pressed == JNI_TRUE);
+    gLobby->lobby_thumbstick_y[hand] = thumbstickY;
+}
+
+// Recenter the lobby panel in front of the user.
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeRecenter(JNIEnv *env, jobject thiz) {
+    (void) env; (void) thiz;
+    if (!gLobby) return;
+    gLobby->recenter();
+}
+
+// Poll the latest controller ray interaction against the lobby panel for `hand`.
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativePollLobbyTouch(
+        JNIEnv *env, jobject thiz, jint hand, jfloatArray out) {
+    (void) thiz;
+    float buf[5] = {-1.0f, -1.0f, 0.0f, 0.0f, 0.0f};
+    if (gLobby && hand >= 0 && hand <= 1 && out && env->GetArrayLength(out) >= 5) {
+        buf[0] = gLobby->lobby_touch_x[hand];
+        buf[1] = gLobby->lobby_touch_y[hand];
+        buf[2] = gLobby->lobby_touch_down[hand] ? 1.0f : 0.0f;
+        buf[3] = gLobby->lobby_touch_pressed[hand] ? 1.0f : 0.0f;
+        buf[4] = gLobby->lobby_thumbstick_y[hand];
+    }
+    env->SetFloatArrayRegion(out, 0, 5, buf);
 }
