@@ -3119,18 +3119,6 @@ void *renderThread(void *) {
         if ((frame % 120) == 0 || !(gIpText[0] >= '0' && gIpText[0] <= '9')) refreshDeviceIp();
         const float kHudDist = 2.0f;         // panel distance in front of the user at anchor time
 
-        // WiVRn lobby UI panel: world-anchor once to match the existing HUD.
-        static bool sLobbyAnchored = false;
-        if (gLobby && !sLobbyAnchored) {
-            float fx = -headRot.m[8], fz = -headRot.m[10];
-            float fn = sqrtf(fx*fx + fz*fz);
-            if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
-            float ax = px + fx * kHudDist, az = pz + fz * kHudDist;
-            float yaw = atan2f(-fx, -fz);
-            float hp[3] = {ax, py, az};
-            gLobby->recenter(hp, yaw);
-            sLobbyAnchored = true;
-        }
         // Three lines, sized by "points" relative to the IP line: model = IP+2pt,
         // status = IP-2pt. We model 1 "point" as 10% of the IP pixel size.
         const float pxI = 0.012f;            // IP (base) metres per font pixel
@@ -3607,8 +3595,8 @@ void *renderThread(void *) {
                         cs[h].has_angular_velocity = false;
                     }
                 }
-                constexpr float k_lobby_fov_half = 101.0f * 0.5f * 0.01745329252f;
-                XrFovf lobby_fov = {-k_lobby_fov_half, k_lobby_fov_half, k_lobby_fov_half, -k_lobby_fov_half};
+                float half_fov = (lobbyFovDeg * 0.5f) * ((float)M_PI / 180.0f);
+                XrFovf lobby_fov = {-half_fov, half_fov, half_fov, -half_fov};
                 gLobby->draw(eyeIdx, head_orient, head_pos, cs, lobby_fov, softIpdM(), gOkHeld.load(), true, false);
             }
 
