@@ -1,28 +1,24 @@
 package org.meumeu.wivrn;
 
 import android.app.Activity;
+import android.app.NativeActivity;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.util.Log;
-import android.view.Surface;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
-import android.widget.FrameLayout;
 
 import com.picovr.picovrlib.cvcontrollerclient.ControllerClient;
 import com.picovr.picovrlib.cvcontrollerclient.BindControllerCallback;
 
-public class MainActivity extends Activity {
+public class MainActivity extends NativeActivity {
     private static final String TAG = "WiVRn-Pico";
 
     static {
         System.loadLibrary("wivrn_pvr");
     }
 
-    private SurfaceView mSurfaceView;
     private volatile boolean mCtrlRunning = false;
     private Thread mCtrlThread;
     private volatile boolean mCtrlThreadStarted = false;
@@ -54,20 +50,6 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        mSurfaceView = new SurfaceView(this);
-        mSurfaceView.getHolder().addCallback(new SurfaceHolder.Callback() {
-            @Override public void surfaceCreated(SurfaceHolder holder) {}
-            @Override public void surfaceDestroyed(SurfaceHolder holder) {
-                nativeSurfaceDestroyed();
-            }
-            @Override public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {
-                nativeSurfaceChanged(holder.getSurface());
-            }
-        });
-        FrameLayout layout = new FrameLayout(this);
-        layout.addView(mSurfaceView);
-        setContentView(layout);
 
         try {
             WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
@@ -244,8 +226,6 @@ public class MainActivity extends Activity {
     public void requestPinEntry() {}
 
     private native void nativeStart(Activity activity, Intent intent);
-    private native void nativeSurfaceChanged(Surface surface);
-    private native void nativeSurfaceDestroyed();
     private native void nativeStop();
     private native void nativePause();
     private native void nativeResume();
