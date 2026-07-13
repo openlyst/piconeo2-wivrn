@@ -445,6 +445,8 @@ static GLuint gEqVao = 0, gEqVbo = 0;           // lobby 16-band audio EQ panel 
 static GLuint gLaserVao = 0, gLaserVbo = 0;     // controller laser beam (dynamic, world-space)
 static GLuint gDiagVao = 0, gDiagVbo = 0;       // streaming diagnostics overlay (dynamic, NDC)
 static GLuint gWarnVao = 0, gWarnVbo = 0;       // low-battery warning pop-up (dynamic)
+static GLuint gTestVao = 0, gTestVbo = 0;         // simple 2D box + text test overlay
+static int    gTestVertCount = 0;
 static void buildTextBuffers() {
     glGenVertexArrays(1, &gTextVao);
     glBindVertexArray(gTextVao);
@@ -495,6 +497,15 @@ static void buildTextBuffers() {
     glBindVertexArray(gWarnVao);
     glGenBuffers(1, &gWarnVbo);
     glBindBuffer(GL_ARRAY_BUFFER, gWarnVbo);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    // simple 2D box + text test overlay
+    glGenVertexArrays(1, &gTestVao);
+    glBindVertexArray(gTestVao);
+    glGenBuffers(1, &gTestVbo);
+    glBindBuffer(GL_ARRAY_BUFFER, gTestVbo);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
@@ -624,6 +635,32 @@ static void buildReticle() {
     glBindVertexArray(gReticleVao);
     glGenBuffers(1, &gReticleVbo);
     glBindBuffer(GL_ARRAY_BUFFER, gReticleVbo);
+    glBufferData(GL_ARRAY_BUFFER, v.size()*sizeof(float), v.data(), GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glBindVertexArray(0);
+}
+
+// Simple 2D box + text test overlay, head-locked at a fixed depth.
+static void buildTestOverlay() {
+    std::vector<float> v;
+    const char *msg = "NI HAO WO SHI ZHENXI";
+    const float px = 0.004f;
+    int n = (int)strlen(msg);
+    float lineW = (n * 6 - 1) * px;
+    float x0 = -lineW * 0.5f;
+    float y0 = 0.05f;             // slightly above centre
+    float pad = 0.02f;
+    appendQuad(v, x0 - pad, y0 + pad * 1.5f, x0 + lineW + pad, y0 - 7 * px - pad,
+               0.10f, 0.10f, 0.10f);
+    appendTextLine(v, msg, y0, px, 0.95f, 0.95f, 0.95f);
+    gTestVertCount = (int)(v.size() / 6);
+    glGenVertexArrays(1, &gTestVao);
+    glBindVertexArray(gTestVao);
+    glGenBuffers(1, &gTestVbo);
+    glBindBuffer(GL_ARRAY_BUFFER, gTestVbo);
     glBufferData(GL_ARRAY_BUFFER, v.size()*sizeof(float), v.data(), GL_STATIC_DRAW);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
@@ -1873,6 +1910,7 @@ void *renderThread(void *) {
     buildGazeMarker();       // eye-gaze debug disc (shown only on Neo 2 EYE)
     buildTextBuffers();      // dynamic VBO for the lobby IP/status HUD text + slider
     buildReticle();          // head-gaze crosshair (shown in lobby, no controllers)
+    buildTestOverlay();      // simple 2D box + text test
     buildGridFloor();        // lobby floor grid (spatial reference, not a void)
     buildControllerMeshes(); // Neo 2 controller wireframes (from /system OBJ)
 
@@ -3526,6 +3564,16 @@ void *renderThread(void *) {
                 glBindVertexArray(gReticleVao);
                 glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, rMvp.m);
                 glDrawArrays(GL_TRIANGLES, 0, gReticleVertCount);
+                glBindVertexArray(0);
+            }
+            // Simple 2D box + text test overlay.
+            if (gTestVertCount > 0) {
+                const float kTestDist = 2.0f;
+                Mat4 tMvp = mat4Mul(sproj, mat4Mul(sEyeShift, mat4Translate(0, 0, -kTestDist)));
+                glUseProgram(gProg);
+                glBindVertexArray(gTestVao);
+                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, tMvp.m);
+                glDrawArrays(GL_TRIANGLES, 0, gTestVertCount);
                 glBindVertexArray(0);
             }
             glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);
