@@ -56,6 +56,10 @@ extern "C" {
     // expect a FLOOR origin (standing universe); without this the head sits at y=0
     // and you spawn inside the floor. Mirrors C# Pvr_SetTrackingOriginType.
     bool  Pvr_SetTrackingOriginType(int trackingOriginType);
+    // Recentering: libPvr_UnitySDK does not export Pvr_ResetSensor, but the
+    // WiVRn tracker expects it. Implemented in streaming/pvr_eye_bridge.cpp.
+    int   Pvr_ResetSensor(int resetType);
+#define PXR_RESET_ALL 0
     float Pvr_GetFloorHeight();   // device floor calibration height (diagnostic)
     // Play-area extents in meters: x=width, z=depth (y unused). isPlayArea=true
     // returns the inner play area, false the outer boundary. Must be read BEFORE

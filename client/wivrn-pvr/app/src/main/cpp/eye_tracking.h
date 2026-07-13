@@ -45,3 +45,19 @@ void initEyeTrackingMode();
 // so the IR stops. Call on STREAMING_STARTED (after settings JSON is live) and on
 // STREAMING_STOPPED. Reads the server flag itself when streaming.
 void applyServerEyeTracking(bool streaming);
+
+// ---- pico_oxr / pico_native compatibility shims ----
+// The WiVRn tracker and streaming_client expect the pico_oxr eye-tracking
+// interface. Provide those symbols here and map them onto the wivrn-pvr state.
+
+extern std::atomic<float> gGazeQuat[4];
+extern std::atomic<float> gEyeOpenness[2];
+extern std::atomic<bool>  gEyeOpennessValid;
+extern std::atomic<float> gPupilDilation[2];
+extern std::atomic<bool>  gPupilDilationValid;
+extern std::atomic<float> gGazePitch;
+extern std::atomic<float> gGazeYaw;
+
+inline void initEyeTracking() { initEyeTrackingMode(); }
+inline void setEyeTrackingStreaming(bool streaming) { applyServerEyeTracking(streaming); }
+void pollEyeGaze();
