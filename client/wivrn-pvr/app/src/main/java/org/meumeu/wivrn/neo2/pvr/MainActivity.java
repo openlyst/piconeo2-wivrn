@@ -646,6 +646,38 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     public void onStartApp(String appId) {}
     public void onStopApp(int appId) {}
 
+    // WiVRn streaming_client callbacks.
+    public void onConnectionStateChanged(int state, String message) {
+        runOnUiThread(() -> {
+            if (lobbyView != null) lobbyView.setConnectionState(state, message);
+        });
+    }
+    public void onStreamStats(int fps, int latencyMs, int bandwidthRx, int bandwidthTx, int bitrateMbps) {
+        runOnUiThread(() -> {
+            if (lobbyView != null) lobbyView.updateStreamStats(fps, latencyMs, bandwidthRx, bandwidthTx, bitrateMbps);
+        });
+    }
+    public void onStreamStatsDetailed(float[] data) {
+        runOnUiThread(() -> {
+            if (lobbyView != null) lobbyView.updateStreamStatsDetailed(data);
+        });
+    }
+    public void onApplicationList(String[] ids, String[] names) {
+        runOnUiThread(() -> {
+            if (lobbyView != null) lobbyView.updateAvailableApps(ids, names);
+        });
+    }
+    public void onApplicationIcon(String appId, byte[] pngData) {
+        runOnUiThread(() -> {
+            if (lobbyView != null) lobbyView.updateAppIcon(appId, pngData);
+        });
+    }
+    public void onRunningApplications(String[] names, int[] ids, boolean[] overlays, boolean[] actives) {
+        runOnUiThread(() -> {
+            if (lobbyView != null) lobbyView.updateRunningApps(names, ids, overlays, actives);
+        });
+    }
+
     public void onLobbyTouch(float x, float y, boolean down, boolean pressed, float thumbstickY) {
         if (lobbyView != null) {
             lobbyView.handleTouch(x, y, down, pressed, thumbstickY);
