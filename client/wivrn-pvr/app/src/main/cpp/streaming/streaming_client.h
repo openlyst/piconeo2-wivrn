@@ -6,7 +6,7 @@
 #include "pico_audio.h"
 #include "wivrn_packets.h"
 #include "crypto.h"
-#include "oxr_tracking.h"
+#include "pico_tracking.h"
 
 #include <GLES3/gl3.h>
 #include <GLES2/gl2ext.h>
@@ -189,7 +189,7 @@ struct streaming_client
 	std::thread connect_thread;
 	std::mutex connect_mutex;
 
-	oxr_tracker tracker;
+	pico_native_tracker tracker;
 
 	streaming_client();
 	~streaming_client();

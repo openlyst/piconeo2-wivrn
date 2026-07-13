@@ -80,6 +80,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     // Ported WiVRn lobby UI (matches pico_oxr).
     private native void nativeUpdateLobbyTexture(byte[] pixels, int width, int height);
     public native void nativeSetFov(float fovDeg);
+    private native void nativeConnect(String hostname, int port, boolean tcpOnly);
+    private native void nativeDisconnect();
+    private native void nativeSubmitPin(String pin);
     private WivrnLobbyView lobbyView;
     private volatile boolean mUiRenderRunning = false;
     private Thread mUiRenderThread;
@@ -621,14 +624,19 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     // ---- WiVRn lobby view callbacks (stubs; functionality to be wired later) ----
     public void onServerConnect(String hostname, int port, boolean tcpOnly) {
         Log.i(TAG, "lobby: connect requested " + hostname + ":" + port + " tcp=" + tcpOnly);
+        try { nativeConnect(hostname, port, tcpOnly); } catch (Throwable t) { Log.e(TAG, "nativeConnect failed", t); }
     }
     public void nativeSetBitrate(int bitrate) {}
     public void onIpdChanged(float ipdMm) {}
     public void onMicrophoneChanged(boolean enabled) {}
     public void nativeSetDynamicBitrate(boolean enabled) {}
     public void onPinCancelled() {}
-    public void onPinEntered(String pin) {}
-    public void onDisconnectRequested() {}
+    public void onPinEntered(String pin) {
+        try { nativeSubmitPin(pin); } catch (Throwable t) { Log.e(TAG, "nativeSubmitPin failed", t); }
+    }
+    public void onDisconnectRequested() {
+        try { nativeDisconnect(); } catch (Throwable t) { Log.e(TAG, "nativeDisconnect failed", t); }
+    }
     public void onReconnectRequested() {}
     public void onRenderResolutionChanged(int width, int height) {}
     public void onStreamResolutionChanged(int width, int height) {}

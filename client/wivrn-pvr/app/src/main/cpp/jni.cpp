@@ -13,6 +13,7 @@
 #include "app_state.h"       // gOkHeld/gSideHeld/gOkClick
 #include "lobby.h"
 #include "log.h"
+#include "streaming/streaming_client.h"
 
 static jmethodID g_onLobbyTouchMethod = nullptr;
 
@@ -280,6 +281,46 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeRecenter(JNIEnv *env, jobject 
     float qx = head[0], qy = head[1], qz = head[2], qw = head[3];
     float yaw = std::atan2f(2.0f * (qw * qz + qx * qy), 1.0f - 2.0f * (qy * qy + qz * qz));
     gLobby->recenter(&head[4], yaw);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeConnect(JNIEnv *env, jobject thiz,
+                                                   jstring hostname, jint port, jboolean tcpOnly) {
+    (void) thiz;
+    if (!g_stream) {
+        g_stream = new streaming_client();
+        g_stream->vm = gVM;
+    }
+    if (g_stream->activity) {
+        env->DeleteGlobalRef(g_stream->activity);
+    }
+    g_stream->activity = env->NewGlobalRef(thiz);
+
+    const char *host = env->GetStringUTFChars(hostname, nullptr);
+    g_stream->server_host = host;
+    g_stream->server_port = port;
+    g_stream->tcp_only = (tcpOnly == JNI_TRUE);
+    env->ReleaseStringUTFChars(hostname, host);
+
+    g_stream->try_connect();
+    LOGI("nativeConnect: %s:%d tcp=%d", g_stream->server_host.c_str(), g_stream->server_port, g_stream->tcp_only ? 1 : 0);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeDisconnect(JNIEnv *env, jobject thiz) {
+    (void) env; (void) thiz;
+    if (g_stream) {
+        g_stream->shutdown = true;
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSubmitPin(JNIEnv *env, jobject thiz, jstring pin) {
+    (void) thiz;
+    if (!g_stream) return;
+    const char *p = env->GetStringUTFChars(pin, nullptr);
+    g_stream->pin_promise.set_value(p);
+    env->ReleaseStringUTFChars(pin, p);
 }
 
 
