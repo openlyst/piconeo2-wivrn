@@ -11,7 +11,7 @@ if (!pvrAar.exists()) {
 }
 
 android {
-    namespace 'org.meumeu.wivrn.pvr'
+    namespace 'org.meumeu.wivrn'
     compileSdk 34
 
     defaultConfig {
