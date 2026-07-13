@@ -21,6 +21,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private static final String TAG = "WiVRn-Pico";
 
     static {
+        System.loadLibrary("tracking_module");
+        System.loadLibrary("Pvr_UnitySDK");
         System.loadLibrary("wivrn_pvr");
     }
 

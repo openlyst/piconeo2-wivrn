@@ -12,10 +12,14 @@ find_library(jnigraphics-lib jnigraphics)
 find_library(media-lib mediandk)
 find_library(aaudio-lib aaudio)
 
-# Pvr Native SDK
-add_library(Pvr_NativeSDK SHARED IMPORTED)
-set_target_properties(Pvr_NativeSDK PROPERTIES
-    IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libPvr_NativeSDK.so
+# Pvr Unity SDK + tracking module (from ALVR reference, 32-bit armeabi-v7a)
+add_library(Pvr_UnitySDK SHARED IMPORTED)
+set_target_properties(Pvr_UnitySDK PROPERTIES
+    IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libPvr_UnitySDK.so
+)
+add_library(tracking_module SHARED IMPORTED)
+set_target_properties(tracking_module PROPERTIES
+    IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libtracking_module.so
 )
 
 # spdlog and boost::pfr are header-only - vendored copies in third_party/
@@ -30,7 +34,17 @@ set(OPENSSL_CRYPTO_LIBRARY ${OPENSSL_INSTALL_DIR}/lib/libcrypto.a)
 
 string(REGEX REPLACE "android-([0-9]+)" "\\1" ANDROID_API_LEVEL ${ANDROID_PLATFORM})
 set(NDK_TOOLCHAIN ${ANDROID_NDK}/toolchains/llvm/prebuilt/${ANDROID_HOST_TAG})
-set(NDK_CC ${NDK_TOOLCHAIN}/bin/aarch64-linux-android${ANDROID_API_LEVEL}-clang)
+
+if(ANDROID_ABI STREQUAL "armeabi-v7a")
+    set(OPENSSL_TARGET "linux-armv4")
+    set(NDK_CC ${NDK_TOOLCHAIN}/bin/armv7a-linux-androideabi${ANDROID_API_LEVEL}-clang)
+elseif(ANDROID_ABI STREQUAL "arm64-v8a")
+    set(OPENSSL_TARGET "linux-aarch64")
+    set(NDK_CC ${NDK_TOOLCHAIN}/bin/aarch64-linux-android${ANDROID_API_LEVEL}-clang)
+else()
+    message(FATAL_ERROR "Unsupported ANDROID_ABI: ${ANDROID_ABI}")
+endif()
+
 include(ExternalProject)
 ExternalProject_Add(openssl_ext
     URL https://github.com/openssl/openssl/releases/download/openssl-3.4.1/openssl-3.4.1.tar.gz
@@ -40,7 +54,7 @@ ExternalProject_Add(openssl_ext
         ANDROID_NDK_ROOT=${ANDROID_NDK}
         ANDROID_NDK_HOME=${ANDROID_NDK}
         PATH=${NDK_TOOLCHAIN}/bin:$ENV{PATH}
-        ./Configure linux-aarch64 no-shared no-tests no-asm
+        ./Configure ${OPENSSL_TARGET} no-shared no-tests no-asm
         --prefix=${OPENSSL_INSTALL_DIR}
         -D__ANDROID_API__=${ANDROID_API_LEVEL}
     BUILD_COMMAND make -j${CMAKE_BUILD_PARALLEL_LEVEL}
@@ -117,6 +131,7 @@ add_library(wivrn_pvr SHARED
 
 target_include_directories(wivrn_pvr PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/core
     ${CMAKE_CURRENT_SOURCE_DIR}/openxr
     ${CMAKE_CURRENT_SOURCE_DIR}/streaming
     ${PICO_NATIVE_DIR}/common
@@ -146,5 +161,6 @@ target_link_libraries(wivrn_pvr
     ${media-lib}
     ${aaudio-lib}
     wivrn-common
-    Pvr_NativeSDK
+    Pvr_UnitySDK
+    tracking_module
 )
