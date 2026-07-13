@@ -3,8 +3,11 @@
 #include "pico_sdk.h"
 #include "eye_tracking.h"
 #include "latency_tracker.h"
+#include "input.h"
 
 #include <spdlog/spdlog.h>
+#include <android/log.h>
+#define ALOGI(...) __android_log_print(ANDROID_LOG_INFO, "wivrn-native", __VA_ARGS__)
 
 #include <cmath>
 #include <cstring>
@@ -376,6 +379,7 @@ void pico_native_tracker::step_ctrl_filter(int hand, const float pos_m[3], const
 
 void pico_native_tracker::run()
 {
+	ALOGI("pico_native_tracker::run() entered, session=%p", (void*)session);
 	int frame_counter = 0;
 	uint32_t last_tx_seq = 0;
 
@@ -410,12 +414,15 @@ void pico_native_tracker::run()
 			}
 		}
 
-		if (pvr_sensor_mode.load())
+		// Read head pose from gHeadData, which is published by the render
+		// thread's tracking loop (which properly initializes the PVR SDK).
 		{
-			float qx, qy, qz, qw, px, py, pz, vfov, hfov;
-			int viewNum;
-			int rc = Pvr_GetMainSensorState(&qx, &qy, &qz, &qw, &px, &py, &pz, &vfov, &hfov, &viewNum);
-			if (rc >= 0)
+			float qx, qy, qz, qw, px, py, pz;
+			{
+				std::lock_guard<std::mutex> lk(gHeadMutex);
+				qx = gHeadData[0]; qy = gHeadData[1]; qz = gHeadData[2]; qw = gHeadData[3];
+				px = gHeadData[4]; py = gHeadData[5]; pz = gHeadData[6];
+			}
 			{
 				std::lock_guard lock(state_mutex);
 				head_orient[0] = qx; head_orient[1] = qy; head_orient[2] = qz; head_orient[3] = qw;
@@ -434,11 +441,11 @@ void pico_native_tracker::run()
 		}
 
 		static int sensor_log_count = 0;
-		if (sensor_log_count < 5 || (sensor_log_count % 300) == 0) {
-			spdlog::info("sensor valid={} q=({:.3f},{:.3f},{:.3f},{:.3f}) p=({:.3f},{:.3f},{:.3f})",
-				h_valid, h_orient[0], h_orient[1], h_orient[2], h_orient[3], h_pos[0], h_pos[1], h_pos[2]);
-			sensor_log_count++;
+		if (sensor_log_count < 3 || (sensor_log_count % 3000) == 0) {
+			ALOGI("pico_tracker[%d]: valid=%d seq=%u q=(%.3f,%.3f,%.3f,%.3f) p=(%.3f,%.3f,%.3f)",
+				sensor_log_count, h_valid, cur_seq, h_orient[0], h_orient[1], h_orient[2], h_orient[3], h_pos[0], h_pos[1], h_pos[2]);
 		}
+		sensor_log_count++;
 
 		if (!h_valid)
 		{
@@ -591,7 +598,6 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 
 	pkt.interaction_profiles[0] = interaction_profile::bytedance_pico_neo3_controller;
 	pkt.interaction_profiles[1] = interaction_profile::bytedance_pico_neo3_controller;
-	pkt.interaction_profiles[2] = interaction_profile::none;
 
 	neo2::quat hq = neo2::normalize_quat({h_orient[0], h_orient[1], h_orient[2], h_orient[3]});
 
@@ -821,6 +827,19 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 	}
 
 	try {
+		static int log_counter = 0;
+		if (log_counter < 3 || (log_counter % 3000) == 0) {
+			ALOGI("transmit_tracking[%d]: %zu device_poses, prod_ts=%lld, ts=%lld, view_flags=0x%x",
+				log_counter, pkt.device_poses.size(),
+				(long long)pkt.production_timestamp,
+				(long long)pkt.timestamp,
+				(unsigned int)pkt.view_flags);
+			for (const auto & dp : pkt.device_poses)
+				ALOGI("  pose: device=%d flags=0x%x pos=(%.3f,%.3f,%.3f)",
+					(int)dp.device, dp.flags,
+					dp.pose.position.x, dp.pose.position.y, dp.pose.position.z);
+		}
+		log_counter++;
 		session->send_stream(pkt);
 	} catch (std::exception & e) {
 		spdlog::warn("transmit_tracking: send failed: {}", e.what());

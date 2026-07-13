@@ -344,6 +344,13 @@ void streaming_client::handle_video_shard(to_headset::video_stream_data_shard &&
 {
 	last_shard_ns.store(get_timestamp_ns());
 
+	static std::atomic<int> shard_count{0};
+	int sc = ++shard_count;
+	if (sc <= 5 || (sc % 100 == 0))
+		ALOGI("video shard #%d: stream=%u frame=%lu size=%zu",
+			sc, (unsigned)shard.stream_item_idx,
+			(unsigned long)shard.frame_idx, shard.payload.size());
+
 	if (shard.timing_info && shard.stream_item_idx == 0)
 		stats_last_encode_begin = shard.timing_info->encode_begin;
 
@@ -352,12 +359,17 @@ void streaming_client::handle_video_shard(to_headset::video_stream_data_shard &&
 		streaming = true;
 		stream_ui_visible = false;
 		setEyeTrackingStreaming(true);
+		ALOGI("Streaming started, hiding lobby UI");
 		spdlog::info("Streaming started, hiding lobby UI");
 	}
 
 	uint8_t idx = shard.stream_item_idx;
 	if (idx >= 3 || !decoders[idx])
+	{
+		if (sc <= 5)
+			ALOGI("video shard dropped: idx=%u decoders=%d", (unsigned)idx, decoders[idx] ? 1 : 0);
 		return;
+	}
 
 	uint64_t frame_idx = shard.frame_idx;
 	shard_set * target = nullptr;
@@ -475,6 +487,9 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 			std::lock_guard lock(video_mutex);
 			video_desc = p;
 			video_ready = true;
+			ALOGI("Received video stream description: %dx%d, fps=%f, codecs=[%d,%d,%d]",
+				p.width, p.height, p.frame_rate,
+				(int)p.codec[0], (int)p.codec[1], (int)p.codec[2]);
 			spdlog::warn("Received video stream description: {}x{}, fps={}",
 				p.width, p.height, p.frame_rate);
 			setup_decoders();
@@ -483,6 +498,7 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 		{
 			std::lock_guard lock(audio_mutex);
 			audio_desc = p;
+			ALOGI("Received audio stream description");
 			spdlog::info("Received audio stream description");
 			setup_audio();
 		}
@@ -491,6 +507,8 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 			std::lock_guard lock(tracking_mutex);
 			tracking_control = p;
 			tracking_control_received = true;
+			ALOGI("Received tracking control: %zu samples, m2p=%lldns",
+				p.pattern.size(), (long long)p.motions_to_photons);
 			spdlog::info("Received tracking control: {} samples, m2p={}ns",
 				p.pattern.size(), p.motions_to_photons);
 
@@ -610,6 +628,7 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 		}
 		else
 		{
+			ALOGI("handle_packet: unhandled/unknown packet type");
 		}
 	}, packet);
 }
@@ -727,6 +746,9 @@ void streaming_client::update_dynamic_bitrate()
 void streaming_client::network_loop()
 {
 	constexpr int64_t video_timeout_ns = 10'000'000'000LL;
+	ALOGI("network_loop: started");
+
+	int64_t last_state_ping_ns = get_timestamp_ns();
 
 	while (!shutdown && session)
 	{
@@ -738,6 +760,16 @@ void streaming_client::network_loop()
 
 			int64_t now = get_timestamp_ns();
 			int64_t last = last_shard_ns.load();
+
+			// Re-send session state every 2s so the server updates
+			// visibility/focus for newly connected OpenXR apps.
+			if (now - last_state_ping_ns > 2'000'000'000LL)
+			{
+				last_state_ping_ns = now;
+				session->send_control(from_headset::session_state_changed{
+					.state = XR_SESSION_STATE_FOCUSED,
+				});
+			}
 
 			if (last > 0 && (now - last) > video_timeout_ns)
 			{
@@ -1053,6 +1085,10 @@ void streaming_client::send_headset_info()
 	info.variant = "";
 
 	session->send_control(info);
+	ALOGI("Sent headset info: %dx%d, %zu codecs, bit_depth=%d",
+		info.render_eye_width, info.render_eye_height,
+		info.supported_codecs.size(),
+		info.bit_depth ? (int)*info.bit_depth : -1);
 	spdlog::warn("Sent headset info: {}x{}, {} codecs, bit_depth={}",
 		info.render_eye_width, info.render_eye_height,
 		info.supported_codecs.size(),
