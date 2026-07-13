@@ -128,6 +128,10 @@ public:
 	bool lobby_touch_down[2] = {false, false};
 	bool lobby_touch_pressed[2] = {false, false};
 	float lobby_thumbstick_y[2] = {0, 0};
+	float prev_lobby_touch_x[2] = {-2, -2};
+	float prev_lobby_touch_y[2] = {-2, -2};
+	bool prev_lobby_touch_down[2] = {false, false};
+	bool prev_lobby_touch_pressed[2] = {false, false};
 
 	float head_touch_x = -1;
 	float head_touch_y = -1;
@@ -153,3 +157,5 @@ public:
 	void update_tex_image(JNIEnv* env);
 	void on_frame_available();
 };
+
+void push_lobby_touch_to_java(int hand, float x, float y, bool down, bool pressed, float thumbstickY);

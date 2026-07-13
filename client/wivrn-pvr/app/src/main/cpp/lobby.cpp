@@ -713,12 +713,27 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 		else
 		{
 			lobby_touch_x[h] = -1;
+			lobby_touch_y[h] = -1;
 			lobby_touch_down[h] = false;
 			lobby_touch_pressed[h] = false;
 		}
 
+		bool touch_changed =
+			lobby_touch_x[h] != prev_lobby_touch_x[h] ||
+			lobby_touch_y[h] != prev_lobby_touch_y[h] ||
+			lobby_touch_down[h] != prev_lobby_touch_down[h] ||
+			lobby_touch_pressed[h] != prev_lobby_touch_pressed[h];
+		if (touch_changed) {
+			push_lobby_touch_to_java(h, lobby_touch_x[h], lobby_touch_y[h],
+			                         lobby_touch_down[h], lobby_touch_pressed[h],
+			                         lobby_thumbstick_y[h]);
+			prev_lobby_touch_x[h] = lobby_touch_x[h];
+			prev_lobby_touch_y[h] = lobby_touch_y[h];
+			prev_lobby_touch_down[h] = lobby_touch_down[h];
+			prev_lobby_touch_pressed[h] = lobby_touch_pressed[h];
+		}
 		prev_trigger[h] = trigger_pressed;
-	}
+		}
 
 	// No controllers — use head gaze laser with OK button as trigger
 	head_hit.valid = false;

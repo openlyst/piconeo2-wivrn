@@ -14,6 +14,8 @@
 #include "lobby.h"
 #include "log.h"
 
+static jmethodID g_onLobbyTouchMethod = nullptr;
+
 // Called once (onCreate) to start the long-lived render thread.
 extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thiz,
@@ -22,6 +24,9 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
     if (gRunning.load()) { LOGI("nativeStart ignored (already running)"); return; }
     env->GetJavaVM(&gVM);
     gActivity = env->NewGlobalRef(activity);
+    jclass clazz = env->GetObjectClass(activity);
+    g_onLobbyTouchMethod = env->GetMethodID(clazz, "onLobbyTouch", "(FFZZF)V");
+    LOGI("nativeStart: onLobbyTouch method=%p", g_onLobbyTouchMethod);
     // VrActivity ships in the Pico system runtime; guard against a firmware that
     // lacks it so callVrStatic() degrades to a no-op instead of dereferencing null.
     jclass localVr = env->FindClass("com/psmart/vrlib/VrActivity");
@@ -210,6 +215,29 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeUpdateLobbyTexture(
     gLobby->update_texture(width, height, buf.data());
 }
 
+// Push the latest lobby pointer state back to the Java UI thread. Called from the
+// native render loop whenever the ray/pose state changes, so the cursor tracks the
+// controller/laser every native frame instead of waiting for a Java-side poll.
+void push_lobby_touch_to_java(int hand, float x, float y, bool down, bool pressed, float thumbstickY) {
+    (void) hand;
+    if (!gVM || !gActivity || !g_onLobbyTouchMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK)
+            attached = true;
+    }
+    if (env) {
+        env->CallVoidMethod(gActivity, g_onLobbyTouchMethod,
+                            x, y,
+                            down ? JNI_TRUE : JNI_FALSE,
+                            pressed ? JNI_TRUE : JNI_FALSE,
+                            thumbstickY);
+    }
+    if (attached)
+        gVM->DetachCurrentThread();
+}
+
 // Set the ALVR stream FOV (full per-eye degrees). Mirrors the release-commit slider
 // in the old settings_panel.cpp; the render thread picks up gFovDirty and reapplies
 // the warp mesh + view params.
@@ -254,18 +282,4 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeRecenter(JNIEnv *env, jobject 
     gLobby->recenter(&head[4], yaw);
 }
 
-// Poll the latest controller ray interaction against the lobby panel for `hand`.
-extern "C" JNIEXPORT void JNICALL
-Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativePollLobbyTouch(
-        JNIEnv *env, jobject thiz, jint hand, jfloatArray out) {
-    (void) thiz;
-    float buf[5] = {-1.0f, -1.0f, 0.0f, 0.0f, 0.0f};
-    if (gLobby && hand >= 0 && hand <= 1 && out && env->GetArrayLength(out) >= 5) {
-        buf[0] = gLobby->lobby_touch_x[hand];
-        buf[1] = gLobby->lobby_touch_y[hand];
-        buf[2] = gLobby->lobby_touch_down[hand] ? 1.0f : 0.0f;
-        buf[3] = gLobby->lobby_touch_pressed[hand] ? 1.0f : 0.0f;
-        buf[4] = gLobby->lobby_thumbstick_y[hand];
-    }
-    env->SetFloatArrayRegion(out, 0, 5, buf);
-}
+

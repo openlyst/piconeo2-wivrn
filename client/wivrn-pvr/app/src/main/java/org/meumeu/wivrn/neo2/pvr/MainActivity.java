@@ -79,7 +79,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     // Ported WiVRn lobby UI (matches pico_oxr).
     private native void nativeUpdateLobbyTexture(byte[] pixels, int width, int height);
-    private native void nativePollLobbyTouch(int hand, float[] out);
     public native void nativeSetFov(float fovDeg);
     private WivrnLobbyView lobbyView;
     private volatile boolean mUiRenderRunning = false;
@@ -585,18 +584,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             final int h = 900;
             int[] pixels = new int[w * h];
             byte[] rgba = new byte[w * h * 4];
-            float[] touch = new float[5];
             int frameCount = 0;
             while (mUiRenderRunning) {
                 try {
-                    for (int hand = 0; hand < 2; hand++) {
-                        nativePollLobbyTouch(hand, touch);
-                        if (touch[0] >= 0) {
-                            boolean down = touch[2] > 0.5f;
-                            boolean pressed = touch[3] > 0.5f;
-                            lobbyView.handleTouch(touch[0], touch[1], down, pressed, touch[4]);
-                        }
-                    }
                     if (lobbyView.isDirty()) {
                         lobbyView.render();
                         Bitmap bmp = lobbyView.getBitmap();
@@ -616,7 +606,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 } catch (Throwable t) {
                     Log.e(TAG, "lobby UI render thread error", t);
                 }
-                try { Thread.sleep(16); } catch (InterruptedException e) { break; }
+                try { Thread.sleep(8); } catch (InterruptedException e) { break; }
             }
         }, "ui-render");
         mUiRenderThread.start();
@@ -647,4 +637,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     public void onSetActiveApp(int appId) {}
     public void onStartApp(String appId) {}
     public void onStopApp(int appId) {}
+
+    public void onLobbyTouch(float x, float y, boolean down, boolean pressed, float thumbstickY) {
+        if (lobbyView != null) {
+            lobbyView.handleTouch(x, y, down, pressed, thumbstickY);
+        }
+    }
 }
