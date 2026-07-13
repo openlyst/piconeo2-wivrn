@@ -32,6 +32,7 @@
     <string name="setting_foveated_encoding">Foveated Encoding</string>
     <string name="setting_bitrate">Bitrate</string>
     <string name="setting_ipd">IPD</string>
+    <string name="setting_fov">Field of View</string>
     <string name="setting_codec">Codec</string>
     <string name="codec_auto">Automatic</string>
     <string name="codec_h264">H.264</string>

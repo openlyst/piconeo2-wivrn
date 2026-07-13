@@ -80,6 +80,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     // Ported WiVRn lobby UI (matches pico_oxr).
     private native void nativeUpdateLobbyTexture(byte[] pixels, int width, int height);
     private native void nativePollLobbyTouch(int hand, float[] out);
+    public native void nativeSetFov(float fovDeg);
     private WivrnLobbyView lobbyView;
     private volatile boolean mUiRenderRunning = false;
     private Thread mUiRenderThread;

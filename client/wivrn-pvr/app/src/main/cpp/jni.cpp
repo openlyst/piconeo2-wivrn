@@ -210,7 +210,21 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeUpdateLobbyTexture(
     gLobby->update_texture(width, height, buf.data());
 }
 
-// Forward a controller ray interaction against the lobby panel.
+// Set the ALVR stream FOV (full per-eye degrees). Mirrors the release-commit slider
+// in the old settings_panel.cpp; the render thread picks up gFovDirty and reapplies
+// the warp mesh + view params.
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetFov(
+        JNIEnv *env, jobject thiz, jfloat fovDeg) {
+    (void) env; (void) thiz;
+    float v = fovDeg;
+    if (v < kFovMin) v = kFovMin;
+    if (v > kFovMax) v = kFovMax;
+    gStreamFovDeg.store(v);
+    gFovDirty.store(true);
+    LOGI("nativeSetFov: %.1f deg", v);
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeOnLobbyTouch(
         JNIEnv *env, jobject thiz,

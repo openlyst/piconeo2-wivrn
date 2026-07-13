@@ -149,12 +149,14 @@ public class WivrnLobbyView {
     private static final int SLIDER_FOVEATION = 1;
     private static final int SLIDER_BITRATE = 2;
     private static final int SLIDER_IPD = 3;
+    private static final int SLIDER_FOV = 4;
 
     private int resWidth = 1664;
     private int foveationScale = 30;
     private String codec = "auto";
     private int bitrate = 50;
     private float ipdMm = 64;
+    private float fovDeg = 101;
     private boolean tcpOnly = false;
     private boolean microphoneEnabled = false;
     private boolean lowerResWireless = false;
@@ -704,6 +706,7 @@ public class WivrnLobbyView {
             ipdMm = sp.getInt("ipd_mm", 64);
             sp.edit().putFloat("ipd_mm", ipdMm).apply();
         }
+        fovDeg = sp.getFloat("fov_deg", 101);
         tcpOnly = sp.getBoolean("tcp_only", false);
         microphoneEnabled = sp.getBoolean("microphone", false);
         streamBitrateSetting = sp.getInt("stream_bitrate", 50);
@@ -721,6 +724,7 @@ public class WivrnLobbyView {
             .putString("codec", codec)
             .putInt("bitrate", bitrate)
             .putFloat("ipd_mm", ipdMm)
+            .putFloat("fov_deg", fovDeg)
             .putBoolean("tcp_only", tcpOnly)
             .putBoolean("microphone", microphoneEnabled)
             .putInt("stream_bitrate", streamBitrateSetting)
@@ -1088,6 +1092,7 @@ public class WivrnLobbyView {
         y = drawSlider(x, y, w, i18n.s(R.string.setting_foveated_encoding), foveationScale, 0, 80, "%", true);
         y = drawSlider(x, y, w, i18n.s(R.string.setting_bitrate), bitrate, 5, 200, i18n.s(R.string.unit_mbit_s), false);
         y = drawSliderFloat(x, y, w, i18n.s(R.string.setting_ipd), ipdMm, 58, 72, i18n.s(R.string.unit_mm), false, 1);
+        y = drawSliderFloat(x, y, w, i18n.s(R.string.setting_fov), fovDeg, 70, 101, "°", false, 0);
 
         y = drawDropdown(x, y, w, i18n.s(R.string.setting_codec), new String[]{i18n.s(R.string.codec_auto), i18n.s(R.string.codec_h264), i18n.s(R.string.codec_h265)},
             codec.equals("auto") ? 0 : codec.equals("h264") ? 1 : 2, true);
@@ -2202,6 +2207,13 @@ public class WivrnLobbyView {
                 ((MainActivity) context).onIpdChanged(ipdMm);
                 markDirty();
                 break;
+            case SLIDER_FOV:
+                fovDeg = Math.round(70 + pct * 31);
+                fovDeg = Math.max(70, Math.min(101, fovDeg));
+                saveSettings();
+                ((MainActivity) context).nativeSetFov(fovDeg);
+                markDirty();
+                break;
         }
     }
 
@@ -2524,6 +2536,20 @@ public class WivrnLobbyView {
             ipdMm = Math.max(58, Math.min(72, ipdMm));
             saveSettings();
             ((MainActivity) context).onIpdChanged(ipdMm);
+            markDirty();
+            return;
+        }
+        sy += 50;
+
+        // FOV
+        sy += 35;
+        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
+            activeSlider = SLIDER_FOV;
+            float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
+            fovDeg = Math.round(70 + pct * 31);
+            fovDeg = Math.max(70, Math.min(101, fovDeg));
+            saveSettings();
+            ((MainActivity) context).nativeSetFov(fovDeg);
             markDirty();
             return;
         }
