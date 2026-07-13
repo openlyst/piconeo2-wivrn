@@ -43,6 +43,7 @@
 #include "input.h"       // controller + head-pose shared state
 #include "foveation.h"   // readFoveationParams() from the settings JSON
 #include "render_thread.h"// shared render-thread lifetime/window/sleep state
+#include "streaming/wivrn_stream_adapter.h"
 
 // Sleep until an ABSOLUTE CLOCK_MONOTONIC deadline (nanoseconds, same base as
 // nowNs). clock_nanosleep(TIMER_ABSTIME) doesn't accumulate the oversleep a

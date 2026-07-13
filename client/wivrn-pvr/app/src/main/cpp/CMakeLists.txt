@@ -126,6 +126,7 @@ add_library(p2alvr SHARED
     streaming/pvr_renderer.cpp
     streaming/pvr_eye_bridge.cpp
     streaming/alvr_stubs.cpp
+    streaming/wivrn_stream_adapter.cpp
     ${PICO_NATIVE_DIR}/src/net/wivrn_client_pico.cpp
     ${PICO_NATIVE_DIR}/src/video/pico_decoder.cpp
     ${PICO_NATIVE_DIR}/src/audio/pico_audio.cpp
