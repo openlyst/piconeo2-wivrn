@@ -30,6 +30,7 @@
 #include "alvr_ext.h"    // fork-only ALVR C API additions
 #include "log.h"         // TAG / LOGI / LOGE / nowNs()
 #include "pico_sdk.h"    // Pico native SDK prototypes + config accessors + render events
+#include "streaming/streaming_client.h"  // g_stream (for tracker recenter flag)
 #include "math3d.h"      // Mat4 / Quat helpers
 #include "gl_util.h"     // compile()
 #include "eye_tracking.h"// readEyeGazes() + gaze/openness state
@@ -3299,17 +3300,55 @@ void *renderThread(void *) {
             if (recenterDown && !recenterPrev) {
                 hudAnchored = false;
                 if (gLobby) {
-                    const float kReDist = 2.0f;
                     float fx = -headRot.m[8], fz = -headRot.m[10];
                     float fn = sqrtf(fx*fx + fz*fz);
                     if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
-                    float ax = px + fx * kReDist, az = pz + fz * kReDist;
                     float yaw = atan2f(-fx, -fz);
-                    float hp[3] = {ax, py, az};
+                    float hp[3] = {px, py, pz};
                     gLobby->recenter(hp, yaw);
                 }
             }
             recenterPrev = recenterDown;
+        }
+
+        // Full recenter from controller home long-press or settings button:
+        // tracker sets lobby_recenter_requested, render thread does the lobby
+        // panel re-anchor (needs head pose which the tracker doesn't have in
+        // world space). Sensor reset + height calibration already done by tracker.
+        if (g_stream && g_stream->tracker.lobby_recenter_requested.exchange(false))
+        {
+            hudAnchored = false;
+            if (gLobby) {
+                float fx = -headRot.m[8], fz = -headRot.m[10];
+                float fn = sqrtf(fx*fx + fz*fz);
+                if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
+                float yaw = atan2f(-fx, -fz);
+                float hp[3] = {px, py, pz};
+                gLobby->recenter(hp, yaw);
+                LOGI("lobby recentered by controller home long-press");
+            }
+        }
+
+        // Settings panel RECENTER button: full recenter (tracker + sensor + lobby).
+        if (gWivrnRecenterReq.exchange(false))
+        {
+            LOGI("recenter triggered by settings button");
+            if (g_stream) {
+                g_stream->tracker.recenter_height();
+                g_stream->tracker.recenter_requested.store(true);
+            }
+            Pvr_ResetSensorAll();
+            svrRecenterOrientation();
+            recenterHeadTrackerAW();
+            hudAnchored = false;
+            if (gLobby) {
+                float fx = -headRot.m[8], fz = -headRot.m[10];
+                float fn = sqrtf(fx*fx + fz*fz);
+                if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
+                float yaw = atan2f(-fx, -fz);
+                float hp[3] = {px, py, pz};
+                gLobby->recenter(hp, yaw);
+            }
         }
 
         bool okClicked = gOkClick.exchange(false);

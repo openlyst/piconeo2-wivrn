@@ -207,7 +207,6 @@ static void buildCoreModel(MenuModel &m) {
         sys.items.push_back(wivrnToggle("PASSTHROUGH", gWivrnPassthrough));
 
         MenuItem rec; rec.kind = MK_BUTTON; rec.label = "RECENTER";
-        rec.disabled = true;
         rec.onClick = []{ gWivrnRecenterReq.store(true); };
         sys.items.push_back(rec);
     }

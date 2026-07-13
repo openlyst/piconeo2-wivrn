@@ -597,10 +597,11 @@ void pico_lobby::set_resolution(int w, int h)
 
 void pico_lobby::recenter(const float head_pos[3], float head_yaw)
 {
+	constexpr float kPanelDist = 2.0f;
 	float cy = std::cosf(head_yaw), sy = std::sinf(head_yaw);
-	panel_pos[0] = (head_pos ? head_pos[0] : 0.0f) + sy * 2.5f;
+	panel_pos[0] = (head_pos ? head_pos[0] : 0.0f) + sy * kPanelDist;
 	panel_pos[1] = head_pos ? head_pos[1] : 0.0f;
-	panel_pos[2] = (head_pos ? head_pos[2] : 0.0f) - cy * 2.5f;
+	panel_pos[2] = (head_pos ? head_pos[2] : 0.0f) - cy * kPanelDist;
 	panel_yaw = head_yaw;
 	LOGI("Lobby recentered, panel pos=(%.2f,%.2f,%.2f) yaw=%.2f", panel_pos[0], panel_pos[1], panel_pos[2], panel_yaw);
 }

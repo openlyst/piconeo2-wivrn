@@ -480,8 +480,11 @@ void pico_native_tracker::run()
 				{
 					spdlog::info("recenter triggered by controller {} home button long press", h);
 					recenter_height();
-					Pvr_ResetSensor(PXR_RESET_ALL);
+					Pvr_ResetSensorAll();
+					svrRecenterOrientation();
+					recenterHeadTrackerAW();
 					recenter_requested.store(true);
+					lobby_recenter_requested.store(true);
 				}
 				home_press_ts[h] = 0;
 			}

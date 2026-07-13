@@ -15,9 +15,40 @@
 #include "app_state.h"       // gOkHeld/gSideHeld/gOkClick
 #include "lobby.h"
 #include "log.h"
+#include "pico_sdk.h"        // Pvr_ResetSensor
 #include "streaming/streaming_client.h"
+#include <ctime>
 
 static jmethodID g_onLobbyTouchMethod = nullptr;
+
+// HMD home button long-press tracking for recenter (mirrors pico_oxr).
+static struct timespec g_home_press_ts = {};
+static bool g_home_pressed = false;
+static constexpr double HOME_RECENTER_THRESHOLD_MS = 500.0;
+
+// Full recenter: tracker height calibration + Pvr sensor reset + lobby panel
+// re-anchor. Called from HMD home press, controller home long-press,
+// and the Java nativeRecenter entry point. The lobby recenter is deferred to
+// the render thread (via lobby_recenter_requested) because it needs the head
+// rotation matrix which is only available there.
+static void do_full_recenter()
+{
+    LOGI("full recenter triggered");
+
+    if (g_stream)
+    {
+        g_stream->tracker.recenter_height();
+        g_stream->tracker.recenter_requested.store(true);
+        g_stream->tracker.lobby_recenter_requested.store(true);
+    }
+
+    // Full sensor reset: reset position + orientation (including tilt for 3DoF),
+    // then recenter the head tracker so the current facing becomes forward.
+    Pvr_ResetSensorAll();
+    svrRecenterOrientation();
+    recenterHeadTrackerAW();
+    LOGI("recenter: ResetSensorAll + svrRecenterOrientation + recenterHeadTrackerAW done");
+}
 
 // Called once (onCreate) to start the long-lived render thread.
 extern "C" JNIEXPORT void JNICALL
@@ -86,6 +117,22 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeKeyEvent(JNIEnv *env, jobject 
     bool isOk = (keyCode == 1001 || keyCode == 66 || keyCode == 23 || keyCode == 96);
     if (isOk) gOkHeld.store(down == JNI_TRUE);   // track held state (gaze EQ drag)
     if (keyCode == 1001) gSideHeld.store(down == JNI_TRUE);  // side button (5s hold = lobby toggle)
+
+    // HMD home button -> full recenter. The Pico system sends repeated key-down
+    // events (keyCode=3) for the held home button and may not deliver a key-up
+    // (the system intercepts it for the shortcut panel). Fire on the initial
+    // press edge only.
+    if (keyCode == 3 /* AKEYCODE_HOME */) {
+        if (down == JNI_TRUE && !g_home_pressed) {
+            g_home_pressed = true;
+            LOGI("HMD home button pressed, triggering full recenter");
+            do_full_recenter();
+        } else if (down == JNI_FALSE) {
+            g_home_pressed = false;
+        }
+        return;
+    }
+
     if (!down) return;
     LOGI("KEY down keyCode=%d", (int) keyCode);
     if (isOk) gOkClick.store(true);
@@ -299,19 +346,11 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeOnLobbyTouch(
     gLobby->lobby_thumbstick_y[hand] = thumbstickY;
 }
 
-// Recenter the lobby panel in front of the user.
+// Recenter: tracker height + sensor reset + lobby panel re-anchor.
 extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeRecenter(JNIEnv *env, jobject thiz) {
-    (void) thiz;
-    if (!gLobby) return;
-    float head[7] = {0,0,0,1,0,0,0};
-    {
-        std::lock_guard<std::mutex> lk(gHeadMutex);
-        for (int i = 0; i < 7; i++) head[i] = gHeadData[i];
-    }
-    float qx = head[0], qy = head[1], qz = head[2], qw = head[3];
-    float yaw = std::atan2f(2.0f * (qw * qz + qx * qy), 1.0f - 2.0f * (qy * qy + qz * qz));
-    gLobby->recenter(&head[4], yaw);
+    (void) env; (void) thiz;
+    do_full_recenter();
 }
 
 extern "C" JNIEXPORT jboolean JNICALL

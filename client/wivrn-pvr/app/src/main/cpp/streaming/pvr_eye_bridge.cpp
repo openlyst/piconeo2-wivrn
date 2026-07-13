@@ -15,20 +15,10 @@ std::atomic<bool>  gPupilDilationValid{false};
 std::atomic<float> gGazePitch{0.0f};
 std::atomic<float> gGazeYaw{0.0f};
 
-// Recentering via Pvr_UnitySDK: libPvr_NativeSDK exposes Pvr_ResetSensor,
-// but UnitySDK does not. Re-anchor with the same Floor/Stage origin call
-// the render thread already uses.
-#ifndef PXR_RESET_ALL
-#define PXR_RESET_ALL 0
-#endif
-
-extern "C" int Pvr_ResetSensor(int type)
-{
-	(void)type;
-	bool guardian = Pvr_BoundaryGetConfigured();
-	int originType = guardian ? 2 /* StageLevel */ : 1 /* FloorLevel */;
-	return Pvr_SetTrackingOriginType(originType) ? 0 : -1;
-}
+// Recentering: Pvr_ResetSensor and Pvr_ResetSensorAll are exported by
+// libPvr_UnitySDK.so (confirmed via nm -D). The previous stub here shadowed
+// the real SDK function with a no-op that only reset the tracking origin.
+// We now call the real SDK functions directly via the header declarations.
 
 // Poll the existing wivrn-pvr eye state and mirror it into the pico_oxr
 // globals so the WiVRn tracker can forward gaze/openness when supported.

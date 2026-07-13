@@ -141,6 +141,7 @@ public:
 	// Exposed so streaming_client can add a latency correction from measured data.
 	int64_t get_base_prediction_ns() const { return base_prediction_ns.load(); }
 	std::atomic<bool> recenter_requested{false};
+	std::atomic<bool> lobby_recenter_requested{false};
 
 	float ctrl_lin_vel[2][3]{{0, 0, 0}, {0, 0, 0}};
 	float ctrl_ang_vel[2][3]{{0, 0, 0}, {0, 0, 0}};
