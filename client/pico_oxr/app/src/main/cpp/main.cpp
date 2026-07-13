@@ -3,6 +3,7 @@
 #include <android_native_app_glue.h>
 #include <android/input.h>
 #include <android/keycodes.h>
+#include <android/native_window.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <vector>
@@ -1282,8 +1283,8 @@ static void render_frame(AppState* app) {
                                      fs.predictedDisplayTime, &location);
         static int vel_diag_count = 0;
         if (vel_diag_count++ < 5)
-            LOGI("xrLocateSpace VIEW: result=%d velFlags=0x%x linValid=%d angValid=%d",
-                 vr, velocity.velocityFlags,
+            LOGI("xrLocateSpace VIEW: result=%d velFlags=0x%lx linValid=%d angValid=%d",
+                 vr, (unsigned long)velocity.velocityFlags,
                  (velocity.velocityFlags & XR_SPACE_VELOCITY_LINEAR_VALID_BIT) ? 1 : 0,
                  (velocity.velocityFlags & XR_SPACE_VELOCITY_ANGULAR_VALID_BIT) ? 1 : 0);
         if (vr == XR_SUCCESS &&
@@ -1961,6 +1962,7 @@ static void app_handle_cmd(struct android_app* app, int32_t cmd) {
             break;
         case APP_CMD_INIT_WINDOW:
             state->nativeWindow = app->window;
+            LOGI("APP_CMD_INIT_WINDOW: app->window=%p", app->window);
             break;
         case APP_CMD_TERM_WINDOW:
             state->nativeWindow = nullptr;
@@ -2185,6 +2187,13 @@ extern "C" void android_main(struct android_app* androidApp) {
 
         bool want_pvr = app.stream.streaming.load() && !app.stream.stream_ui_visible.load();
 
+        static int pvr_diag_count = 0;
+        if (++pvr_diag_count % 300 == 0)
+            LOGI("PVR diag: streaming=%d ui_visible=%d want_pvr=%d pvr_mode=%d sessionRunning=%d nativeWindow=%p",
+                 (int)app.stream.streaming.load(), (int)app.stream.stream_ui_visible.load(),
+                 (int)want_pvr, (int)app.pvr_mode, (int)app.sessionRunning,
+                 androidState.nativeWindow);
+
         if (want_pvr && !app.pvr_mode && app.sessionRunning && androidState.nativeWindow)
         {
             LOGI("Switching to PVR streaming mode");
@@ -2210,6 +2219,19 @@ extern "C" void android_main(struct android_app* androidApp) {
         else if (!want_pvr && app.pvr_mode)
         {
             LOGI("Switching back to OpenXR mode");
+            app.pvr_render.deactivate();
+            app.pvr_mode = false;
+            if (app.openxr_session_destroyed)
+            {
+                if (openxr_create_session(&app))
+                    app.openxr_session_destroyed = false;
+                else
+                    LOGE("Failed to re-create OpenXR session");
+            }
+        }
+        else if (app.pvr_mode && !androidState.nativeWindow)
+        {
+            LOGI("PVR window lost, switching back to OpenXR mode");
             app.pvr_render.deactivate();
             app.pvr_mode = false;
             if (app.openxr_session_destroyed)
