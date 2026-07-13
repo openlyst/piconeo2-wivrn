@@ -1,7 +1,6 @@
 #include "eq_panel.h"
 #include "app_state.h"  // saveAllConfig (EQ now lives in the unified config.txt)
 #include "ui_kit.h"     // appendTextLine / appendQuad / uiTextL
-#include "alvr_ext.h"   // alvr_set_eq_gains
 #include "log.h"
 #include <cstdio>
 #include <cstdlib>      // getenv
@@ -23,7 +22,7 @@ static const float kEqFreqs[kEqBands] = {
 };
 
 void pushEqGains() {
-    alvr_set_eq_gains(gEqGains, kEqBands);
+    // WiVRn audio path does not expose a client-side EQ; kept as a no-op UI stub.
 }
 // Switch active slot to CUSTOM idx: load that slot's saved curve into the live gains.
 void applyEqPreset(int idx) {

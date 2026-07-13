@@ -162,9 +162,9 @@ static void setHomeFromFilesDir(JNIEnv *env, jobject activity) {
 // warp's ring. The warp keeps up to 4 submitted entries (SelectRT may fall back to
 // the oldest) + 1 slot we're currently rendering into = 5.
 static const int kSwapLen = 5;
-static GLuint gSwap[2][kSwapLen] = {{0},{0}};
-static GLuint gStreamFbo = 0;   // reusable FBO for the diag HUD overlay into gSwap
-static int    gSwapIdx = 0;     // render write-head into the ring
+GLuint gSwap[2][kSwapLen] = {{0},{0}};
+GLuint gStreamFbo = 0;   // reusable FBO for the diag HUD overlay into gSwap
+int    gSwapIdx = 0;     // render write-head into the ring
 // PIPELINE: hand the warp the PREVIOUS frame's slot (already GPU-complete -> the
 // fence wait returns instantly) instead of CPU-blocking ~5ms on the current frame.
 // Costs +1 frame of WORLD-content latency (head tracking stays low-latency via warp
@@ -182,7 +182,7 @@ static bool   gPrevSwapValid = false;
 // distortion + async reprojection + direct present) and never self-present.
 static bool   gWarpToWindow = false;  // warp thread was given the real window surface
 static bool   gAtwEnabled = false;
-static uint32_t gStreamW = 0, gStreamH = 0;
+uint32_t gStreamW = 0, gStreamH = 0;
 // Foveation params currently APPLIED to the de-foveation pipeline (baked into the
 // last alvr_start_stream_opengl). Cached so we can detect a server-side foveation
 // change mid-session and re-sync -- otherwise stale de-foveation params vs the
@@ -1288,7 +1288,7 @@ static void *trackingThread(void *) {
     // the cached gaze on the in-between ticks. The server consumes gaze at ~display
     // rate so 100Hz is ample; only matters on an EYE unit with IR on (otherwise the
     // call early-returns instantly anyway).
-    AlvrPose eyeGazeCache[2] = {};
+    XrPosef eyeGazeCache[2] = {};
     bool     eyeVLCache = false, eyeVRCache = false;
 
     // Pace the loop against an ABSOLUTE deadline (clock_nanosleep TIMER_ABSTIME)
@@ -1369,9 +1369,9 @@ static void *trackingThread(void *) {
         // ~100Hz and reuse the cache between reads (the in-between uplinks still carry
         // the latest gaze). The cached pose is global-space (composed with the headQ
         // at read time); ~10ms of head motion between reads is negligible for gaze OSC.
-        AlvrPose eyeGaze[2];
-        const AlvrPose *eyeGazePtr[2] = { nullptr, nullptr };
-        const AlvrPose *const *eyeGazes = nullptr;
+        XrPosef eyeGaze[2];
+        const XrPosef *eyeGazePtr[2] = { nullptr, nullptr };
+        const XrPosef *const *eyeGazes = nullptr;
         const int kEyeDiv = 3;   // 300Hz / 3 = ~100Hz
         if ((tframe % kEyeDiv) == 0) {
             if (!readEyeGazes(eyeGazeCache, &eyeVLCache, &eyeVRCache, tframe, quatNorm({ qx, qy, qz, qw })))
@@ -1551,7 +1551,8 @@ static void *trackingThread(void *) {
             gEyeOpenSmooth[1] += (gEyeOpen[1] - gEyeOpenSmooth[1]) * kBlinkAlpha;
             if (doUplink) alvr_send_eye_openness(gEyeOpenSmooth[0], gEyeOpenSmooth[1]);
         }
-        if (doUplink) alvr_send_tracking(ts, motions, motionCount, nullptr, eyeGazes);
+        if (doUplink) alvr_send_tracking(ts, motions, motionCount, nullptr,
+                                         (const struct AlvrPose *const *)eyeGazes);
 
         // ---- Controller buttons: send only on CHANGE (edge) ------------------
         auto sendBinEdge = [&](int h, int i, uint64_t id, bool v) {
@@ -2740,6 +2741,12 @@ void *renderThread(void *) {
                     _lastStart = _tStart;
                 }
                 AlvrViewParams outVP[2] = {};
+                for (int e = 0; e < 2; e++) {
+                    outVP[e].pose.orientation = { qx, qy, qz, qw };
+                    outVP[e].pose.position[0] = px;
+                    outVP[e].pose.position[1] = py;
+                    outVP[e].pose.position[2] = pz;
+                }
                 alvr_report_compositor_start(ts, outVP);
 
                 if (!gAtwEnabled) { Pvr_SetAsyncTimeWarp(1); gAtwEnabled = true;

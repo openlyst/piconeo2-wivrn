@@ -1,9 +1,15 @@
-// Temporary stubs for the ALVR C API. As WiVRn streaming is wired up, these
-// are replaced with real implementations or the call sites are converted.
+// Compatibility shim: the legacy wivrn-pvr render loop still speaks the ALVR C API
+// surface, but every operation that actually touches streaming is backed by the
+// WiVRn streaming_client and pico_blit renderer.
 
 #include "alvr_client_core.h"
 #include "alvr_ext.h"
 
+#include "streaming_client.h"
+#include "wivrn_stream_adapter.h"
+#include "stream_swap.h"
+
+#include <GLES3/gl3.h>
 #include <cstring>
 #include <string>
 
@@ -37,7 +43,58 @@ uint64_t alvr_mdns_service(char *) { return 0; }
 uint64_t alvr_hostname(char *) { return 0; }
 uint64_t alvr_protocol_id(char *) { return 0; }
 
-bool alvr_poll_event(AlvrEvent *) { return false; }
+bool alvr_poll_event(AlvrEvent *ev)
+{
+	if (!ev)
+		return false;
+
+	static bool was_streaming = false;
+	static bool was_ready = false;
+
+	if (!g_stream) {
+		if (was_streaming) {
+			ev->tag = ALVR_EVENT_STREAMING_STOPPED;
+			was_streaming = false;
+			was_ready = false;
+			return true;
+		}
+		return false;
+	}
+
+	bool streaming = wivrn_streaming();
+	bool ready = wivrn_stream_ready();
+
+	if (!was_streaming && streaming) {
+		int w = 0, h = 0;
+		wivrn_stream_resolution(&w, &h);
+		ev->tag = ALVR_EVENT_STREAMING_STARTED;
+		ev->STREAMING_STARTED.view_width = static_cast<uint32_t>(w);
+		ev->STREAMING_STARTED.view_height = static_cast<uint32_t>(h);
+		ev->STREAMING_STARTED.refresh_rate_hint = 72.0f;
+		ev->STREAMING_STARTED.encoding_gamma = 1.0f;
+		ev->STREAMING_STARTED.enable_foveated_encoding = true;
+		ev->STREAMING_STARTED.enable_hdr = false;
+		was_streaming = true;
+		return true;
+	}
+
+	if (was_streaming && !streaming) {
+		ev->tag = ALVR_EVENT_STREAMING_STOPPED;
+		was_streaming = false;
+		was_ready = false;
+		return true;
+	}
+
+	if (was_streaming && !was_ready && ready) {
+		ev->tag = ALVR_EVENT_DECODER_CONFIG;
+		ev->DECODER_CONFIG.codec = ALVR_CODEC_H264;
+		was_ready = true;
+		return true;
+	}
+
+	return false;
+}
+
 uint64_t alvr_hud_message(char *) { return 0; }
 uint64_t alvr_hud_message_bounded(char *, uint64_t) { return 0; }
 uint64_t alvr_get_settings_json(char *) { return 0; }
@@ -72,12 +129,26 @@ void alvr_pause_opengl(void) {}
 void alvr_update_hud_message_opengl(const char *) {}
 void alvr_start_stream_opengl(struct AlvrStreamConfig) {}
 void alvr_render_lobby_opengl(const struct AlvrLobbyViewParams *, bool) {}
-void alvr_render_stream_opengl(void *, const struct AlvrStreamViewParams *) {}
+
+void alvr_render_stream_opengl(void *, const struct AlvrStreamViewParams *)
+{
+	if (!g_stream || gStreamW == 0 || gStreamH == 0)
+		return;
+
+	for (int eye = 0; eye < 2; eye++) {
+		glBindFramebuffer(GL_FRAMEBUFFER, gStreamFbo);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+		                       GL_TEXTURE_2D, gSwap[eye][gSwapIdx], 0);
+		glViewport(0, 0, static_cast<GLsizei>(gStreamW), static_cast<GLsizei>(gStreamH));
+		wivrn_blit_eye(eye, static_cast<int>(gStreamW), static_cast<int>(gStreamH));
+	}
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
 
 void alvr_create_decoder(struct AlvrDecoderConfig) {}
 void alvr_destroy_decoder(void) {}
 bool alvr_get_frame(uint64_t *, void **) { return false; }
-bool alvr_get_frame_timeout(uint64_t *, void **, uint64_t) { return false; }
+bool alvr_get_frame_timeout(uint64_t *, void **, uint64_t) { return wivrn_stream_ready(); }
 void alvr_set_decoder_paused(bool) {}
 
 struct AlvrQuat alvr_rotation_delta(struct AlvrQuat s, struct AlvrQuat) { return s; }

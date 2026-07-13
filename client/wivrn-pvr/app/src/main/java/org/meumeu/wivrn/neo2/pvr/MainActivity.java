@@ -45,7 +45,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         System.loadLibrary("tracking_module");
         System.loadLibrary("native");
         System.loadLibrary("Pvr_UnitySDK");
-        System.loadLibrary("alvr_client_core");   // ALVR client (Rust); load before p2alvr (depends on it)
         System.loadLibrary("p2alvr");
     }
 

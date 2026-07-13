@@ -26,12 +26,12 @@ add_library(Pvr_UnitySDK SHARED IMPORTED)
 set_target_properties(Pvr_UnitySDK PROPERTIES
     IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libPvr_UnitySDK.so)
 
-# Path to shared pico_oxr sources (OpenXR headers for the ported lobby panel).
-set(PICO_OXR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../client/pico_oxr)
-set(PICO_NATIVE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../client/pico_native)
-set(THIRD_PARTY_DIR ${PICO_OXR_DIR}/app/src/main/cpp/third_party)
+# Self-contained WiVRn/PVR client. All shared sources are vendored under
+# wivrn/ so this project does not depend on client/pico_native or client/pico_oxr.
+set(WIVRN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/wivrn)
+set(THIRD_PARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
 
-# spdlog / fmt are header-only and vendored by pico_oxr.
+# spdlog / fmt are header-only and vendored here.
 set(SPDLOG_INCLUDE_DIR ${THIRD_PARTY_DIR})
 set(BOOST_INCLUDE_DIR ${THIRD_PARTY_DIR})
 
@@ -76,7 +76,7 @@ add_dependencies(OpenSSL::Crypto openssl_ext)
 set(VULKAN_INCLUDE_DIR /usr/include)
 
 # --- wivrn-common (crypto, pairing, sockets) ---
-configure_file(${PICO_NATIVE_DIR}/common/wivrn_config.h.in ${CMAKE_BINARY_DIR}/wivrn_config.h)
+configure_file(${WIVRN_DIR}/common/wivrn_config.h.in ${CMAKE_BINARY_DIR}/wivrn_config.h)
 
 file(WRITE ${CMAKE_BINARY_DIR}/version.cpp
     "#include \"version.h\"\n"
@@ -88,22 +88,22 @@ file(WRITE ${CMAKE_BINARY_DIR}/version.cpp
 )
 
 add_library(wivrn-common STATIC EXCLUDE_FROM_ALL
-    ${PICO_NATIVE_DIR}/common/crypto.cpp
-    ${PICO_NATIVE_DIR}/common/smp.cpp
-    ${PICO_NATIVE_DIR}/common/secrets.cpp
-    ${PICO_NATIVE_DIR}/common/wivrn_sockets.cpp
+    ${WIVRN_DIR}/common/crypto.cpp
+    ${WIVRN_DIR}/common/smp.cpp
+    ${WIVRN_DIR}/common/secrets.cpp
+    ${WIVRN_DIR}/common/wivrn_sockets.cpp
     ${CMAKE_BINARY_DIR}/version.cpp
 )
 target_include_directories(wivrn-common PUBLIC
-    ${PICO_NATIVE_DIR}/common
+    ${WIVRN_DIR}/common
     ${CMAKE_BINARY_DIR}
-    ${PICO_NATIVE_DIR}/external
+    ${WIVRN_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 target_include_directories(wivrn-common SYSTEM PUBLIC ${VULKAN_INCLUDE_DIR} ${SPDLOG_INCLUDE_DIR} ${BOOST_INCLUDE_DIR})
 target_compile_definitions(wivrn-common PUBLIC VMA_VULKAN_VERSION=1001000 VULKAN_HPP_NO_STRUCT_CONSTRUCTORS SPDLOG_FMT_EXTERNAL FMT_HEADER_ONLY)
 target_compile_options(wivrn-common PUBLIC -fconstexpr-steps=268435456 -fconstexpr-depth=2048)
-target_compile_options(wivrn-common PUBLIC "-include${PICO_OXR_DIR}/app/src/main/cpp/openxr_ext_stubs.h")
+target_compile_options(wivrn-common PUBLIC "-include${CMAKE_CURRENT_SOURCE_DIR}/openxr_ext_stubs.h")
 target_link_libraries(wivrn-common PUBLIC OpenSSL::Crypto)
 
 # --- p2alvr (PVR client with WiVRn streaming) ---
@@ -127,11 +127,11 @@ add_library(p2alvr SHARED
     streaming/pvr_eye_bridge.cpp
     streaming/alvr_stubs.cpp
     streaming/wivrn_stream_adapter.cpp
-    ${PICO_NATIVE_DIR}/src/net/wivrn_client_pico.cpp
-    ${PICO_NATIVE_DIR}/src/video/pico_decoder.cpp
-    ${PICO_NATIVE_DIR}/src/audio/pico_audio.cpp
-    ${PICO_NATIVE_DIR}/src/render/pico_blit.cpp
-    ${PICO_NATIVE_DIR}/src/tracking/pico_tracking.cpp
+    ${WIVRN_DIR}/net/wivrn_client_pico.cpp
+    ${WIVRN_DIR}/video/pico_decoder.cpp
+    ${WIVRN_DIR}/audio/pico_audio.cpp
+    ${WIVRN_DIR}/render/pico_blit.cpp
+    ${WIVRN_DIR}/tracking/pico_tracking.cpp
 )
 
 # Thin LTO on OUR translation units + link only (imported prebuilt libs are
@@ -142,16 +142,15 @@ target_link_options(p2alvr PRIVATE -flto=thin)
 target_include_directories(p2alvr PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/streaming
-    ${PICO_OXR_DIR}/app/src/main/cpp
-    ${PICO_OXR_DIR}/app/src/main/cpp/streaming
-    ${PICO_NATIVE_DIR}/src
-    ${PICO_NATIVE_DIR}/src/core
-    ${PICO_NATIVE_DIR}/src/net
-    ${PICO_NATIVE_DIR}/src/video
-    ${PICO_NATIVE_DIR}/src/audio
-    ${PICO_NATIVE_DIR}/src/render
-    ${PICO_NATIVE_DIR}/src/tracking
-    ${PICO_NATIVE_DIR}/common
+    ${CMAKE_CURRENT_SOURCE_DIR}/openxr
+    ${WIVRN_DIR}
+    ${WIVRN_DIR}/core
+    ${WIVRN_DIR}/net
+    ${WIVRN_DIR}/video
+    ${WIVRN_DIR}/audio
+    ${WIVRN_DIR}/render
+    ${WIVRN_DIR}/tracking
+    ${WIVRN_DIR}/common
     ${CMAKE_BINARY_DIR}
 )
 

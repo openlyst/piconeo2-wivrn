@@ -1,8 +1,6 @@
 #include "eye_tracking.h"
 #include "pico_sdk.h"   // Pvr_GetEyeTrackingData / Pvr_Get/SetTrackingMode
 #include "log.h"
-#include "alvr_client_core.h"   // alvr_get_settings_json
-#include "alvr_ext.h"           // alvr_get_settings_json_bounded (fork-only)
 #include "app_state.h"          // gEyeDebugOn (lobby EYE DEBUG toggle)
 #include <cmath>
 #include <cstring>
@@ -29,26 +27,10 @@ static std::atomic<bool> gEyeIrOn{false};   // EYE bit currently set (server str
 // the IR illuminators + the eye service feeding Pvr_GetEyeTrackingData.
 static const int MODE_POSITION = 0x2, MODE_EYE = 0x4;
 
-// Does the ALVR server actually consume gaze? Parse the (StreamingStarted-updated)
-// settings JSON: headset.face_tracking is a Switch -> "Disabled" or {"Enabled":{
-// "sources":{"eye_tracking_fb":true,...}}}. We only want the IR running when the
-// eye source is on (the per-eye gaze ALVR forwards to VRChat eye-OSC / VRCFT).
-// Lightweight string scan (matches foveation.cpp's approach; no JSON lib).
+// WiVRn currently has no server-side eye-tracking settings channel, so keep
+// the IR illuminators off unless the user explicitly enables the lobby debug view.
 static bool parseServerEyeEnabled() {
-    static char sj[65536];
-    sj[0] = 0;
-    alvr_get_settings_json_bounded(sj, sizeof(sj));   // bounded; NUL-terminated within cap
-    const char *p = strstr(sj, "\"face_tracking\":");
-    if (!p) return false;                       // key absent (e.g. pre-stream empty JSON)
-    p += strlen("\"face_tracking\":");
-    while (*p == ' ') p++;
-    if (strncmp(p, "\"Disabled\"", 10) == 0) return false;   // face tracking off entirely
-    // Enabled object -> the eye source flag lives just inside it.
-    const char *e = strstr(p, "\"eye_tracking_fb\":");
-    if (!e) return false;
-    e += strlen("\"eye_tracking_fb\":");
-    while (*e == ' ') e++;
-    return strncmp(e, "true", 4) == 0;
+    return false;
 }
 
 void initEyeTrackingMode() {
@@ -137,7 +119,7 @@ void applyServerEyeTracking(bool streaming) {
 // real eye data first arrives. Everything eye-related (forwarding gaze to the
 // server, the lobby debug circle) is gated on it -> non-Eye units never advertise
 // eye tracking and never draw the marker.
-bool readEyeGazes(AlvrPose out[2], bool *vL, bool *vR, int frame, Quat headQ) {
+bool readEyeGazes(XrPosef out[2], bool *vL, bool *vR, int frame, Quat headQ) {
     *vL = *vR = false;
     // IR is off (server isn't consuming gaze AND debug viz is off) -> skip the SDK call.
     if (!gEyeIrOn.load()) return false;

@@ -1,8 +1,8 @@
 #pragma once
-// Neo 2 EYE eye-tracking: read the Pico eye service and build ALVR eye-gaze
-// poses. Owns the gaze/openness state; the render loop + lobby read it via
+// Neo 2 EYE eye-tracking: read the Pico eye service and build OpenXR-style eye-
+// gaze poses. Owns the gaze/openness state; the render loop + lobby read it via
 // these extern handles.
-#include "alvr_client_core.h"   // AlvrPose
+#include <openxr/openxr.h>      // XrPosef
 #include "math3d.h"             // Quat
 #include <atomic>
 
@@ -29,7 +29,7 @@ extern float gEyeOpenSmooth[2];
 // right; fills *vL/*vR per-eye validity. Returns true if serviced (false on
 // non-Eye units / no valid gaze). headQ = current head orientation (for the
 // global-space gaze compose).
-bool readEyeGazes(AlvrPose out[2], bool *vL, bool *vR, int frame, Quat headQ);
+bool readEyeGazes(XrPosef out[2], bool *vL, bool *vR, int frame, Quat headQ);
 
 // ---- server-driven eye-tracking power gating ----
 // The Neo 2 EYE's IR illuminators only burn power while the EYE tracking-mode bit

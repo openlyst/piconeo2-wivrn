@@ -118,6 +118,12 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeControllerState(
     }
     s.fresh = true;
     { std::lock_guard<std::mutex> lk(gCtrlMutex); gCtrl[hand] = s; }
+    if (g_stream) {
+        int keys12[12] = {0};
+        for (int i = 0; i < s.keyCount && i < 12; i++) keys12[i] = s.keys[i];
+        float sensor[7] = { s.q[0], s.q[1], s.q[2], s.q[3], s.pos[0], s.pos[1], s.pos[2] };
+        g_stream->tracker.update_controller_from_jni(hand, conn, sensor, s.angVel, keys12);
+    }
 #ifndef NDEBUG
     // DEV-ONLY controller logging: runs on every ~90Hz per-hand state push, so the
     // snprintf + logcat is pure overhead during streaming. Compiled out of the
@@ -163,6 +169,18 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeDrainHaptic(
     {
         std::lock_guard<std::mutex> lk(gHapticMutex);
         PendingHaptic &p = gHaptic[hand];
+        if (!p.pending && g_stream) {
+            std::lock_guard<std::mutex> hlk(g_stream->haptics_mutex);
+            auto &r = g_stream->rumble[hand];
+            if (r.active) {
+                p.pending = true;
+                p.amplitude = r.amplitude;
+                p.durationMs = r.duration_ms;
+                r.active = false;
+                r.amplitude = 0.0f;
+                r.duration_ms = 0;
+            }
+        }
         if (!p.pending) return JNI_FALSE;
         amp = p.amplitude; ms = p.durationMs;
         p.pending = false; p.amplitude = 0.0f; p.durationMs = 0;
@@ -291,6 +309,8 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeConnect(JNIEnv *env, jobject t
         g_stream = new streaming_client();
         g_stream->vm = gVM;
     }
+    // Tell the WiVRn tracker to read head pose directly from the Pico SDK sensor.
+    g_stream->tracker.pvr_sensor_mode.store(true);
     if (g_stream->activity) {
         env->DeleteGlobalRef(g_stream->activity);
     }

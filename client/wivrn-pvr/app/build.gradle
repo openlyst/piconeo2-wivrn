@@ -53,8 +53,7 @@ android {
             useLegacyPackaging true
             keepDebugSymbols += ['**/libPvr_UnitySDK.so',
                                  '**/libtracking_module.so',
-                                 '**/libnative.so',
-                                 '**/libalvr_client_core.so']
+                                 '**/libnative.so']
         }
     }
 
