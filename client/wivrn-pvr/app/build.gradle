@@ -1,0 +1,87 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Signing config, kept one level above the repo so secrets stay out of git.
+// Absent = release build stays unsigned (debug/CI still configure).
+def keystorePropsFile = rootProject.file('../keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystoreProps.load(new FileInputStream(keystorePropsFile))
+}
+
+// VERSION_CODE is bumped by the release script; VERSION_NAME by hand.
+def versionProps = new Properties()
+rootProject.file('version.properties').withInputStream { versionProps.load(it) }
+
+android {
+    namespace 'org.meumeu.wivrn.neo2.pvr'
+    compileSdk 34
+    ndkVersion '26.3.11579264'
+
+    defaultConfig {
+        applicationId "org.meumeu.wivrn.neo2.pvr"
+        minSdk 26
+        targetSdk 34
+        versionCode versionProps['VERSION_CODE'].toInteger()
+        versionName versionProps['VERSION_NAME']
+
+        ndk {
+            // The Pico SDK .so files are armeabi-v7a (32-bit) only.
+            abiFilters 'armeabi-v7a'
+        }
+
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=c++_static'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path 'src/main/cpp/CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+
+    // Don't strip/re-compress the PREBUILT vendor .so files (we can't rebuild them).
+    // NB: intentionally NOT '**/*.so' -- that also kept OUR libp2alvr.so unstripped,
+    // bloating the APK. Listing only the imported blobs lets gradle strip libp2alvr.so.
+    packaging {
+        jniLibs {
+            useLegacyPackaging true
+            keepDebugSymbols += ['**/libPvr_UnitySDK.so',
+                                 '**/libtracking_module.so',
+                                 '**/libnative.so']
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePropsFile.exists()) {
+                // storeFile path is relative to the repo root, not the app module.
+                storeFile     rootProject.file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias      keystoreProps['keyAlias']
+                keyPassword   keystoreProps['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+        }
+        release {
+            // minify OFF: the Pico SDK is reached via JNI/reflection; R8 would
+            // strip classes needed at runtime.
+            minifyEnabled false
+            signingConfig keystorePropsFile.exists() ? signingConfigs.release : null
+        }
+    }
+}
+
+dependencies {
+    // The Pico SDK's Java classes (com.psmart.vrlib.VrActivity etc.)
+    implementation files('libs/pvr_classes.jar')
+}

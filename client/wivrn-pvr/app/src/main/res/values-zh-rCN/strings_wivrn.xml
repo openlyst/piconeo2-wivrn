@@ -1,0 +1,130 @@
+<resources>
+    <string name="app_name">WiVRn OXR</string>
+
+    <!-- Sidebar tabs -->
+    <string name="tab_server_list">服务器列表</string>
+    <string name="tab_settings">设置</string>
+    <string name="tab_about">关于</string>
+    <string name="tab_licenses">许可证</string>
+    <string name="tab_exit">退出</string>
+
+    <!-- Server list -->
+    <string name="server_list_title">服务器列表</string>
+    <string name="add_server">+ 添加服务器</string>
+    <string name="connect">连接</string>
+    <string name="discovered">● 已发现</string>
+    <string name="autoconnect">★ 自动连接</string>
+    <string name="tcp">TCP</string>
+    <string name="udp">UDP</string>
+
+    <!-- Add server popup -->
+    <string name="add_server_title">添加服务器</string>
+    <string name="field_name">名称</string>
+    <string name="field_address">地址</string>
+    <string name="field_port">端口</string>
+    <string name="tcp_only">仅 TCP</string>
+    <string name="cancel">取消</string>
+    <string name="save">保存</string>
+
+    <!-- Settings -->
+    <string name="settings_title">设置</string>
+    <string name="setting_resolution">分辨率</string>
+    <string name="setting_foveated_encoding">注视点编码</string>
+    <string name="setting_bitrate">码率</string>
+    <string name="setting_ipd">瞳距</string>
+    <string name="setting_fov">视野</string>
+    <string name="setting_codec">编码器</string>
+    <string name="codec_auto">自动</string>
+    <string name="codec_h264">H.264</string>
+    <string name="codec_h265">H.265</string>
+    <string name="setting_microphone">启用麦克风</string>
+    <string name="setting_lower_res_wireless">无线时降低分辨率</string>
+    <string name="setting_dynamic_bitrate">动态码率</string>
+    <string name="setting_language">语言</string>
+    <string name="lang_system">系统</string>
+    <string name="restore_defaults">恢复默认</string>
+    <string name="reset_confirm">恢复所有设置为默认值？</string>
+    <string name="reset">重置</string>
+
+    <!-- About -->
+    <string name="about_wivrn">WiVRn</string>
+    <string name="about_unofficial">非官方 WiVRn 移植</string>
+    <string name="about_description">Pico Neo2 VR 串流客户端</string>
+    <string name="about_based_on">基于 Guillaume Meunier 和 Patrick Nicolas 的 WiVRn</string>
+    <string name="about_maintainer">维护者：HttpAnimations</string>
+    <string name="about_license">基于 GPLv3 许可证</string>
+    <string name="about_version">版本 %1$s（构建 %2$d）</string>
+    <string name="gitlab_repo">GitLab 仓库</string>
+
+    <!-- Licenses -->
+    <string name="licenses_title">许可证</string>
+    <string name="license_gpl_text">WiVRn - GPL v3\n\n本程序是自由软件：您可以根据自由软件基金会发布的 GNU 通用公共许可证条款重新分发和/或修改它，许可证版本为第 3 版或（由您选择）任何更高版本。\n\n本程序的发布是希望它能有用，但不提供任何保证；甚至不提供适销性或特定用途适用性的暗示保证。\n\n详情请参阅 GNU 通用公共许可证。</string>
+
+    <!-- Exit -->
+    <string name="exit_confirm">退出 WiVRn？</string>
+    <string name="exit">退出</string>
+
+    <!-- PIN entry -->
+    <string name="enter_pin">输入 PIN 码</string>
+    <string name="pin_hint">在服务器面板上显示</string>
+    <string name="pin_placeholder">PIN</string>
+
+    <!-- Connecting -->
+    <string name="connecting">连接中</string>
+    <string name="disconnect">断开连接</string>
+
+    <!-- Disconnected -->
+    <string name="disconnected">已断开</string>
+    <string name="reconnect">重新连接</string>
+    <string name="close">关闭</string>
+
+    <!-- Stream tabs -->
+    <string name="stream_applications">应用</string>
+    <string name="stream_launch">启动</string>
+    <string name="stream_stats">统计</string>
+    <string name="stream_settings">设置</string>
+
+    <!-- Stream applications -->
+    <string name="running_xr_apps">运行中的 XR 应用</string>
+    <string name="no_apps_running">没有运行中的应用</string>
+    <string name="overlays">覆盖层</string>
+
+    <!-- Stream launch -->
+    <string name="launch_application">启动应用</string>
+    <string name="loading_apps">正在加载应用...</string>
+    <string name="no_apps_available">没有可用的应用</string>
+    <string name="press_to_refresh">按此刷新</string>
+    <string name="refresh">刷新</string>
+    <string name="launching_app">正在启动 %1$s...</string>
+    <string name="waiting_for_server">等待服务器响应（%1$d 秒）</string>
+
+    <!-- Stream stats -->
+    <string name="perf_stats">性能统计</string>
+    <string name="stat_fps">帧率</string>
+    <string name="stat_mtp_latency">运动到光子延迟</string>
+    <string name="stat_download">下载</string>
+    <string name="stat_upload">上传</string>
+    <string name="stat_bitrate">码率</string>
+    <string name="stat_resolution">分辨率</string>
+    <string name="stat_microphone">麦克风</string>
+    <string name="stat_disabled">已禁用</string>
+    <string name="stat_enabled">已启用</string>
+    <string name="toggle_overlay_hint">同时按下两个摇杆切换此界面</string>
+    <string name="stat_cpu_time">CPU 时间</string>
+    <string name="stat_gpu_time">GPU 时间</string>
+    <string name="stat_encode">编码</string>
+    <string name="stat_send">发送</string>
+    <string name="stat_network">网络</string>
+    <string name="stat_decode">解码</string>
+    <string name="stat_render_wait">渲染等待</string>
+    <string name="stat_blit">合成</string>
+    <string name="stat_total_latency">总延迟</string>
+    <string name="stat_latency_breakdown">延迟分解</string>
+    <string name="stat_bandwidth">带宽</string>
+
+    <!-- Units -->
+    <string name="unit_mbit_s">Mbit/s</string>
+    <string name="unit_mm">毫米</string>
+    <string name="unit_fps">fps</string>
+    <string name="unit_ms">毫秒</string>
+</resources>
