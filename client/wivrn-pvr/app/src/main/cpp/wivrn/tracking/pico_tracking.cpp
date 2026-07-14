@@ -4,6 +4,7 @@
 #include "eye_tracking.h"
 #include "latency_tracker.h"
 #include "input.h"
+#include "app_state.h"
 
 #include <spdlog/spdlog.h>
 #include <android/log.h>
@@ -502,13 +503,14 @@ void pico_native_tracker::run()
 				if (home_press_ts[h] > 0 && ts - home_press_ts[h] > 800000000ULL)
 				{
 					spdlog::info("recenter triggered by controller {} home button long press", h);
-					// Don't call recenter_height() — recentering must not
-					// change the player's height. The floor-relative Y from
-					// the FloorLevel tracking origin stays valid across reset.
-					Pvr_ResetSensorAll();
-					svrRecenterOrientation();
-					recenterHeadTrackerAW();
-					recenter_requested.store(true);
+					Pvr_ResetSensor(PXR_RESET_ALL);
+					float rqx=0,rqy=0,rqz=0,rqw=1, rpx=0,rpy=0,rpz=0, rvf=90,rhf=90; int rvn=0;
+					Pvr_GetMainSensorState(&rqx,&rqy,&rqz,&rqw,&rpx,&rpy,&rpz,&rvf,&rhf,&rvn);
+					{
+						std::lock_guard<std::mutex> lk(gHeadMutex);
+						gHeadData[0]=rqx; gHeadData[1]=rqy; gHeadData[2]=rqz; gHeadData[3]=rqw;
+						gHeadData[4]=rpx; gHeadData[5]=rpy; gHeadData[6]=rpz;
+					}
 					lobby_recenter_requested.store(true);
 				}
 				home_press_ts[h] = 0;
@@ -620,8 +622,14 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 	                 XR_VIEW_STATE_ORIENTATION_TRACKED_BIT |
 	                 XR_VIEW_STATE_POSITION_TRACKED_BIT;
 	pkt.state_flags = 0;
-	if (recenter_requested.exchange(false))
+	bool rec = recenter_requested.exchange(false);
+	if (rec)
+	{
 		pkt.state_flags = from_headset::tracking::recentered;
+		ALOGI("Sending recentered flag to server: pose q=(%.3f,%.3f,%.3f,%.3f) p=(%.3f,%.3f,%.3f)",
+			h_orient[0], h_orient[1], h_orient[2], h_orient[3],
+			h_pos[0], h_pos[1], h_pos[2]);
+	}
 
 	pkt.interaction_profiles[0] = interaction_profile::bytedance_pico_neo3_controller;
 	pkt.interaction_profiles[1] = interaction_profile::bytedance_pico_neo3_controller;

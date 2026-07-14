@@ -35,21 +35,35 @@ static void do_full_recenter()
 {
     LOGI("full recenter triggered");
 
+    // Reset the PVR sensor — this changes the head pose we send to the
+    // server. The game sees the new pose and the view snaps to the new
+    // origin. Do NOT send the recentered flag: xrizer (OpenVR compat)
+    // ignores XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING events,
+    // so the server-side recenter only changes the LOCAL space offset
+    // which is invisible to SteamVR games. Worse, it cancels out the
+    // sensor reset because the server adjusts the offset to match the
+    // new pose.
+    Pvr_ResetSensor(PXR_RESET_ALL);
+
     if (g_stream)
     {
-        // Recentering resets yaw + X/Z position but must NOT change height.
-        // The floor-relative Y comes from the FloorLevel tracking origin and
-        // stays valid across a sensor reset, so we don't touch height_offset.
-        g_stream->tracker.recenter_requested.store(true);
+        // Publish the post-reset pose so the tracker sends the new pose
+        // immediately, not a stale pre-reset one.
+        float rqx=0,rqy=0,rqz=0,rqw=1, rpx=0,rpy=0,rpz=0, rvf=90,rhf=90; int rvn=0;
+        Pvr_GetMainSensorState(&rqx,&rqy,&rqz,&rqw,&rpx,&rpy,&rpz,&rvf,&rhf,&rvn);
+        {
+            std::lock_guard<std::mutex> lk(gHeadMutex);
+            gHeadData[0]=rqx; gHeadData[1]=rqy; gHeadData[2]=rqz; gHeadData[3]=rqw;
+            gHeadData[4]=rpx; gHeadData[5]=rpy; gHeadData[6]=rpz;
+        }
         g_stream->tracker.lobby_recenter_requested.store(true);
+        // Do NOT send recentered flag: neither OpenComposite nor xrizer
+        // handles XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING, so
+        // the server-side recenter is invisible to OpenVR games. Worse,
+        // the server adjusts the LOCAL offset to match the new pose,
+        // cancelling out the sensor reset.
+        LOGI("recenter: sensor reset (no server recenter flag)");
     }
-
-    // Full sensor reset: reset position + orientation (including tilt for 3DoF),
-    // then recenter the head tracker so the current facing becomes forward.
-    Pvr_ResetSensorAll();
-    svrRecenterOrientation();
-    recenterHeadTrackerAW();
-    LOGI("recenter: ResetSensorAll + svrRecenterOrientation + recenterHeadTrackerAW done");
 }
 
 // Called once (onCreate) to start the long-lived render thread.

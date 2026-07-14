@@ -31,6 +31,7 @@ std::atomic<bool>   gWivrnPassthrough{false};
 std::atomic<bool>   gWivrnMicrophone{false};
 std::atomic<float>  gWivrnCtrlVibration{1.0f};
 std::atomic<bool>   gWivrnRecenterReq{false};
+std::atomic<bool>   gRecenterPending{false};
 
 std::atomic<float> gStreamFovDeg{101.0f};   // full per-eye FOV; 101 = SDK native (no change)
 std::atomic<bool>  gFovDirty{false};

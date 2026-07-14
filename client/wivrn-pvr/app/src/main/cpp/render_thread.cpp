@@ -3125,8 +3125,17 @@ void *renderThread(void *) {
                     // updates gLastServerPoses from the frames it just drew).
                     // Using poses from before the blit would be one frame behind
                     // the actual frame content, causing the warp to misreproject.
+                    //
+                    // After a recenter, the PVR sensor is reset to the current
+                    // head pose, but the server is still rendering in the old
+                    // coordinate system. Using the server pose as the warp
+                    // baseline during this transition causes a visual jump
+                    // because the baseline and live pose are in different
+                    // coordinate systems. Use the current sensor pose as the
+                    // baseline until the server catches up.
+                    bool recentering = gRecenterPending.load();
                     XrPosef serverPoses[2];
-                    if (wivrn_get_server_pose(serverPoses)) {
+                    if (!recentering && wivrn_get_server_pose(serverPoses)) {
                         for (int e = 0; e < 2; e++) {
                             outVP[e].pose.orientation = {
                                 serverPoses[e].orientation.x,
@@ -3136,6 +3145,21 @@ void *renderThread(void *) {
                             outVP[e].pose.position[0] = serverPoses[e].position.x;
                             outVP[e].pose.position[1] = serverPoses[e].position.y;
                             outVP[e].pose.position[2] = serverPoses[e].position.z;
+                        }
+                    }
+                    // While recentering (or if no server pose yet), outVP keeps
+                    // the current sensor pose set earlier. Check if the server
+                    // has caught up: if the server pose is close to the sensor
+                    // pose, clear the recenter pending flag.
+                    if (recentering && wivrn_get_server_pose(serverPoses)) {
+                        float dx = serverPoses[0].orientation.x - qx;
+                        float dy = serverPoses[0].orientation.y - qy;
+                        float dz = serverPoses[0].orientation.z - qz;
+                        float dw = serverPoses[0].orientation.w - qw;
+                        float qdist = dx*dx + dy*dy + dz*dz + dw*dw;
+                        if (qdist < 0.01f) {
+                            gRecenterPending.store(false);
+                            LOGI("recenter: server caught up, resuming normal warp");
                         }
                     }
                     gSwapVP[gSwapIdx][0] = outVP[0];
@@ -3278,6 +3302,74 @@ void *renderThread(void *) {
                 if (sleepTarget < minTarget) sleepTarget = minTarget;
                 sleepUntilMonoNs(sleepTarget);
             }
+
+            // ---- Recenter while streaming -----------------------------------
+            // The streaming path ends with `continue` below, so the recenter
+            // handlers in the lobby-only path never run. Handle them here too.
+            if (g_stream && g_stream->tracker.lobby_recenter_requested.exchange(false))
+            {
+                hudAnchored = false;
+                float rqx=0,rqy=0,rqz=0,rqw=1, rpx=0,rpy=0,rpz=0, rvf=90,rhf=90; int rvn=0;
+                Pvr_GetMainSensorState(&rqx,&rqy,&rqz,&rqw,&rpx,&rpy,&rpz,&rvf,&rhf,&rvn);
+                Mat4 rhr = quatToMat4(rqx, rqy, rqz, rqw);
+                if (gLobby) {
+                    float fx = -rhr.m[8], fz = -rhr.m[10];
+                    float fn = sqrtf(fx*fx + fz*fz);
+                    if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
+                    float yaw = atan2f(-fx, -fz);
+                    float hp[3] = {rpx, rpy, rpz};
+                    gLobby->recenter(hp, yaw);
+                    LOGI("lobby recentered (streaming path)");
+                }
+            }
+            if (gWivrnRecenterReq.exchange(false))
+            {
+                LOGI("recenter triggered by settings button (streaming path)");
+                Pvr_ResetSensor(PXR_RESET_ALL);
+                float rqx=0,rqy=0,rqz=0,rqw=1, rpx=0,rpy=0,rpz=0, rvf=90,rhf=90; int rvn=0;
+                Pvr_GetMainSensorState(&rqx,&rqy,&rqz,&rqw,&rpx,&rpy,&rpz,&rvf,&rhf,&rvn);
+                {
+                    std::lock_guard<std::mutex> lk(gHeadMutex);
+                    gHeadData[0]=rqx; gHeadData[1]=rqy; gHeadData[2]=rqz; gHeadData[3]=rqw;
+                    gHeadData[4]=rpx; gHeadData[5]=rpy; gHeadData[6]=rpz;
+                }
+                hudAnchored = false;
+                Mat4 rhr = quatToMat4(rqx, rqy, rqz, rqw);
+                if (gLobby) {
+                    float fx = -rhr.m[8], fz = -rhr.m[10];
+                    float fn = sqrtf(fx*fx + fz*fz);
+                    if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
+                    float yaw = atan2f(-fx, -fz);
+                    float hp[3] = {rpx, rpy, rpz};
+                    gLobby->recenter(hp, yaw);
+                }
+            }
+            // App/menu button re-anchor (rising edge)
+            {
+                static bool sRecenterDownStream = false;
+                bool rd = false;
+                {
+                    std::lock_guard<std::mutex> lk(gCtrlMutex);
+                    for (int hh=0; hh<2; hh++)
+                        if (gCtrl[hh].conn==1 && gCtrl[hh].keyCount>5 && gCtrl[hh].keys[5]!=0) rd = true;
+                }
+                if (rd && !sRecenterDownStream) {
+                    hudAnchored = false;
+                    float rqx=0,rqy=0,rqz=0,rqw=1, rpx=0,rpy=0,rpz=0, rvf=90,rhf=90; int rvn=0;
+                    Pvr_GetMainSensorState(&rqx,&rqy,&rqz,&rqw,&rpx,&rpy,&rpz,&rvf,&rhf,&rvn);
+                    Mat4 rhr = quatToMat4(rqx, rqy, rqz, rqw);
+                    if (gLobby) {
+                        float fx = -rhr.m[8], fz = -rhr.m[10];
+                        float fn = sqrtf(fx*fx + fz*fz);
+                        if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
+                        float yaw = atan2f(-fx, -fz);
+                        float hp[3] = {rpx, rpy, rpz};
+                        gLobby->recenter(hp, yaw);
+                    }
+                }
+                sRecenterDownStream = rd;
+            }
+
             frame++; framesWithSurface++;
             continue;
         }
@@ -3490,12 +3582,17 @@ void *renderThread(void *) {
             static bool recenterPrev = false;
             if (recenterDown && !recenterPrev) {
                 hudAnchored = false;
+                // Read fresh sensor pose — headRot from the top of the loop may
+                // be stale if a sensor reset just happened.
+                float rqx=0,rqy=0,rqz=0,rqw=1, rpx=0,rpy=0,rpz=0, rvf=90,rhf=90; int rvn=0;
+                Pvr_GetMainSensorState(&rqx,&rqy,&rqz,&rqw,&rpx,&rpy,&rpz,&rvf,&rhf,&rvn);
+                Mat4 rhr = quatToMat4(rqx, rqy, rqz, rqw);
                 if (gLobby) {
-                    float fx = -headRot.m[8], fz = -headRot.m[10];
+                    float fx = -rhr.m[8], fz = -rhr.m[10];
                     float fn = sqrtf(fx*fx + fz*fz);
                     if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
                     float yaw = atan2f(-fx, -fz);
-                    float hp[3] = {px, py, pz};
+                    float hp[3] = {rpx, rpy, rpz};
                     gLobby->recenter(hp, yaw);
                 }
             }
@@ -3506,15 +3603,20 @@ void *renderThread(void *) {
         // tracker sets lobby_recenter_requested, render thread does the lobby
         // panel re-anchor (needs head pose which the tracker doesn't have in
         // world space). Sensor reset + height calibration already done by tracker.
+        // Re-read the sensor pose here because the reset changed the origin and
+        // the headRot/px/pz from the top of the loop may be stale.
         if (g_stream && g_stream->tracker.lobby_recenter_requested.exchange(false))
         {
             hudAnchored = false;
+            float rqx=0,rqy=0,rqz=0,rqw=1, rpx=0,rpy=0,rpz=0, rvf=90,rhf=90; int rvn=0;
+            Pvr_GetMainSensorState(&rqx,&rqy,&rqz,&rqw,&rpx,&rpy,&rpz,&rvf,&rhf,&rvn);
+            Mat4 rhr = quatToMat4(rqx, rqy, rqz, rqw);
             if (gLobby) {
-                float fx = -headRot.m[8], fz = -headRot.m[10];
+                float fx = -rhr.m[8], fz = -rhr.m[10];
                 float fn = sqrtf(fx*fx + fz*fz);
                 if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
                 float yaw = atan2f(-fx, -fz);
-                float hp[3] = {px, py, pz};
+                float hp[3] = {rpx, rpy, rpz};
                 gLobby->recenter(hp, yaw);
                 LOGI("lobby recentered by controller home long-press");
             }
@@ -3526,18 +3628,28 @@ void *renderThread(void *) {
             LOGI("recenter triggered by settings button");
             if (g_stream) {
                 g_stream->tracker.recenter_requested.store(true);
+                gRecenterPending.store(true);
             }
             Pvr_ResetSensorAll();
             svrRecenterOrientation();
             recenterHeadTrackerAW();
             hudAnchored = false;
-            if (gLobby) {
-                float fx = -headRot.m[8], fz = -headRot.m[10];
-                float fn = sqrtf(fx*fx + fz*fz);
-                if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
-                float yaw = atan2f(-fx, -fz);
-                float hp[3] = {px, py, pz};
-                gLobby->recenter(hp, yaw);
+            // Re-read the head pose AFTER the sensor reset — the reset changes
+            // the coordinate origin, so the old headRot/px/pz are stale.
+            // The tracking thread will publish the new pose, but it may not
+            // have run yet, so read the sensor directly here.
+            {
+                float rqx=0,rqy=0,rqz=0,rqw=1, rpx=0,rpy=0,rpz=0, rvf=90,rhf=90; int rvn=0;
+                Pvr_GetMainSensorState(&rqx,&rqy,&rqz,&rqw,&rpx,&rpy,&rpz,&rvf,&rhf,&rvn);
+                Mat4 rhr = quatToMat4(rqx, rqy, rqz, rqw);
+                if (gLobby) {
+                    float fx = -rhr.m[8], fz = -rhr.m[10];
+                    float fn = sqrtf(fx*fx + fz*fz);
+                    if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
+                    float yaw = atan2f(-fx, -fz);
+                    float hp[3] = {rpx, rpy, rpz};
+                    gLobby->recenter(hp, yaw);
+                }
             }
         }
 

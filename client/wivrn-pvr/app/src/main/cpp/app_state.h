@@ -47,6 +47,12 @@ extern std::atomic<bool>   gWivrnMicrophone;
 extern std::atomic<float>  gWivrnCtrlVibration; // 0..1
 extern std::atomic<bool>   gWivrnRecenterReq;   // one-shot button flag
 
+// Set by do_full_recenter() when a recenter happens while streaming. The
+// render thread uses the current sensor pose as the warp baseline (instead
+// of the server pose, which is still in the old coordinate system) until
+// the server catches up and sends a frame whose pose matches the new origin.
+extern std::atomic<bool>   gRecenterPending;
+
 // ---- Stream FOV (higher-DPI lever) -----------------------------------------
 // The server renders into a FIXED per-eye buffer (1664^2) at whatever FOV the
 // CLIENT commands via alvr view_params. The Neo 2 lens tube masks off the outer
