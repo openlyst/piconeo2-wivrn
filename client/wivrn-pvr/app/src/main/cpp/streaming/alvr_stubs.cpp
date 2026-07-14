@@ -135,12 +135,22 @@ void alvr_render_stream_opengl(void *, const struct AlvrStreamViewParams *)
 	if (!g_stream || gStreamW == 0 || gStreamH == 0)
 		return;
 
+	// Render into the swapchain at EYE dimensions, not the server's stream
+	// dimensions. The PVR warp's distortion mesh is built for the eye buffer
+	// resolution; if the swapchain is larger (server often sends more pixels
+	// than requested), the excess stays black. The blit pipeline scales the
+	// decoded frame (gStreamW x gStreamH) down to the eye dimensions.
+	const int eyeW = g_stream->eye_width.load();
+	const int eyeH = g_stream->eye_height.load();
+	if (eyeW <= 0 || eyeH <= 0)
+		return;
+
 	for (int eye = 0; eye < 2; eye++) {
 		glBindFramebuffer(GL_FRAMEBUFFER, gStreamFbo);
 		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
 		                       GL_TEXTURE_2D, gSwap[eye][gSwapIdx], 0);
-		glViewport(0, 0, static_cast<GLsizei>(gStreamW), static_cast<GLsizei>(gStreamH));
-		wivrn_blit_eye(eye, static_cast<int>(gStreamW), static_cast<int>(gStreamH));
+		glViewport(0, 0, static_cast<GLsizei>(eyeW), static_cast<GLsizei>(eyeH));
+		wivrn_blit_eye(eye, eyeW, eyeH);
 	}
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }

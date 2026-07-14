@@ -826,11 +826,17 @@ static void createStreamSwapchain(uint32_t w, uint32_t h) {
 // and that our GL context is current.
 static void applyFoveationResync(const float np[6]) {
     memcpy(gFovParams, np, sizeof(gFovParams));
-    createStreamSwapchain(gStreamW, gStreamH);
+    uint32_t swapW = gStreamW, swapH = gStreamH;
+    if (g_stream) {
+        int ew = g_stream->eye_width.load();
+        int eh = g_stream->eye_height.load();
+        if (ew > 0 && eh > 0) { swapW = ew; swapH = eh; }
+    }
+    createStreamSwapchain(swapW, swapH);
     const uint32_t *swapArr[2] = { gSwap[0], gSwap[1] };
     AlvrStreamConfig sc = {};
-    sc.view_resolution_width  = gStreamW;
-    sc.view_resolution_height = gStreamH;
+    sc.view_resolution_width  = swapW;
+    sc.view_resolution_height = swapH;
     sc.swapchain_textures = (const uint32_t **) swapArr;
     sc.swapchain_length   = kSwapLen;
     sc.enable_foveation        = gFoveOn;
@@ -2325,11 +2331,22 @@ void *renderThread(void *) {
                 // pipeline (gPrevSwapValid=false), so no stale slot is handed to the
                 // warp on reconnect.
                 if (gAlvrGlReady && gStreamW > 0) {
-                    createStreamSwapchain(gStreamW, gStreamH);
+                    // Create the swapchain at EYE dimensions, not the server's
+                    // stream dimensions. The PVR warp's distortion mesh is built
+                    // for the eye buffer resolution; a larger swapchain leaves
+                    // black borders. The blit pipeline scales the decoded frame
+                    // (gStreamW x gStreamH) to the eye dimensions.
+                    uint32_t swapW = gStreamW, swapH = gStreamH;
+                    if (g_stream) {
+                        int ew = g_stream->eye_width.load();
+                        int eh = g_stream->eye_height.load();
+                        if (ew > 0 && eh > 0) { swapW = ew; swapH = eh; }
+                    }
+                    createStreamSwapchain(swapW, swapH);
                     const uint32_t *swapArr[2] = { gSwap[0], gSwap[1] };
                     AlvrStreamConfig sc = {};
-                    sc.view_resolution_width  = gStreamW;
-                    sc.view_resolution_height = gStreamH;
+                    sc.view_resolution_width  = swapW;
+                    sc.view_resolution_height = swapH;
                     sc.swapchain_textures = (const uint32_t **) swapArr;
                     sc.swapchain_length   = kSwapLen;
                     sc.enable_foveation        = foveOn;
@@ -2881,7 +2898,12 @@ void *renderThread(void *) {
                         if (alvrFence) { glWaitSync(alvrFence, 0, GL_TIMEOUT_IGNORED); glDeleteSync(alvrFence); alvrFence = 0; }
                         glBindFramebuffer(GL_FRAMEBUFFER, gStreamFbo);
                         glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_SCISSOR_TEST);
-                        glViewport(0, 0, (GLsizei) gStreamW, (GLsizei) gStreamH);
+                        {
+                            int ew = g_stream ? g_stream->eye_width.load() : 0;
+                            int eh = g_stream ? g_stream->eye_height.load() : 0;
+                            glViewport(0, 0, (GLsizei)(ew > 0 ? ew : gStreamW),
+                                              (GLsizei)(eh > 0 ? eh : gStreamH));
+                        }
                       if (diagPage != 0) {
                         // Rebuild + re-upload the HUD geometry at most ~4Hz, not every
                         // video frame. Its content only changes at the 1-3Hz stat
