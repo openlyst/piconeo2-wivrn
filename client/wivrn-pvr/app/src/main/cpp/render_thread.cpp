@@ -3050,7 +3050,7 @@ void *renderThread(void *) {
                                                    GL_TEXTURE_2D, gSwap[e][gSwapIdx], 0);
                             glDisable(GL_SCISSOR_TEST);
                             gLobby->draw(e, head_orient, head_pos, cs, lobby_fov,
-                                         softIpdM(), gOkHeld.load(), true, false);
+                                         softIpdM(), gOkHeld.load(), true, true);
                         }
                         glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     }
