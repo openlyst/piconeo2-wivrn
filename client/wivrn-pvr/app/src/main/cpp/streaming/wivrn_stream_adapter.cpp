@@ -5,6 +5,7 @@
 #include "latency_tracker.h"
 
 #include <android/hardware_buffer.h>
+#include <mutex>
 
 extern PFNEGLCREATEIMAGEKHRPROC g_eglCreateImageKHR;
 extern PFNEGLDESTROYIMAGEKHRPROC g_eglDestroyImageKHR;
@@ -36,13 +37,49 @@ bool wivrn_stream_resolution(int *w, int *h)
     return true;
 }
 
-bool wivrn_blit_eye(int eye, int viewport_w, int viewport_h)
+bool wivrn_get_synced_frames(std::shared_ptr<pico_decoded_frame> out_frames[2],
+                             XrPosef out_server_pose[2])
 {
     if (!g_stream) return false;
 
-    auto frame = g_stream->get_latest_frame(eye);
+    uint64_t idx0 = g_stream->latest_decoded_frame_index_per_stream[0].load(std::memory_order_acquire);
+    uint64_t idx1 = g_stream->latest_decoded_frame_index_per_stream[1].load(std::memory_order_acquire);
+
+    if (idx0 > 0 && idx1 > 0)
+    {
+        uint64_t chosen = std::min(idx0, idx1);
+        out_frames[0] = g_stream->get_frame(chosen, 0);
+        out_frames[1] = g_stream->get_frame(chosen, 1);
+        if (!out_frames[0] || !out_frames[1] || !out_frames[0]->valid || !out_frames[1]->valid)
+        {
+            out_frames[0] = g_stream->get_latest_frame(0);
+            out_frames[1] = g_stream->get_latest_frame(1);
+        }
+    }
+    else
+    {
+        out_frames[0] = g_stream->get_latest_frame(0);
+        out_frames[1] = g_stream->get_latest_frame(1);
+    }
+
+    for (int e = 0; e < 2; e++)
+    {
+        if (out_frames[e] && out_frames[e]->valid)
+            out_server_pose[e] = out_frames[e]->server_pose[e];
+        else
+            out_server_pose[e] = {};
+    }
+    return true;
+}
+
+bool wivrn_blit_eye_frame(int eye, const std::shared_ptr<pico_decoded_frame> & frame,
+                          int viewport_w, int viewport_h, XrPosef * out_pose)
+{
     if (!frame || !frame->valid || !frame->hardware_buffer)
         return false;
+
+    if (out_pose)
+        *out_pose = frame->server_pose[eye];
 
     if (g_eye_textures[eye] == 0)
     {
@@ -95,12 +132,17 @@ bool wivrn_blit_eye(int eye, int viewport_w, int viewport_h)
     return true;
 }
 
-bool wivrn_get_server_pose(XrPosef out[2])
+bool wivrn_blit_eye(int eye, int viewport_w, int viewport_h, XrPosef * out_pose)
 {
     if (!g_stream) return false;
-    auto frame = g_stream->get_latest_frame(0);
-    if (!frame || !frame->valid) return false;
-    out[0] = frame->server_pose[0];
-    out[1] = frame->server_pose[1];
-    return true;
+    auto frame = g_stream->get_latest_frame(eye);
+    return wivrn_blit_eye_frame(eye, frame, viewport_w, viewport_h, out_pose);
+}
+
+bool wivrn_get_server_pose(XrPosef out[2])
+{
+    std::lock_guard<std::mutex> lk(gServerPoseMutex);
+    out[0] = gLastServerPoses[0];
+    out[1] = gLastServerPoses[1];
+    return (gLastServerPoses[0].orientation.w != 0 || gLastServerPoses[0].orientation.x != 0);
 }

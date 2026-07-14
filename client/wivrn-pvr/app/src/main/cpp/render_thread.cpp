@@ -2828,31 +2828,15 @@ void *renderThread(void *) {
                     _lastStart = _tStart;
                 }
                 AlvrViewParams outVP[2] = {};
-                // Use the server's render pose (embedded in the decoded frame)
-                // as the warp baseline, not the current sensor pose. The PVR
-                // warp reprojects from this baseline to the live sensor pose —
-                // if we feed it the current pose, it thinks no time warp is
-                // needed and the frame appears to lag/stutter when the head
-                // moves. Fall back to the current pose only if no frame yet.
-                XrPosef serverPoses[2];
-                if (wivrn_get_server_pose(serverPoses)) {
-                    for (int e = 0; e < 2; e++) {
-                        outVP[e].pose.orientation = {
-                            serverPoses[e].orientation.x,
-                            serverPoses[e].orientation.y,
-                            serverPoses[e].orientation.z,
-                            serverPoses[e].orientation.w };
-                        outVP[e].pose.position[0] = serverPoses[e].position.x;
-                        outVP[e].pose.position[1] = serverPoses[e].position.y;
-                        outVP[e].pose.position[2] = serverPoses[e].position.z;
-                    }
-                } else {
-                    for (int e = 0; e < 2; e++) {
-                        outVP[e].pose.orientation = { qx, qy, qz, qw };
-                        outVP[e].pose.position[0] = px;
-                        outVP[e].pose.position[1] = py;
-                        outVP[e].pose.position[2] = pz;
-                    }
+                // Use the current sensor pose as a placeholder for
+                // alvr_report_compositor_start. The actual render pose
+                // (from the server) is read AFTER the blit and stored
+                // into gSwapVP, which is what the warp actually uses.
+                for (int e = 0; e < 2; e++) {
+                    outVP[e].pose.orientation = { qx, qy, qz, qw };
+                    outVP[e].pose.position[0] = px;
+                    outVP[e].pose.position[1] = py;
+                    outVP[e].pose.position[2] = pz;
                 }
                 alvr_report_compositor_start(ts, outVP);
 
@@ -2879,19 +2863,24 @@ void *renderThread(void *) {
                     }
                     // Render-pose baseline for BOTH eyes. Normalize the quat; reuse
                     // last good if degenerate (the warp's SelectRT rejects non-unit
-                    // quats -> "frame from the past").
+                    // quats -> "frame from the past"). Position is the per-eye IPD
+                    // offset, NOT the server head position — the PVR warp only does
+                    // rotational time warp, so feeding it a moving head position
+                    // causes stutter. This matches pico_oxr's pvr_renderer.
                     static Quat sLastGoodQ[2] = { {0,0,0,1}, {0,0,0,1} };
+                    float ipd = softIpdM();
                     for (int e = 0; e < 2; e++) {
                         Quat q = { gSwapVP[p][e].pose.orientation.x, gSwapVP[p][e].pose.orientation.y,
                                    gSwapVP[p][e].pose.orientation.z, gSwapVP[p][e].pose.orientation.w };
                         float n2 = q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w;
                         if (n2 > 1e-6f) { q = quatNorm(q); sLastGoodQ[e] = q; }
                         else            { q = sLastGoodQ[e]; }
+                        float eye_offset = (e == 0 ? -ipd * 0.5f : ipd * 0.5f);
                         PvrPoseBlk blk; memset(&blk, 0, sizeof(blk));
                         blk.v[0] = q.x; blk.v[1] = q.y; blk.v[2] = q.z; blk.v[3] = q.w;
-                        blk.v[4] = gSwapVP[p][e].pose.position[0];
-                        blk.v[5] = gSwapVP[p][e].pose.position[1];
-                        blk.v[6] = gSwapVP[p][e].pose.position[2];
+                        blk.v[4] = eye_offset;
+                        blk.v[5] = 0;
+                        blk.v[6] = 0;
                         PVR_ChangeRenderPose(e, 0, blk);
                     }
                     PVR_TimeWarpEvent(0);
@@ -3131,8 +3120,24 @@ void *renderThread(void *) {
                         gSwapFence[gSwapIdx] = alvrFence; alvrFence = 0;
                     }
                     if (alvrFence) glDeleteSync(alvrFence);   // safety (unreached paths)
-                    // Stash this frame's render pose with its ring slot (the warp gets
-                    // it next frame, paired with the texture it was rendered for).
+                    // Stash this frame's render pose with its ring slot. Read
+                    // the server poses AFTER the blit (alvr_render_stream_opengl
+                    // updates gLastServerPoses from the frames it just drew).
+                    // Using poses from before the blit would be one frame behind
+                    // the actual frame content, causing the warp to misreproject.
+                    XrPosef serverPoses[2];
+                    if (wivrn_get_server_pose(serverPoses)) {
+                        for (int e = 0; e < 2; e++) {
+                            outVP[e].pose.orientation = {
+                                serverPoses[e].orientation.x,
+                                serverPoses[e].orientation.y,
+                                serverPoses[e].orientation.z,
+                                serverPoses[e].orientation.w };
+                            outVP[e].pose.position[0] = serverPoses[e].position.x;
+                            outVP[e].pose.position[1] = serverPoses[e].position.y;
+                            outVP[e].pose.position[2] = serverPoses[e].position.z;
+                        }
+                    }
                     gSwapVP[gSwapIdx][0] = outVP[0];
                     gSwapVP[gSwapIdx][1] = outVP[1];
                     gSwapFrameTs[gSwapIdx] = ts;
