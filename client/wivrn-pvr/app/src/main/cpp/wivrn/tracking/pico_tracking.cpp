@@ -270,7 +270,9 @@ void pico_native_tracker::update_controller_from_jni(int hand, int conn, const f
 
 	if (keys)
 	{
-		c.trigger = keys[2];
+		int analog_trig = keys[8];
+		int digital_trig = keys[2] ? 255 : 0;
+		c.trigger = std::max(analog_trig, digital_trig);
 		c.touch[0] = keys[0];
 		c.touch[1] = keys[1];
 		c.battery = keys[10];
