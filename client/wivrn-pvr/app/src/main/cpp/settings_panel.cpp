@@ -155,13 +155,30 @@ static void buildCoreModel(MenuModel &m) {
         res.valueText = [](char *b,int n){ snprintf(b,n,"%.2f X", gWivrnResolutionScale.load()); };
         res.onCommit = []{
             if (g_stream && g_stream->session) {
-                int base_w = g_stream->eye_width.load();
-                int base_h = g_stream->eye_height.load();
+                // Base render resolution (the panel's native per-eye size).
+                // The slider scales BOTH the render resolution (local swapchain
+                // + server compositor extent) and the stream/encode resolution
+                // together. Scaling only the stream resolution caused the server
+                // to encode at a different size than the client swapchain, which
+                // made the blit pipeline stretch/shrink the image — appearing
+                // as a FOV change ("scales the screen") instead of a pixel
+                // density change.
+                constexpr int base_w = 1664;
+                constexpr int base_h = 1756;
                 float s = gWivrnResolutionScale.load();
-                g_stream->stream_eye_width.store((int)(base_w * s));
-                g_stream->stream_eye_height.store((int)(base_h * s));
+                int rw = (int)(base_w * s);
+                int rh = (int)(base_h * s);
+                // Align to 2 for the encoder
+                rw = (rw / 2) * 2;
+                rh = (rh / 2) * 2;
+                g_stream->eye_width.store(rw);
+                g_stream->eye_height.store(rh);
+                g_stream->stream_eye_width.store(rw);
+                g_stream->stream_eye_height.store(rh);
+                g_stream->blit_pipeline.set_resolution(rw, rh);
+                g_stream->resolution_dirty.store(true);
                 g_stream->send_headset_info();
-                LOGI("Resolution scale changed to %.2f, sent headset_info", s);
+                LOGI("Resolution scale changed to %.2f (%dx%d), sent headset_info", s, rw, rh);
             }
             saveAllConfig();
         };

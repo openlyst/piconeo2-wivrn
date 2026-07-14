@@ -2519,6 +2519,38 @@ void *renderThread(void *) {
             gFovResyncPending = false;
         }
 
+        // Handle resolution change from the settings slider: recreate the
+        // swapchain at the new eye dimensions and restart the stream renderer
+        // so the de-foveation blit targets the right texture size. The server
+        // picks up the new render_eye_width/height via send_headset_info.
+        if (g_stream && g_stream->resolution_dirty.exchange(false) &&
+            gStreaming && gAlvrGlReady && gStreamW > 0) {
+            int ew = g_stream->eye_width.load();
+            int eh = g_stream->eye_height.load();
+            if (ew > 0 && eh > 0) {
+                createStreamSwapchain(ew, eh);
+                const uint32_t *swapArr[2] = { gSwap[0], gSwap[1] };
+                AlvrStreamConfig sc = {};
+                sc.view_resolution_width  = ew;
+                sc.view_resolution_height = eh;
+                sc.swapchain_textures = (const uint32_t **) swapArr;
+                sc.swapchain_length   = kSwapLen;
+                sc.enable_foveation        = gFoveOn;
+                sc.foveation_center_size_x = gFovParams[0];
+                sc.foveation_center_size_y = gFovParams[1];
+                sc.foveation_center_shift_x= gFovParams[2];
+                sc.foveation_center_shift_y= gFovParams[3];
+                sc.foveation_edge_ratio_x  = gFovParams[4];
+                sc.foveation_edge_ratio_y  = gFovParams[5];
+                sc.enable_upscaling   = false;
+                alvr_start_stream_opengl(sc);
+                gSwapIdx = 0;
+                gPrevSwapIdx = -1; gPrevSwapValid = false;
+                sendViewParams();
+                LOGI("resolution change: swapchain recreated at %dx%d", ew, eh);
+            }
+        }
+
         // Without a display surface (headset asleep/off-head) we keep the ALVR
         // uplink alive above, but skip GL rendering.
         // No surface (panel asleep / doffed): nothing to draw. Idle at ~20Hz instead
