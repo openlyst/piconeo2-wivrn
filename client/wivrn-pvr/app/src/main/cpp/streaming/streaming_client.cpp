@@ -687,7 +687,7 @@ void streaming_client::send_bitrate_change(int mbps)
 	sc.fps_divider = 1;
 	sc.bitrate_bps = (uint32_t)mbps * 1'000'000;
 	session->send_control(sc);
-	spdlog::info("Dynamic bitrate: sent settings_changed with {} Mbps", mbps);
+	spdlog::info("send_bitrate_change: {} Mbps", mbps);
 }
 
 void streaming_client::update_dynamic_bitrate()

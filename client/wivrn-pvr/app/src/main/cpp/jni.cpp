@@ -426,6 +426,8 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetBitrate(JNIEnv *, jobject, 
     g_stream->bitrate_mbps.store(bitrate_mbps);
     g_stream->max_bitrate_mbps.store(bitrate_mbps);
     g_stream->current_bitrate_mbps.store(bitrate_mbps);
+    if (g_stream->streaming.load() && g_stream->session)
+        g_stream->send_bitrate_change(bitrate_mbps);
 }
 
 extern "C" JNIEXPORT void JNICALL
