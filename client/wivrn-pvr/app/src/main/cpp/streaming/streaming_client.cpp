@@ -643,6 +643,11 @@ void streaming_client::reset_stream_state()
 	last_displayed_frame = 0;
 	frame_first_displayed_ns = 0;
 	video_ready = false;
+	g_latency.reset();
+	stats_bytes_rx = 0;
+	stats_bytes_tx = 0;
+	stats_bandwidth_rx = 0;
+	stats_bandwidth_tx = 0;
 	spdlog::info("reset_stream_state: resetting video_desc");
 	video_desc.reset();
 	spdlog::info("reset_stream_state: resetting audio_desc");

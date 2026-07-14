@@ -1844,8 +1844,8 @@ public class WivrnLobbyView {
         y += lineH;
 
         canvas.drawText(i18n.s(R.string.stat_microphone), x, y, textSmallPaint);
-        textPaint.setColor(Color.rgb(90, 95, 105));
-        canvas.drawText(i18n.s(R.string.stat_disabled), valueX, y, textPaint);
+        textPaint.setColor(microphoneEnabled ? Color.rgb(80, 200, 120) : Color.rgb(140, 150, 165));
+        canvas.drawText(microphoneEnabled ? i18n.s(R.string.stat_enabled) : i18n.s(R.string.stat_disabled), valueX, y, textPaint);
         y += lineH;
 
         y += 20;

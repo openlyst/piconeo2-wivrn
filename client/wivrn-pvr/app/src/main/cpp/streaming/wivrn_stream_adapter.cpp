@@ -2,6 +2,7 @@
 #include "streaming_client.h"
 #include "pico_decoder.h"
 #include "log.h"
+#include "latency_tracker.h"
 
 #include <android/hardware_buffer.h>
 
@@ -89,5 +90,7 @@ bool wivrn_blit_eye(int eye, int viewport_w, int viewport_h)
 
     g_stream->blit_pipeline.draw(eye, g_eye_textures[eye],
                                 frame->foveation[eye], frame->width, frame->height);
+
+    g_latency.on_frame_rendered(frame->frame_index, eye);
     return true;
 }

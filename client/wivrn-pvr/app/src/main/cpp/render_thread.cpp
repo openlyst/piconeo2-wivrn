@@ -31,6 +31,7 @@
 #include "log.h"         // TAG / LOGI / LOGE / nowNs()
 #include "pico_sdk.h"    // Pico native SDK prototypes + config accessors + render events
 #include "streaming/streaming_client.h"  // g_stream (for tracker recenter flag)
+#include "wivrn/core/latency_tracker.h"  // g_latency
 #include "math3d.h"      // Mat4 / Quat helpers
 #include "gl_util.h"     // compile()
 #include "eye_tracking.h"// readEyeGazes() + gaze/openness state
@@ -172,6 +173,7 @@ int    gSwapIdx = 0;     // render write-head into the ring
 // reprojection). Per-slot fence + the render pose that slot was rendered with.
 static GLsync gSwapFence[kSwapLen] = {0};
 static AlvrViewParams gSwapVP[kSwapLen][2] = {};
+static uint64_t gSwapFrameTs[kSwapLen] = {0};
 static int    gPrevSwapIdx = -1;
 static bool   gPrevSwapValid = false;
 // Async present state: the SDK DIATW compositor owns the window and re-projects
@@ -790,6 +792,7 @@ static void destroyStreamSwapchain() {
     // zeroed gSwapVP makes the invariant robust (a non-unit quat read from stale
     // memory would otherwise be rejected by the warp's SelectRT).
     memset(gSwapVP, 0, sizeof(gSwapVP));
+    memset(gSwapFrameTs, 0, sizeof(gSwapFrameTs));
     gSwapIdx = 0;
     gPrevSwapIdx = -1; gPrevSwapValid = false;
     if (gStreamFbo != 0) { glDeleteFramebuffers(1, &gStreamFbo); gStreamFbo = 0; }
@@ -2808,15 +2811,15 @@ void *renderThread(void *) {
                 static int sFenceTimeouts = 0;   // per-second tally (reset below), render-thread-only
                 auto submitSlot = [&](int p, uint64_t fenceWaitNs) {
                     if (gSwapFence[p]) {
-                        // Don't ignore the wait result. GL_TIMEOUT_EXPIRED means the
-                        // slot wasn't GPU-complete within budget, so we're about to hand
-                        // the warp a possibly-torn texture -- count it so it surfaces in
-                        // the diag HUD / log instead of being a silent visual tear.
                         GLenum w = glClientWaitSync(gSwapFence[p], GL_SYNC_FLUSH_COMMANDS_BIT, fenceWaitNs);
                         if (w == GL_TIMEOUT_EXPIRED) sFenceTimeouts++;
                     }
                     PVR_CameraEndFrame(0, gSwap[0][p]);
                     PVR_CameraEndFrame(1, gSwap[1][p]);
+                    if (gSwapFrameTs[p]) {
+                        uint64_t fi = (gSwapFrameTs[p] + 5000) / 10000;
+                        g_latency.on_frame_submitted(fi, 0, nowNs());
+                    }
                     // Render-pose baseline for BOTH eyes. Normalize the quat; reuse
                     // last good if degenerate (the warp's SelectRT rejects non-unit
                     // quats -> "frame from the past").
@@ -3034,6 +3037,7 @@ void *renderThread(void *) {
                     // it next frame, paired with the texture it was rendered for).
                     gSwapVP[gSwapIdx][0] = outVP[0];
                     gSwapVP[gSwapIdx][1] = outVP[1];
+                    gSwapFrameTs[gSwapIdx] = ts;
                     if (diagTiming) { _tEnc = nowNs(); if (_tEnc - _tEncStart > _mEnc) _mEnc = _tEnc - _tEncStart; }
 
                     // The inaugural frame has no previous slot, so it wasn't submitted
@@ -3086,28 +3090,44 @@ void *renderThread(void *) {
                 uint64_t vNow = nowNs();
                 if (vT0 == 0) vT0 = vNow;
                 if (vNow - vT0 >= 1000000000ULL) {
+                    float dtS = (vNow - vT0) * 1e-9f;
                     LOGI("VIDEO: decoded=%d submits=%d dropped(coalesced)=%d  (panel 72Hz, negotiated %.0fHz)",
                          sDecoded, sSubmits, sDropped, gRefreshHint);
-                    // Per-stage timing is only collected when the diag HUD is on
-                    // (the probes above are gated on diagTiming); skip the log otherwise.
                     if (diagTiming)
                         LOGI("VIDEO-TIMING(ms,max): gap=%.1f render=%.1f enc=%.1f enq=%.1f  "
                              "(gap=submit-to-submit incl tracking/sleep; enq=submit to SDK warp, "
                              "incl vsync backpressure -- not warp compute; >13.3 = a coalesce)",
                              _mGap/1e6, _mRender/1e6, _mEnc/1e6, _mEnq/1e6);
-                    // End-to-end latency from ALVR (server-acknowledged). QUEUE is the
-                    // decoder jitter-buffer wait that max_buffering_frames sets -- the
-                    // component that moves with the buffering-frames setting.
-                    float st[6];
-                    if (alvr_get_client_stats(st))
-                        LOGI("VIDEO-LATENCY(ms): TOTAL=%.1f decode=%.1f QUEUE=%.1f render=%.1f vsyncQ=%.1f frameItvl=%.1f",
-                             st[0], st[1], st[2], st[3], st[4], st[5]);
-                    // Publish to the diagnostics HUD (per-second snapshot). Decoded/
-                    // submit/dropped are always cheap; the per-stage maxima are only
-                    // meaningful (and only collected) when the HUD is on.
+
+                    // Feed the Java stats tab with detailed per-second data.
+                    if (g_stream && g_stream->session) {
+                        uint64_t rx = g_stream->session->bytes_received();
+                        uint64_t tx = g_stream->session->bytes_sent();
+                        float bw_rx = (float)(rx - g_stream->stats_bytes_rx) / dtS;
+                        float bw_tx = (float)(tx - g_stream->stats_bytes_tx) / dtS;
+                        g_stream->stats_bytes_rx = rx;
+                        g_stream->stats_bytes_tx = tx;
+                        g_stream->stats_bandwidth_rx = 0.8f * g_stream->stats_bandwidth_rx + 0.2f * bw_rx;
+                        g_stream->stats_bandwidth_tx = 0.8f * g_stream->stats_bandwidth_tx + 0.2f * bw_tx;
+
+                        auto bd = g_latency.get_avg_breakdown_ms();
+                        int64_t total_ns = g_latency.get_avg_total_latency_ns();
+                        float total_ms = total_ns / 1e6f;
+                        float fps = (float)sDecoded / dtS;
+
+                        float stats[13] = {
+                            fps,
+                            total_ms,
+                            g_stream->stats_bandwidth_rx * 8,
+                            g_stream->stats_bandwidth_tx * 8,
+                            (float)g_stream->current_bitrate_mbps.load(),
+                            0, 0,  // cpu/gpu -- not separately tracked
+                            bd[0], bd[1], bd[2], bd[3], bd[4], bd[5]
+                        };
+                        g_stream->notify_stream_stats_detailed(stats, 13);
+                    }
+
                     gVidDecoded.store(sDecoded); gVidSubmit.store(sSubmits); gVidDropped.store(sDropped);
-                    // Publish the fence-timeout tally (always -- it's a correctness
-                    // signal, not per-stage timing) and log loudly only when nonzero.
                     gFenceTimeouts.store(sFenceTimeouts);
                     if (sFenceTimeouts > 0)
                         LOGI("%d warp-submit fence timeout(s) this second -- a slot wasn't "

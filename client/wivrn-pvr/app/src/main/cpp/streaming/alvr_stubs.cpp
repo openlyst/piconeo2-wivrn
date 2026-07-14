@@ -157,8 +157,18 @@ void alvr_render_stream_opengl(void *, const struct AlvrStreamViewParams *)
 
 void alvr_create_decoder(struct AlvrDecoderConfig) {}
 void alvr_destroy_decoder(void) {}
-bool alvr_get_frame(uint64_t *, void **) { return false; }
-bool alvr_get_frame_timeout(uint64_t *, void **, uint64_t) { return wivrn_stream_ready(); }
+bool alvr_get_frame(uint64_t *out_ts, void **) { return false; }
+bool alvr_get_frame_timeout(uint64_t *out_ts, void **, uint64_t)
+{
+	if (!wivrn_stream_ready() || !g_stream)
+		return false;
+	auto frame = g_stream->get_latest_frame(0);
+	if (!frame || !frame->valid)
+		return false;
+	if (out_ts)
+		*out_ts = frame->frame_index * 10000ULL;
+	return true;
+}
 void alvr_set_decoder_paused(bool) {}
 
 struct AlvrQuat alvr_rotation_delta(struct AlvrQuat s, struct AlvrQuat) { return s; }

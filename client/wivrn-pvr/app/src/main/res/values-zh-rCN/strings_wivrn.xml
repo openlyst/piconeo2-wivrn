@@ -108,6 +108,7 @@
     <string name="stat_resolution">分辨率</string>
     <string name="stat_microphone">麦克风</string>
     <string name="stat_disabled">已禁用</string>
+    <string name="stat_enabled">已启用</string>
     <string name="toggle_overlay_hint">同时按下两个摇杆切换此界面</string>
     <string name="stat_cpu_time">CPU 时间</string>
     <string name="stat_gpu_time">GPU 时间</string>

@@ -108,6 +108,7 @@
     <string name="stat_resolution">Resolution</string>
     <string name="stat_microphone">Microphone</string>
     <string name="stat_disabled">Disabled</string>
+    <string name="stat_enabled">Enabled</string>
     <string name="toggle_overlay_hint">Press both thumbsticks to toggle this overlay</string>
     <string name="stat_cpu_time">CPU Time</string>
     <string name="stat_gpu_time">GPU Time</string>
