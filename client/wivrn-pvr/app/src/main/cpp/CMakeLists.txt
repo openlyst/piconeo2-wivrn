@@ -99,11 +99,12 @@ target_include_directories(wivrn-common PUBLIC
     ${CMAKE_BINARY_DIR}
     ${WIVRN_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${THIRD_PARTY_DIR}/magic_enum
 )
 target_include_directories(wivrn-common SYSTEM PUBLIC ${VULKAN_INCLUDE_DIR} ${SPDLOG_INCLUDE_DIR} ${BOOST_INCLUDE_DIR})
 target_compile_definitions(wivrn-common PUBLIC VMA_VULKAN_VERSION=1001000 VULKAN_HPP_NO_STRUCT_CONSTRUCTORS SPDLOG_FMT_EXTERNAL FMT_HEADER_ONLY)
 target_compile_options(wivrn-common PUBLIC -fconstexpr-steps=268435456 -fconstexpr-depth=2048)
-target_compile_options(wivrn-common PUBLIC "-include${CMAKE_CURRENT_SOURCE_DIR}/openxr_ext_stubs.h")
+target_compile_options(wivrn-common PUBLIC "-include${CMAKE_CURRENT_SOURCE_DIR}/openxr_ext_stubs.h" "-include${WIVRN_DIR}/common/openxr_body_compat.h")
 target_link_libraries(wivrn-common PUBLIC OpenSSL::Crypto)
 
 # --- p2alvr (PVR client with WiVRn streaming) ---
