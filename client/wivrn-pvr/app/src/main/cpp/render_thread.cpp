@@ -2504,11 +2504,13 @@ void *renderThread(void *) {
         const int halfW = winW / 2;
 
         // ---- Toggle the lobby overlay mid-stream (stream stays alive) --------
-        // Two gestures flip gManualLobby (render the lobby WITHOUT tearing down the
+        // Three gestures flip gManualLobby (render the lobby WITHOUT tearing down the
         // stream -- connection/decoder stay alive, decoder kept drained):
-        //   (a) hold the headset SIDE button (keycode 1001) for 3s, or
-        //   (b) DOUBLE-TAP the RIGHT controller app/menu button.
-        // Both toggle in/out. The side hold is suppressed while dragging an EQ fader.
+        //   (a) hold the headset SIDE button (keycode 1001) for 2s, or
+        //   (b) DOUBLE-TAP the RIGHT controller app/menu button, or
+        //   (c) click BOTH thumbsticks simultaneously.
+        // All toggle in/out. Only active during streaming (gStreaming && gDecoderReady)
+        // so stale controller data before the stream starts can't open the lobby.
         auto toggleManualLobby = [&](const char *why) {
             bool nowLobby = !gManualLobby.load();
             gManualLobby.store(nowLobby);
@@ -2516,9 +2518,10 @@ void *renderThread(void *) {
             gOkClick.store(false);               // swallow any pending click
             LOGI("%s -> manual lobby = %d (stream stays alive)", why, (int)nowLobby);
         };
+        const bool canToggle = gStreaming && gDecoderReady;
         {
             static uint64_t sideHoldStart = 0;
-            if (gSideHeld.load() && !gEqGrabbing) {
+            if (canToggle && gSideHeld.load() && !gEqGrabbing) {
                 if (sideHoldStart == 0) sideHoldStart = nowNs();
                 else if (nowNs() - sideHoldStart > 2000000000ULL) {   // 2s hold
                     toggleManualLobby("side button 2s hold");
@@ -2536,7 +2539,7 @@ void *renderThread(void *) {
               menuNow = (gCtrl[1].conn==1 && gCtrl[1].keyCount>5 && gCtrl[1].keys[5]!=0); }
             if (menuNow && !menuPrev) {           // rising edge
                 uint64_t now = nowNs();
-                if (lastTapNs != 0 && now - lastTapNs < 400000000ULL) {
+                if (canToggle && lastTapNs != 0 && now - lastTapNs < 400000000ULL) {
                     toggleManualLobby("right menu double-tap");
                     lastTapNs = 0;
                 } else {
@@ -2545,7 +2548,7 @@ void *renderThread(void *) {
             }
             menuPrev = menuNow;
         }
-        // Both thumbsticks clicked simultaneously — same as pico_oxr toggle.
+        // Both thumbsticks clicked simultaneously.
         {
             static bool prev_stick[2] = {false, false};
             bool stick[2] = {false, false};
@@ -2554,7 +2557,7 @@ void *renderThread(void *) {
                   stick[h] = (gCtrl[h].conn==1 && gCtrl[h].keyCount>4 && gCtrl[h].keys[4]!=0); }
             bool both_now = stick[0] && stick[1];
             bool both_prev = prev_stick[0] && prev_stick[1];
-            if (both_now && !both_prev)
+            if (canToggle && both_now && !both_prev)
                 toggleManualLobby("both thumbsticks clicked");
             prev_stick[0] = stick[0]; prev_stick[1] = stick[1];
         }
