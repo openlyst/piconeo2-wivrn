@@ -606,6 +606,20 @@ void pico_lobby::recenter(const float head_pos[3], float head_yaw)
 	LOGI("Lobby recentered, panel pos=(%.2f,%.2f,%.2f) yaw=%.2f", panel_pos[0], panel_pos[1], panel_pos[2], panel_yaw);
 }
 
+void pico_lobby::recenter_facing(const float head_pos[3], float fwd_x, float fwd_z)
+{
+	constexpr float kPanelDist = 2.0f;
+	float n = sqrtf(fwd_x * fwd_x + fwd_z * fwd_z);
+	if (n < 1e-5f) { fwd_x = 0; fwd_z = -1; n = 1; }
+	fwd_x /= n; fwd_z /= n;
+	panel_pos[0] = head_pos[0] + fwd_x * kPanelDist;
+	panel_pos[1] = head_pos[1];
+	panel_pos[2] = head_pos[2] + fwd_z * kPanelDist;
+	panel_yaw = atan2f(-fwd_x, -fwd_z);
+	LOGI("Lobby recentered (facing), panel pos=(%.2f,%.2f,%.2f) yaw=%.2f fwd=(%.2f,%.2f)",
+	     panel_pos[0], panel_pos[1], panel_pos[2], panel_yaw, fwd_x, fwd_z);
+}
+
 void pico_lobby::update_interaction(const float head_orient[4], const float head_pos[3],
                                     const controller_sample controllers[2], bool head_trigger)
 {

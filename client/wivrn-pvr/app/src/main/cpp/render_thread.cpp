@@ -2534,7 +2534,17 @@ void *renderThread(void *) {
         auto toggleManualLobby = [&](const char *why) {
             bool nowLobby = !gManualLobby.load();
             gManualLobby.store(nowLobby);
-            if (nowLobby) hudAnchored = false;   // re-anchor panels at current head
+            if (nowLobby) {
+                hudAnchored = false;
+                // Reposition the lobby panel in front of where the user is facing
+                // so the overlay opens at a natural viewing angle.
+                if (gLobby) {
+                    Mat4 hr = quatToMat4(qx, qy, qz, qw);
+                    float fx = -hr.m[8], fz = -hr.m[10];
+                    float hp[3] = {px, py, pz};
+                    gLobby->recenter_facing(hp, fx, fz);
+                }
+            }
             gOkClick.store(false);               // swallow any pending click
             LOGI("%s -> manual lobby = %d (stream stays alive)", why, (int)nowLobby);
         };
