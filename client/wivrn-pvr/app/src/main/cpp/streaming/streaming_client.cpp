@@ -343,6 +343,7 @@ void streaming_client::setup_audio()
 void streaming_client::handle_video_shard(to_headset::video_stream_data_shard && shard)
 {
 	last_shard_ns.store(get_timestamp_ns());
+	db_shard_count.fetch_add(1);
 
 	static std::atomic<int> shard_count{0};
 	int sc = ++shard_count;
@@ -670,6 +671,7 @@ void streaming_client::reset_stream_state()
 	last_shard_ns.store(0);
 	db_last_check_ns = 0;
 	db_prev_shard_ns = 0;
+	db_shard_count.store(0);
 	int max_b = max_bitrate_mbps.load();
 	current_bitrate_mbps.store(max_b);
 	bitrate_mbps.store(max_b);
@@ -687,20 +689,20 @@ void streaming_client::send_bitrate_change(int mbps)
 	sc.fps_divider = 1;
 	sc.bitrate_bps = (uint32_t)mbps * 1'000'000;
 	session->send_control(sc);
-	spdlog::info("Dynamic bitrate: sent settings_changed with {} Mbps", mbps);
+	spdlog::info("send_bitrate_change: {} Mbps", mbps);
 }
 
 void streaming_client::update_dynamic_bitrate()
 {
 	constexpr int64_t check_interval_ns = 3'000'000'000LL;
 	constexpr int64_t target_frame_ns = 13'888'888;
-	constexpr int min_bitrate = 20;
 
 	int64_t now = get_timestamp_ns();
 	if (db_last_check_ns == 0)
 	{
 		db_last_check_ns = now;
 		db_prev_shard_ns = 0;
+		db_shard_count.store(0);
 		return;
 	}
 
@@ -709,33 +711,32 @@ void streaming_client::update_dynamic_bitrate()
 
 	int max_bps = max_bitrate_mbps.load();
 	int cur_bps = current_bitrate_mbps.load();
+	int min_bps = std::min(5, max_bps);
 
-	// Sample the last shard timestamp to estimate arrival rate.
-	// This avoids doing per-shard math on the network thread.
 	int64_t last_shard = last_shard_ns.load();
+	int shards = db_shard_count.exchange(0);
 	int new_bps = cur_bps;
 
-	if (db_prev_shard_ns > 0 && last_shard > db_prev_shard_ns)
+	if (db_prev_shard_ns > 0 && last_shard > db_prev_shard_ns && shards > 0)
 	{
 		int64_t elapsed = now - db_last_check_ns;
-		// Estimate frame interval from shard activity over the check window
-		int64_t estimated_interval = elapsed / 3; // 3 streams worth of shards
+		int64_t estimated_interval = elapsed / shards;
 		float ratio = (float)estimated_interval / target_frame_ns;
 		if (ratio > 1.3f)
 		{
 			new_bps = (int)(cur_bps * 0.8f);
-			spdlog::info("Dynamic bitrate: reducing (est interval {:.1f}ms, ratio {:.2f})",
-				estimated_interval / 1'000'000.0f, ratio);
+			spdlog::info("Dynamic bitrate: reducing (est interval {:.1f}ms, ratio {:.2f}, shards={})",
+				estimated_interval / 1'000'000.0f, ratio, shards);
 		}
 		else if (ratio < 1.1f && cur_bps < max_bps)
 		{
 			new_bps = std::min(max_bps, (int)(cur_bps * 1.1f));
-			spdlog::info("Dynamic bitrate: increasing (est interval {:.1f}ms, ratio {:.2f})",
-				estimated_interval / 1'000'000.0f, ratio);
+			spdlog::info("Dynamic bitrate: increasing (est interval {:.1f}ms, ratio {:.2f}, shards={})",
+				estimated_interval / 1'000'000.0f, ratio, shards);
 		}
 	}
 
-	new_bps = std::max(min_bitrate, std::min(max_bps, new_bps));
+	new_bps = std::max(min_bps, std::min(max_bps, new_bps));
 
 	if (new_bps != cur_bps)
 	{

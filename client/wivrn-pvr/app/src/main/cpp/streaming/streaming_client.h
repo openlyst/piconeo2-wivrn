@@ -174,6 +174,7 @@ struct streaming_client
 
 	int64_t db_last_check_ns = 0;
 	int64_t db_prev_shard_ns = 0;
+	std::atomic<int> db_shard_count{0};
 
 	std::string server_host;
 	int server_port = 0;
