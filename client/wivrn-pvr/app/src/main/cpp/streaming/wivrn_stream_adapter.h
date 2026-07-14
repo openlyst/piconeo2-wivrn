@@ -4,6 +4,7 @@
 #include <GLES2/gl2ext.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+#include <openxr/openxr.h>
 
 // Returns true if the WiVRn stream client exists and is actively streaming.
 bool wivrn_streaming();
@@ -21,3 +22,9 @@ bool wivrn_stream_resolution(int *w, int *h);
 // FBO. The caller must have bound the destination framebuffer and viewport.
 // Returns true if a frame was available and blit.
 bool wivrn_blit_eye(int eye, int viewport_w, int viewport_h);
+
+// Returns the server render pose from the latest decoded frame.
+// The PVR warp uses this as the baseline pose for time warp — using the
+// current sensor pose instead causes stuttering because the warp thinks
+// no correction is needed. Returns false if no frame is available.
+bool wivrn_get_server_pose(XrPosef out[2]);

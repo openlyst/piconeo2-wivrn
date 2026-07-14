@@ -2828,11 +2828,31 @@ void *renderThread(void *) {
                     _lastStart = _tStart;
                 }
                 AlvrViewParams outVP[2] = {};
-                for (int e = 0; e < 2; e++) {
-                    outVP[e].pose.orientation = { qx, qy, qz, qw };
-                    outVP[e].pose.position[0] = px;
-                    outVP[e].pose.position[1] = py;
-                    outVP[e].pose.position[2] = pz;
+                // Use the server's render pose (embedded in the decoded frame)
+                // as the warp baseline, not the current sensor pose. The PVR
+                // warp reprojects from this baseline to the live sensor pose —
+                // if we feed it the current pose, it thinks no time warp is
+                // needed and the frame appears to lag/stutter when the head
+                // moves. Fall back to the current pose only if no frame yet.
+                XrPosef serverPoses[2];
+                if (wivrn_get_server_pose(serverPoses)) {
+                    for (int e = 0; e < 2; e++) {
+                        outVP[e].pose.orientation = {
+                            serverPoses[e].orientation.x,
+                            serverPoses[e].orientation.y,
+                            serverPoses[e].orientation.z,
+                            serverPoses[e].orientation.w };
+                        outVP[e].pose.position[0] = serverPoses[e].position.x;
+                        outVP[e].pose.position[1] = serverPoses[e].position.y;
+                        outVP[e].pose.position[2] = serverPoses[e].position.z;
+                    }
+                } else {
+                    for (int e = 0; e < 2; e++) {
+                        outVP[e].pose.orientation = { qx, qy, qz, qw };
+                        outVP[e].pose.position[0] = px;
+                        outVP[e].pose.position[1] = py;
+                        outVP[e].pose.position[2] = pz;
+                    }
                 }
                 alvr_report_compositor_start(ts, outVP);
 

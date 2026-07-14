@@ -94,3 +94,13 @@ bool wivrn_blit_eye(int eye, int viewport_w, int viewport_h)
     g_latency.on_frame_rendered(frame->frame_index, eye);
     return true;
 }
+
+bool wivrn_get_server_pose(XrPosef out[2])
+{
+    if (!g_stream) return false;
+    auto frame = g_stream->get_latest_frame(0);
+    if (!frame || !frame->valid) return false;
+    out[0] = frame->server_pose[0];
+    out[1] = frame->server_pose[1];
+    return true;
+}
