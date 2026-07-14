@@ -504,9 +504,8 @@ void pico_native_tracker::run()
 				if (home_press_ts[h] > 0 && ts - home_press_ts[h] > 800000000ULL)
 				{
 					spdlog::info("recenter triggered by controller {} home button long press", h);
-					// Don't call recenter_height() — recentering must not
-					// change the player's height. The floor-relative Y from
-					// the FloorLevel tracking origin stays valid across reset.
+					// Capture current standing height before sensor reset.
+					recenter_height();
 					Pvr_ResetSensorAll();
 					svrRecenterOrientation();
 					recenterHeadTrackerAW();

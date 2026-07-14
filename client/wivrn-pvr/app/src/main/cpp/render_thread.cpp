@@ -3525,6 +3525,7 @@ void *renderThread(void *) {
         {
             LOGI("recenter triggered by settings button");
             if (g_stream) {
+                g_stream->tracker.recenter_height();
                 g_stream->tracker.recenter_requested.store(true);
             }
             Pvr_ResetSensorAll();

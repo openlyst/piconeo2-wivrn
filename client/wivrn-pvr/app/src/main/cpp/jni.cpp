@@ -37,9 +37,11 @@ static void do_full_recenter()
 
     if (g_stream)
     {
-        // Recentering resets yaw + X/Z position but must NOT change height.
-        // The floor-relative Y comes from the FloorLevel tracking origin and
-        // stays valid across a sensor reset, so we don't touch height_offset.
+        // Capture the current standing height BEFORE the sensor reset zeroes
+        // the position. recenter_height() stores head_pos.y + height_offset
+        // as the new offset so the server still sees the correct eye height
+        // after the reset makes Y=0.
+        g_stream->tracker.recenter_height();
         g_stream->tracker.recenter_requested.store(true);
         g_stream->tracker.lobby_recenter_requested.store(true);
     }
