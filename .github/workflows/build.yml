@@ -38,7 +38,7 @@ jobs:
         with:
           name: wivrn-pvr-apk
           path: artifacts/wivrn-pvr-debug.apk
-          retention-days: 90
+          retention-days: 0
 
       - name: Get short SHA
         id: sha
