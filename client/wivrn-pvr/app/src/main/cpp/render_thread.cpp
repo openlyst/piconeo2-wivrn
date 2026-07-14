@@ -2582,40 +2582,15 @@ void *renderThread(void *) {
             prev_stick[0] = stick[0]; prev_stick[1] = stick[1];
         }
 
-        // ---- Manual-lobby: PAUSE the decoder (no teardown) -------------------
-        // The decoder object stays alive across a lobby toggle (avoids the destroy/
-        // create hitch and the ImageReader churn), but on entry we PAUSE it: the core
-        // then discards incoming NALs before MediaCodec, so the HW Venus decoder goes
-        // idle -- the real power/thermal win while lingering in the menu. On exit we
-        // unpause, which requests a fresh IDR so playback resumes from a clean
-        // keyframe. Trade-off: the server keeps encoding+sending video we don't decode
-        // (network + PC-side cost), but the client-side decode -- the SoC's thermal
-        // lever -- stops. Audio is on its own path, untouched.
-        {
-            static bool sManualPrev = false;
-            bool ml = gManualLobby.load();
-            if (ml && !sManualPrev) {
-                if (gStreaming && gDecoderReady) alvr_set_decoder_paused(true);
-                LOGI("manual lobby: decoder paused (NALs discarded, Venus idle)");
-            } else if (!ml && sManualPrev) {
-                if (gStreaming && gDecoderReady) alvr_set_decoder_paused(false);   // requests fresh IDR
-                LOGI("manual lobby exit: decoder resumed (IDR requested)");
-            }
-            sManualPrev = ml;
-        }
-
-        // Drain any frames still queued at the instant we paused (a few may already
-        // be in the ImageReader). Once paused the decoder produces no new frames, so
-        // this is a cheap no-op after the first lobby frame. alvr_get_frame pop_front()s
-        // (and thus releases) the previous image, keeping the bounded ImageReader clear.
-        if (gStreaming && gDecoderReady && gManualLobby.load()) {
-            uint64_t dts = 0; void *dbuf = nullptr;
-            while (alvr_get_frame(&dts, &dbuf)) { /* discard: not presenting in lobby */ }
-        }
+        // ---- Manual-lobby overlay: video keeps playing, UI draws on top ------
+        // Unlike the old full-lobby switch, the overlay keeps the decoder running
+        // and renders the lobby UI on top of the live video. No pause, no drain,
+        // no IDR request on exit -- the video never stops.
 
         // ---- ALVR video path: async TimeWarp (present every refresh) --------
-        // gManualLobby short-circuits this so the lobby renders over a live stream.
-        if (gStreaming && gDecoderReady && !gManualLobby.load()) {
+        // The overlay (gManualLobby) draws on top of the video below, not by
+        // switching away from it.
+        if (gStreaming && gDecoderReady) {
             hudAnchored = false;   // re-anchor the lobby HUD next time we return to it
             // Free the lobby eye-texture ring (~94 MB) while streaming; it's rebuilt
             // lazily when we next return to the lobby. DEFER the free -- arm a short
@@ -3013,13 +2988,62 @@ void *renderThread(void *) {
                       }
                       glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     }
+                    // ---- Stream overlay: draw lobby UI on top of the live video ----
+                    // When gManualLobby is toggled mid-stream, we composite the lobby
+                    // UI directly on top of the video in gSwap (overlay mode: no color
+                    // clear, only depth). The video keeps playing underneath.
+                    if (gManualLobby.load() && gLobby) {
+                        if (alvrFence) { glWaitSync(alvrFence, 0, GL_TIMEOUT_IGNORED); glDeleteSync(alvrFence); alvrFence = 0; }
+                        int ew = g_stream ? g_stream->eye_width.load() : 0;
+                        int eh = g_stream ? g_stream->eye_height.load() : 0;
+                        if (ew <= 0) ew = gStreamW;
+                        if (eh <= 0) eh = gStreamH;
+                        float half_fov = ((fEyeTextureFov0 > 1.0f ? fEyeTextureFov0 : 101.0f) * 0.5f) * ((float)M_PI / 180.0f);
+                        XrFovf lobby_fov = {-half_fov, half_fov, half_fov, -half_fov};
+                        float head_orient[4] = {qx, qy, qz, qw};
+                        float head_pos[3] = {px, py, pz};
+                        controller_sample cs[2];
+                        {
+                            std::lock_guard<std::mutex> lk(gCtrlMutex);
+                            for (int h = 0; h < 2; h++) {
+                                cs[h].connected = (gCtrl[h].conn == 1);
+                                for (int i = 0; i < 4; i++) cs[h].orientation[i] = gCtrl[h].q[i];
+                                for (int i = 0; i < 3; i++) cs[h].position[i] = gCtrl[h].pos[i];
+                                int trig = 0;
+                                if (gCtrl[h].keyCount > 2) trig = std::max(trig, gCtrl[h].keys[2]);
+                                if (gCtrl[h].keyCount > 8) trig = std::max(trig, gCtrl[h].keys[8]);
+                                cs[h].trigger = trig;
+                                cs[h].button_a = (gCtrl[h].keyCount > 6 && gCtrl[h].keys[6] != 0);
+                                cs[h].button_b = (gCtrl[h].keyCount > 7 && gCtrl[h].keys[7] != 0);
+                                cs[h].menu = (gCtrl[h].keyCount > 5 && gCtrl[h].keys[5] != 0);
+                                cs[h].home = (gCtrl[h].keyCount > 11 && gCtrl[h].keys[11] != 0);
+                                cs[h].grip = (gCtrl[h].keyCount > 3 && gCtrl[h].keys[3] != 0);
+                                cs[h].thumbstick_click = (gCtrl[h].keyCount > 4 && gCtrl[h].keys[4] != 0);
+                                cs[h].touch[0] = (gCtrl[h].keyCount > 0) ? gCtrl[h].keys[0] : 0;
+                                cs[h].touch[1] = (gCtrl[h].keyCount > 1) ? gCtrl[h].keys[1] : 0;
+                                cs[h].battery = 0;
+                                cs[h].has_angular_velocity = false;
+                            }
+                        }
+                        gLobby->flush_pending_texture();
+                        gLobby->set_resolution(ew, eh);
+                        for (int e = 0; e < 2; e++) {
+                            glBindFramebuffer(GL_FRAMEBUFFER, gStreamFbo);
+                            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                                   GL_TEXTURE_2D, gSwap[e][gSwapIdx], 0);
+                            glDisable(GL_SCISSOR_TEST);
+                            gLobby->draw(e, head_orient, head_pos, cs, lobby_fov,
+                                         softIpdM(), gOkHeld.load(), true, false);
+                        }
+                        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                    }
                     // PIPELINE: fence THIS slot and FLUSH so the GPU starts it, but DO
                     // NOT block. The warp samples this slot a frame from now (via the
                     // previous-frame submit at the top of the next iteration), by which point the fence
                     // is long-signalled -> no torn texture, no render stall.
                     uint64_t _tEncStart = diagTiming ? nowNs() : 0;
                     if (gSwapFence[gSwapIdx]) glDeleteSync(gSwapFence[gSwapIdx]);
-                    if (diagPage != 0 || warnActive) {
+                    if (diagPage != 0 || warnActive || gManualLobby.load()) {
                         // HUD / battery-popup path: extra work was issued in our ctx,
                         // ordered after ALVR via glWaitSync; a fresh fence covers it all.
                         gSwapFence[gSwapIdx] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
@@ -3168,15 +3192,15 @@ void *renderThread(void *) {
             continue;
         }
 
-        // (In the manual lobby the video decoder is fully stopped -- see the decode
-        // pause block above -- so there are no frames to drain here. Audio keeps
-        // running on its own client_core path, and the connection stays alive.)
+        // The streaming video path above ends with `continue`, so this lobby path
+        // only runs pre-stream / between streams (or when the decoder isn't ready
+        // yet). The in-stream overlay draws on top of the video in the path above.
 
         // When streaming has started but the decoder isn't ready yet (first frame
         // hasn't arrived), show BLACK instead of the lobby UI. The lobby render
         // block below still runs (it owns the warp submit path), but we skip
         // drawLobbyScene so the eye textures stay cleared to black.
-        bool showBlack = gStreaming && !gDecoderReady && !gManualLobby.load();
+        bool showBlack = gStreaming && !gDecoderReady;
 
         // ---- lobby (pre-stream / between streams): world-locked IP/status/model
         // HUD + floor grid + eye-gaze marker (Neo 2 EYE). Rendered in BOTH render
