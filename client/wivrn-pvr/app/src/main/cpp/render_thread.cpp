@@ -569,6 +569,15 @@ static void sendBatteryReports() {
     if (f) { char s[32] = {0}; if (fgets(s, sizeof(s), f)) plugged = (strstr(s, "Charging") || strstr(s, "Full")); fclose(f); }
     if (cap >= 0) alvr_send_battery(alvrHeadId, (float) cap / 100.0f, plugged);
 
+    // WiVRn protocol battery packet for the HMD.
+    if (cap >= 0 && g_stream && g_stream->session) {
+        from_headset::battery b{};
+        b.charge = (float)cap / 100.0f;
+        b.present = true;
+        b.charging = plugged;
+        g_stream->session->send_control(b);
+    }
+
     int  cbat[2] = { -1, -1 };
     { std::lock_guard<std::mutex> lk(gCtrlMutex);
       for (int h = 0; h < 2; h++)
@@ -2092,10 +2101,14 @@ void *renderThread(void *) {
                 gStreaming = false;
                 alvr_pause();
                 gSlept = true;
+                if (g_stream && g_stream->session)
+                    g_stream->session->send_control(from_headset::user_presence_changed{.present = false});
             } else if (!wantSleep && gSlept) {
                 LOGI("proximity: headset donned -> resuming stream");
                 alvr_resume();
                 gSlept = false;
+                if (g_stream && g_stream->session)
+                    g_stream->session->send_control(from_headset::user_presence_changed{.present = true});
             }
         }
 
@@ -2531,6 +2544,19 @@ void *renderThread(void *) {
                 }
             }
             menuPrev = menuNow;
+        }
+        // Both thumbsticks clicked simultaneously — same as pico_oxr toggle.
+        {
+            static bool prev_stick[2] = {false, false};
+            bool stick[2] = {false, false};
+            { std::lock_guard<std::mutex> lk(gCtrlMutex);
+              for (int h = 0; h < 2; h++)
+                  stick[h] = (gCtrl[h].conn==1 && gCtrl[h].keyCount>4 && gCtrl[h].keys[4]!=0); }
+            bool both_now = stick[0] && stick[1];
+            bool both_prev = prev_stick[0] && prev_stick[1];
+            if (both_now && !both_prev)
+                toggleManualLobby("both thumbsticks clicked");
+            prev_stick[0] = stick[0]; prev_stick[1] = stick[1];
         }
 
         // ---- Manual-lobby: PAUSE the decoder (no teardown) -------------------

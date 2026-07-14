@@ -79,6 +79,10 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
         g_stream->vm = gVM;
         g_stream->activity = gActivity;
         g_stream->tracker.pvr_sensor_mode.store(true);
+        // Sync config atomics -> streaming client.
+        g_stream->bitrate_mbps.store((int)gWivrnBitrateMbps.load());
+        g_stream->max_bitrate_mbps.store((int)gWivrnBitrateMbps.load());
+        g_stream->microphone_enabled.store(gWivrnMicrophone.load());
         LOGI("nativeStart: created streaming_client");
     }
 
@@ -245,7 +249,7 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeDrainHaptic(
         amp = p.amplitude; ms = p.durationMs;
         p.pending = false; p.amplitude = 0.0f; p.durationMs = 0;
     }
-    float buf[2] = { amp, (float) ms };
+    float buf[2] = { amp * gWivrnCtrlVibration.load(), (float) ms };
     env->SetFloatArrayRegion(out, 0, 2, buf);
     return JNI_TRUE;
 }

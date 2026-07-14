@@ -3,6 +3,7 @@
 #include "eq_panel.h"
 #include "menu_model.h"
 #include "log.h"        // nowNs()
+#include "streaming/streaming_client.h"
 #include <cstdio>
 #include <cstring>
 #include <cmath>
@@ -97,9 +98,9 @@ static void eqAct(const MenuHover &h, bool click, bool grab, float cx, float cy)
     }
 }
 
-// Helper for greyed-out wivrn placeholders: visible but non-interactive.
+// Toggle that's actually interactive.
 static inline MenuItem wivrnToggle(const char *label, std::atomic<bool> &val) {
-    MenuItem it; it.kind = MK_TOGGLE; it.label = label; it.disabled = true;
+    MenuItem it; it.kind = MK_TOGGLE; it.label = label;
     it.get = [&]{ return val.load() ? 1.0f : 0.0f; };
     it.set = [&](float v){ val.store(v > 0.5f); };
     return it;
@@ -110,7 +111,9 @@ static void buildCoreModel(MenuModel &m) {
     // CONNECTION ------------------------------------------------------------
     MenuCategory conn; conn.name = "CONNECT";
     {
-        conn.items.push_back(wivrnToggle("TCP ONLY", gWivrnTcpOnly));
+        MenuItem tcp = wivrnToggle("TCP ONLY", gWivrnTcpOnly);
+        tcp.onChange = []{ saveAllConfig(); };
+        conn.items.push_back(tcp);
 
         MenuItem pin; pin.kind = MK_BUTTON; pin.label = "PAIRING PIN";
         pin.disabled = true;
@@ -146,17 +149,37 @@ static void buildCoreModel(MenuModel &m) {
         video.items.push_back(fov);
 
         MenuItem res; res.kind = MK_FADER; res.label = "RESOLUTION SCALE";
-        res.vmin = 0.5f; res.vmax = 2.0f; res.disabled = true;
+        res.vmin = 0.5f; res.vmax = 2.0f;
         res.get = []{ return gWivrnResolutionScale.load(); };
         res.set = [](float v){ gWivrnResolutionScale.store(v); };
         res.valueText = [](char *b,int n){ snprintf(b,n,"%.2f X", gWivrnResolutionScale.load()); };
+        res.onCommit = []{
+            if (g_stream && g_stream->session) {
+                int base_w = g_stream->eye_width.load();
+                int base_h = g_stream->eye_height.load();
+                float s = gWivrnResolutionScale.load();
+                g_stream->stream_eye_width.store((int)(base_w * s));
+                g_stream->stream_eye_height.store((int)(base_h * s));
+                g_stream->send_headset_info();
+                LOGI("Resolution scale changed to %.2f, sent headset_info", s);
+            }
+            saveAllConfig();
+        };
         video.items.push_back(res);
 
         MenuItem bit; bit.kind = MK_FADER; bit.label = "BITRATE";
-        bit.vmin = 5.0f; bit.vmax = 200.0f; bit.disabled = true;
+        bit.vmin = 5.0f; bit.vmax = 200.0f;
         bit.get = []{ return gWivrnBitrateMbps.load(); };
         bit.set = [](float v){ gWivrnBitrateMbps.store(v); };
         bit.valueText = [](char *b,int n){ snprintf(b,n,"%.0f MBPS", gWivrnBitrateMbps.load()); };
+        bit.onCommit = []{
+            int mbps = (int)gWivrnBitrateMbps.load();
+            if (g_stream) {
+                g_stream->bitrate_mbps.store(mbps);
+                g_stream->send_bitrate_change(mbps);
+            }
+            saveAllConfig();
+        };
         video.items.push_back(bit);
 
         MenuItem codec; codec.kind = MK_DROPDOWN; codec.label = "CODEC";
@@ -182,7 +205,18 @@ static void buildCoreModel(MenuModel &m) {
         eq.cBuild = eqBuild; eq.cHit = eqHit; eq.cAct = eqAct;
         audio.items.push_back(eq);
 
-        audio.items.push_back(wivrnToggle("MICROPHONE", gWivrnMicrophone));
+        MenuItem mic = wivrnToggle("MICROPHONE", gWivrnMicrophone);
+        mic.onChange = []{
+            bool on = gWivrnMicrophone.load();
+            if (g_stream) {
+                g_stream->microphone_enabled.store(on);
+                if (g_stream->audio_handle)
+                    g_stream->audio_handle->set_mic_state(on);
+                g_stream->send_headset_info();
+            }
+            saveAllConfig();
+        };
+        audio.items.push_back(mic);
     }
     m.push_back(audio);
 
@@ -192,10 +226,11 @@ static void buildCoreModel(MenuModel &m) {
         input.items.push_back(wivrnToggle("HAND TRACKING", gWivrnHandTracking));
 
         MenuItem vib; vib.kind = MK_FADER; vib.label = "CONTROLLER VIBRATION";
-        vib.vmin = 0.0f; vib.vmax = 1.0f; vib.disabled = true;
+        vib.vmin = 0.0f; vib.vmax = 1.0f;
         vib.get = []{ return gWivrnCtrlVibration.load(); };
         vib.set = [](float v){ gWivrnCtrlVibration.store(v); };
         vib.valueText = [](char *b,int n){ snprintf(b,n,"%d PCT", (int)(gWivrnCtrlVibration.load()*100.0f+0.5f)); };
+        vib.onCommit = []{ saveAllConfig(); };
         input.items.push_back(vib);
     }
     m.push_back(input);
@@ -203,7 +238,9 @@ static void buildCoreModel(MenuModel &m) {
     // SYSTEM ----------------------------------------------------------------
     MenuCategory sys; sys.name = "SYSTEM";
     {
-        sys.items.push_back(wivrnToggle("EYE TRACKING", gWivrnEyeTracking));
+        MenuItem eyeT = wivrnToggle("EYE TRACKING", gWivrnEyeTracking);
+        eyeT.onChange = []{ gEyeTrackReapply.store(true); saveAllConfig(); };
+        sys.items.push_back(eyeT);
         sys.items.push_back(wivrnToggle("PASSTHROUGH", gWivrnPassthrough));
 
         MenuItem rec; rec.kind = MK_BUTTON; rec.label = "RECENTER";

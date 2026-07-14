@@ -1061,7 +1061,7 @@ void streaming_client::send_headset_info()
 	info.hand_tracking = false;
 	info.eye_gaze = gEyeSupported.load();
 	info.palm_pose = false;
-	info.user_presence = false;
+	info.user_presence = true;
 	info.passthrough = false;
 	info.face_tracking = gEyeSupported.load() ? from_headset::fb2 : from_headset::none;
 	info.num_generic_trackers = 0;

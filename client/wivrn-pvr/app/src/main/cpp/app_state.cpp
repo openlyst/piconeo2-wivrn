@@ -81,6 +81,13 @@ void saveAllConfig() {
     // Stream FOV: appended LAST so an older config.txt without it just leaves the
     // default on load (backward compatible, no positional migration).
     fprintf(f, "%.2f\n", gStreamFovDeg.load());
+    // WiVRn settings (appended after FOV, backward compatible).
+    fprintf(f, "%d\n", gWivrnTcpOnly.load() ? 1 : 0);
+    fprintf(f, "%.2f\n", gWivrnResolutionScale.load());
+    fprintf(f, "%.0f\n", gWivrnBitrateMbps.load());
+    fprintf(f, "%d\n", gWivrnMicrophone.load() ? 1 : 0);
+    fprintf(f, "%.2f\n", gWivrnCtrlVibration.load());
+    fprintf(f, "%d\n", gWivrnEyeTracking.load() ? 1 : 0);
     fclose(f);
 }
 
@@ -158,6 +165,13 @@ void loadAllConfig() {
     // Stream FOV (final line). Missing on an old file -> keep the default.
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%f", &fv) == 1)
         gStreamFovDeg.store(clampf(fv, kFovMin, kFovMax));
+    // WiVRn settings (appended, backward compatible).
+    if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) gWivrnTcpOnly.store(iv != 0);
+    if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%f", &fv) == 1) gWivrnResolutionScale.store(clampf(fv, 0.5f, 2.0f));
+    if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%f", &fv) == 1) gWivrnBitrateMbps.store(clampf(fv, 5.0f, 200.0f));
+    if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) gWivrnMicrophone.store(iv != 0);
+    if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%f", &fv) == 1) gWivrnCtrlVibration.store(clampf(fv, 0.0f, 1.0f));
+    if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) gWivrnEyeTracking.store(iv != 0);
     fclose(f);
     LOGI("config: loaded %s", path);
     }
