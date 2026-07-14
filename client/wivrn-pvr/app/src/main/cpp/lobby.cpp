@@ -367,10 +367,15 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	{
 		// Keep the panel planted in space, but make it billboard toward the head so
 		// the UI texture doesn't stretch from an oblique viewing angle.
-		float dx = head_pos[0] - panel_pos[0];
-		float dz = head_pos[2] - panel_pos[2];
-		if (fabsf(dx) > 1e-5f || fabsf(dz) > 1e-5f)
-			panel_yaw = atan2f(dx, dz);
+		// Skip in overlay mode — recenter_facing already set the correct yaw
+		// and we don't want to override it every frame.
+		if (!overlay)
+		{
+			float dx = head_pos[0] - panel_pos[0];
+			float dz = head_pos[2] - panel_pos[2];
+			if (fabsf(dx) > 1e-5f || fabsf(dz) > 1e-5f)
+				panel_yaw = atan2f(-dx, dz);
+		}
 		update_interaction(head_orient, head_pos, controllers, head_trigger);
 	}
 
@@ -599,7 +604,7 @@ void pico_lobby::recenter(const float head_pos[3], float head_yaw)
 {
 	constexpr float kPanelDist = 2.0f;
 	float cy = std::cosf(head_yaw), sy = std::sinf(head_yaw);
-	panel_pos[0] = (head_pos ? head_pos[0] : 0.0f) + sy * kPanelDist;
+	panel_pos[0] = (head_pos ? head_pos[0] : 0.0f) - sy * kPanelDist;
 	panel_pos[1] = head_pos ? head_pos[1] : 0.0f;
 	panel_pos[2] = (head_pos ? head_pos[2] : 0.0f) - cy * kPanelDist;
 	panel_yaw = head_yaw;
@@ -615,7 +620,7 @@ void pico_lobby::recenter_facing(const float head_pos[3], float fwd_x, float fwd
 	panel_pos[0] = head_pos[0] + fwd_x * kPanelDist;
 	panel_pos[1] = head_pos[1];
 	panel_pos[2] = head_pos[2] + fwd_z * kPanelDist;
-	panel_yaw = atan2f(-fwd_x, -fwd_z);
+	panel_yaw = atan2f(fwd_x, -fwd_z);
 	LOGI("Lobby recentered (facing), panel pos=(%.2f,%.2f,%.2f) yaw=%.2f fwd=(%.2f,%.2f)",
 	     panel_pos[0], panel_pos[1], panel_pos[2], panel_yaw, fwd_x, fwd_z);
 }
@@ -626,8 +631,8 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 	debug_laser_hit = false;
 
 	float cy = cosf(panel_yaw), sy = sinf(panel_yaw);
-	float normal[3] = {sy, 0, cy};
-	float u_axis[3] = {-cy, 0, sy};
+	float normal[3] = {-sy, 0, cy};
+	float u_axis[3] = {cy, 0, sy};
 	float v_axis[3] = {0, 1, 0};
 	float half_w = panel_w * 0.5f;
 	float half_h = panel_h * 0.5f;
@@ -711,7 +716,7 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 
 		if (last_hit[h].valid)
 		{
-			float px = (1.0f - (u + 1.0f) * 0.5f) * 1400.0f;
+			float px = ((u + 1.0f) * 0.5f) * 1400.0f;
 			float py = (1.0f - (v + 1.0f) * 0.5f) * 900.0f;
 
 			lobby_touch_x[h] = px;
@@ -778,7 +783,7 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 			debug_hit_v = v;
 			debug_trigger_down = head_trigger;
 
-			float px = (1.0f - (u + 1.0f) * 0.5f) * 1400.0f;
+			float px = ((u + 1.0f) * 0.5f) * 1400.0f;
 			float py = (1.0f - (v + 1.0f) * 0.5f) * 900.0f;
 
 			head_touch_x = px;
