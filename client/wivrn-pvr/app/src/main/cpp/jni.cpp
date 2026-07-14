@@ -482,4 +482,72 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetRenderResolution(JNIEnv *, 
     LOGI("Render resolution set to %dx%d", width, height);
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeRequestAppList(JNIEnv *, jobject) {
+    if (!g_stream || !g_stream->session) return;
+    LOGI("nativeRequestAppList");
+    try {
+        g_stream->session->send_control(wivrn::from_headset::get_application_list{
+            .language = "en",
+            .country = "US",
+            .variant = "",
+        });
+    } catch (std::exception & e) {
+        LOGE("Failed to request app list: %s", e.what());
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStartApp(JNIEnv * env, jobject, jstring appId) {
+    if (!g_stream || !g_stream->session) return;
+    const char * app_id_str = env->GetStringUTFChars(appId, nullptr);
+    if (app_id_str) {
+        LOGI("nativeStartApp: %s", app_id_str);
+        try {
+            g_stream->session->send_control(wivrn::from_headset::start_app{
+                .app_id = app_id_str,
+            });
+        } catch (std::exception & e) {
+            LOGE("Failed to start app: %s", e.what());
+        }
+        env->ReleaseStringUTFChars(appId, app_id_str);
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeRequestRunningApps(JNIEnv *, jobject) {
+    if (!g_stream || !g_stream->session) return;
+    try {
+        g_stream->session->send_control(wivrn::from_headset::get_running_applications{});
+    } catch (std::exception & e) {
+        LOGE("Failed to request running apps: %s", e.what());
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetActiveApp(JNIEnv *, jobject, jint appId) {
+    if (!g_stream || !g_stream->session) return;
+    LOGI("nativeSetActiveApp: %d", (int)appId);
+    try {
+        g_stream->session->send_control(wivrn::from_headset::set_active_application{
+            .id = (uint32_t)appId,
+        });
+    } catch (std::exception & e) {
+        LOGE("Failed to set active app: %s", e.what());
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStopApp(JNIEnv *, jobject, jint appId) {
+    if (!g_stream || !g_stream->session) return;
+    LOGI("nativeStopApp: %d", (int)appId);
+    try {
+        g_stream->session->send_control(wivrn::from_headset::stop_application{
+            .id = (uint32_t)appId,
+        });
+    } catch (std::exception & e) {
+        LOGE("Failed to stop app: %s", e.what());
+    }
+}
+
 

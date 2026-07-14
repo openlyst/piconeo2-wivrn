@@ -90,6 +90,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private native void nativeSetMicrophone(boolean enabled);
     private native void nativeSetStreamResolution(int width, int height);
     private native void nativeSetRenderResolution(int width, int height);
+    public native void nativeRequestAppList();
+    public native void nativeStartApp(String appId);
+    public native void nativeRequestRunningApps();
+    public native void nativeSetActiveApp(int appId);
+    public native void nativeStopApp(int appId);
     private WivrnLobbyView lobbyView;
     private volatile boolean mUiRenderRunning = false;
     private Thread mUiRenderThread;
@@ -760,11 +765,21 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     public void onStreamResolutionChanged(int width, int height) {
         try { nativeSetStreamResolution(width, height); } catch (Throwable t) { Log.e(TAG, "nativeSetStreamResolution failed", t); }
     }
-    public void onRequestAppList() {}
-    public void onRequestRunningApps() {}
-    public void onSetActiveApp(int appId) {}
-    public void onStartApp(String appId) {}
-    public void onStopApp(int appId) {}
+    public void onRequestAppList() {
+        try { nativeRequestAppList(); } catch (Throwable t) { Log.e(TAG, "nativeRequestAppList failed", t); }
+    }
+    public void onRequestRunningApps() {
+        try { nativeRequestRunningApps(); } catch (Throwable t) { Log.e(TAG, "nativeRequestRunningApps failed", t); }
+    }
+    public void onSetActiveApp(int appId) {
+        try { nativeSetActiveApp(appId); } catch (Throwable t) { Log.e(TAG, "nativeSetActiveApp failed", t); }
+    }
+    public void onStartApp(String appId) {
+        try { nativeStartApp(appId); } catch (Throwable t) { Log.e(TAG, "nativeStartApp failed", t); }
+    }
+    public void onStopApp(int appId) {
+        try { nativeStopApp(appId); } catch (Throwable t) { Log.e(TAG, "nativeStopApp failed", t); }
+    }
 
     public void requestPinEntry() {
         runOnUiThread(() -> {
