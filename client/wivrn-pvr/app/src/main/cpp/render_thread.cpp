@@ -3127,6 +3127,12 @@ void *renderThread(void *) {
         // pause block above -- so there are no frames to drain here. Audio keeps
         // running on its own client_core path, and the connection stays alive.)
 
+        // When streaming has started but the decoder isn't ready yet (first frame
+        // hasn't arrived), show BLACK instead of the lobby UI. The lobby render
+        // block below still runs (it owns the warp submit path), but we skip
+        // drawLobbyScene so the eye textures stay cleared to black.
+        bool showBlack = gStreaming && !gDecoderReady && !gManualLobby.load();
+
         // ---- lobby (pre-stream / between streams): world-locked IP/status/model
         // HUD + floor grid + eye-gaze marker (Neo 2 EYE). Rendered in BOTH render
         // modes: HW compositor renders each eye into a ring texture fed to the SDK
@@ -3709,8 +3715,10 @@ void *renderThread(void *) {
                         glViewport(0, 0, kLobbySz, kLobbySz);
                         glClearColor(0, 0, 0, 1);
                         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-                        drawLobbyScene(proj, view, eyeShift, eye);
-                        drawBatteryWarn(eye);   // low-battery popup, layered over lobby content
+                        if (!showBlack) {
+                            drawLobbyScene(proj, view, eyeShift, eye);
+                            drawBatteryWarn(eye);   // low-battery popup, layered over lobby content
+                        }
                     }
                     glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     // PIPELINE: fence THIS slot + glFlush so the GPU starts it, but
