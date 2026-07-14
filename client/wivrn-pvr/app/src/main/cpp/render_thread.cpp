@@ -2854,20 +2854,17 @@ void *renderThread(void *) {
                 if (diagTiming) { _tRender = nowNs(); if (_tRender - _tRenderStart > _mRender) _mRender = _tRender - _tRenderStart; }
 
                 {
-                    // CRITICAL (HW path): the video is rendered in ALVR's wgpu context.
-                    // Fence it (sync objects are shared across the share group) so the
-                    // warp -- which samples this slot a frame later -- never reads a
-                    // half-written texture. NOT glFinish (that stalls the warp thread).
-                    GLsync alvrFence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0); glFlush();
+                    // The video is rendered in ALVR's wgpu context. With the zero-pipeline
+                    // submit (current frame, not previous), we MUST guarantee the GPU has
+                    // finished writing the texture before handing it to the warp. glFinish
+                    // blocks the CPU until all GPU commands complete — a ~3ms stall for
+                    // the de-foveation blit, but it eliminates tearing. The old +1-frame
+                    // pipeline didn't need this because the submitted slot was already a
+                    // frame old (GPU-complete by construction).
+                    glFinish();
+                    GLsync alvrFence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
                     // wgpu made its ctx current; restore ours (offscreen pbuffer; the
                     // warp owns the window). Textures are shared across the group.
-                    // This restore is load-bearing and must stay unconditional: the SDK
-                    // warp hand-off (PVR_CameraEndFrame / glClientWaitSync at the top of
-                    // the NEXT iteration) requires OUR context current, not wgpu's, even
-                    // though they share an EGL group -- leaving wgpu's context current
-                    // (e.g. to skip this call when the HUD is off) aborts in submitSlot.
-                    // The ~1 eglMakeCurrent/frame is microseconds, not a bottleneck
-                    // (render~2.4ms, enq~12ms).
                     eglMakeCurrent(dpy, pbuf, pbuf, ctx);
                     // PicoNeo2 fork: NO encode blit. The forked stream shader already
                     // wrote the FINAL present-domain bytes (warm WB + linear->sRGB
@@ -3189,10 +3186,27 @@ void *renderThread(void *) {
             // per-eye submit desync.
             {
                 const uint64_t kVsyncNs = (uint64_t)(1e9 / 72.0);   // 72Hz panel (do NOT exceed)
-                // Absolute deadline from the iteration start (clock_nanosleep TIMER_ABSTIME)
-                // rather than a relative usleep of the remainder: the relative form
-                // oversleeps under load and drifts the cadence. No-op if already past.
-                sleepUntilMonoNs(tLoopStart + kVsyncNs);
+                // Align to the ACTUAL display vsync phase instead of the iteration
+                // start time. GetFractionalVsync() returns the fractional progress
+                // through the current refresh interval, so the next vsync boundary
+                // is (1-frac)*interval ahead. This keeps the loop phase-locked to
+                // the display instead of drifting on wall-clock time.
+                float interval = 1e9f / (gRefreshHint > 1.0f ? gRefreshHint : 72.0f);
+                double fv = PVR::GetFractionalVsync();
+                double frac = fv - floor(fv);
+                uint64_t sleepTarget;
+                if (frac >= 0.0 && frac <= 1.0) {
+                    // Sleep until the next vsync boundary
+                    sleepTarget = nowNs() + (uint64_t)((1.0 - frac) * interval);
+                } else {
+                    // Fallback: pace from iteration start
+                    sleepTarget = tLoopStart + kVsyncNs;
+                }
+                // Ensure we never sleep less than the iteration-start-based deadline
+                // (prevents spinning faster than 72Hz in the burst case).
+                uint64_t minTarget = tLoopStart + kVsyncNs;
+                if (sleepTarget < minTarget) sleepTarget = minTarget;
+                sleepUntilMonoNs(sleepTarget);
             }
             frame++; framesWithSurface++;
             continue;
