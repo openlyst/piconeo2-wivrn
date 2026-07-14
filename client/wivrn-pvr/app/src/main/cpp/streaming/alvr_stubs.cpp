@@ -7,11 +7,15 @@
 
 #include "streaming_client.h"
 #include "wivrn_stream_adapter.h"
+#include "pico_decoder.h"
 #include "stream_swap.h"
 
 #include <GLES3/gl3.h>
 #include <cstring>
 #include <string>
+#include <mutex>
+#include <android/log.h>
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "wivrn-pvr", __VA_ARGS__)
 
 static uint64_t hash_path(const char *path)
 {
@@ -23,6 +27,12 @@ static uint64_t hash_path(const char *path)
 	}
 	return h;
 }
+
+// Server render poses from the last synchronized blit, for the render
+// thread's warp baseline. Written by alvr_render_stream_opengl, read by
+// the render thread when setting up the warp pose.
+XrPosef gLastServerPoses[2] = {};
+std::mutex gServerPoseMutex;
 
 extern "C" {
 
@@ -135,24 +145,50 @@ void alvr_render_stream_opengl(void *, const struct AlvrStreamViewParams *)
 	if (!g_stream || gStreamW == 0 || gStreamH == 0)
 		return;
 
-	// Render into the swapchain at EYE dimensions, not the server's stream
-	// dimensions. The PVR warp's distortion mesh is built for the eye buffer
-	// resolution; if the swapchain is larger (server often sends more pixels
-	// than requested), the excess stays black. The blit pipeline scales the
-	// decoded frame (gStreamW x gStreamH) down to the eye dimensions.
 	const int eyeW = g_stream->eye_width.load();
 	const int eyeH = g_stream->eye_height.load();
 	if (eyeW <= 0 || eyeH <= 0)
 		return;
+
+	// If stream 1 falls far behind stream 0, flush its decoder so it can
+	// catch up. This prevents the right eye from showing stale frames.
+	{
+		uint64_t idx0 = g_stream->latest_decoded_frame_index_per_stream[0].load(std::memory_order_acquire);
+		uint64_t idx1 = g_stream->latest_decoded_frame_index_per_stream[1].load(std::memory_order_acquire);
+		if (idx0 > 0 && idx1 > 0)
+		{
+			int64_t gap = (int64_t)idx0 - (int64_t)idx1;
+			if (gap > 15 && g_stream->decoders[1])
+			{
+				static int flush_log_count = 0;
+				if (flush_log_count++ % 100 == 0)
+					LOGI("stream 1 behind by %lld frames, flushing", (long long)gap);
+				g_stream->decoders[1]->flush();
+			}
+		}
+	}
+
+	// Get synchronized frames for both eyes (same frame index) to prevent
+	// the right eye from stuttering when stream 1 lags behind stream 0.
+	std::shared_ptr<pico_decoded_frame> frames[2];
+	XrPosef poses[2];
+	wivrn_get_synced_frames(frames, poses);
 
 	for (int eye = 0; eye < 2; eye++) {
 		glBindFramebuffer(GL_FRAMEBUFFER, gStreamFbo);
 		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
 		                       GL_TEXTURE_2D, gSwap[eye][gSwapIdx], 0);
 		glViewport(0, 0, static_cast<GLsizei>(eyeW), static_cast<GLsizei>(eyeH));
-		wivrn_blit_eye(eye, eyeW, eyeH);
+		wivrn_blit_eye_frame(eye, frames[eye], eyeW, eyeH, &poses[eye]);
 	}
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	// Store the exact server poses from the frames that were blitted.
+	{
+		std::lock_guard<std::mutex> lk(gServerPoseMutex);
+		gLastServerPoses[0] = poses[0];
+		gLastServerPoses[1] = poses[1];
+	}
 }
 
 void alvr_create_decoder(struct AlvrDecoderConfig) {}

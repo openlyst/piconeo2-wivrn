@@ -4,6 +4,9 @@
 #include <GLES2/gl2ext.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+#include <openxr/openxr.h>
+#include <memory>
+#include <mutex>
 
 // Returns true if the WiVRn stream client exists and is actively streaming.
 bool wivrn_streaming();
@@ -20,4 +23,26 @@ bool wivrn_stream_resolution(int *w, int *h);
 // Blit the latest decoded WiVRn frame for one eye into the currently bound
 // FBO. The caller must have bound the destination framebuffer and viewport.
 // Returns true if a frame was available and blit.
-bool wivrn_blit_eye(int eye, int viewport_w, int viewport_h);
+// If out_pose is non-null, receives the server render pose from the blitted frame.
+bool wivrn_blit_eye(int eye, int viewport_w, int viewport_h, XrPosef * out_pose = nullptr);
+
+// Get synchronized frames for both eyes (same frame index). Returns the
+// frames and their server poses. The caller is responsible for binding the
+// FBO per eye and calling wivrn_blit_eye_frame.
+struct pico_decoded_frame;
+bool wivrn_get_synced_frames(std::shared_ptr<pico_decoded_frame> out_frames[2],
+                             XrPosef out_server_pose[2]);
+
+// Blit a specific frame for one eye into the currently bound FBO.
+bool wivrn_blit_eye_frame(int eye,
+                          const std::shared_ptr<pico_decoded_frame> & frame,
+                          int viewport_w, int viewport_h,
+                          XrPosef * out_pose = nullptr);
+
+// Server render poses from the last synchronized blit (set by the render
+// path, read by the render thread's warp setup).
+extern XrPosef gLastServerPoses[2];
+extern std::mutex gServerPoseMutex;
+
+// Returns the server render pose from the last synchronized blit.
+bool wivrn_get_server_pose(XrPosef out[2]);
