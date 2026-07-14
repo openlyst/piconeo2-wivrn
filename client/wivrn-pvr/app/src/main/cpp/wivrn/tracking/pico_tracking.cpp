@@ -910,8 +910,8 @@ void pico_native_tracker::transmit_inputs(int64_t headset_ns)
 		bool is_left = (c == 0);
 
 		float trigger_val = cs[c].trigger / 255.0f;
-		float touch_x = (cs[c].touch[1] - 128) / 128.0f;
-		float touch_y = (cs[c].touch[0] - 128) / 128.0f;
+		float touch_x = (cs[c].touch[0] - 128) / 128.0f;
+		float touch_y = (cs[c].touch[1] - 128) / 128.0f;
 		float trigger_click = trigger_val > 0.5f ? 1.0f : 0.0f;
 		float squeeze = cs[c].grip ? 1.0f : 0.0f;
 
