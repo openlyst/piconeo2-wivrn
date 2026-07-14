@@ -1773,6 +1773,13 @@ void *renderThread(void *) {
          guardian ? "StageLevel" : "FloorLevel", originRc, Pvr_GetFloorHeight(),
          guardian);
 
+    // With FloorLevel/StageLevel origin, the Pico SDK already reports Y
+    // relative to the real-world floor. Mark the tracker floor-relative so
+    // it sends the raw floor-relative height to the server instead of adding
+    // a forced 1.5m standing-height offset on top.
+    if (g_stream)
+        g_stream->tracker.floor_relative.store(true);
+
     // Capture the play-area extents (meters) BEFORE we tear the boundary system
     // down -- we forward them to SteamVR as the chaperone via alvr_send_playspace
     // once a stream starts. Best-effort: if the user never set a guardian, this
@@ -3445,7 +3452,6 @@ void *renderThread(void *) {
         {
             LOGI("recenter triggered by settings button");
             if (g_stream) {
-                g_stream->tracker.recenter_height();
                 g_stream->tracker.recenter_requested.store(true);
             }
             Pvr_ResetSensorAll();

@@ -37,7 +37,9 @@ static void do_full_recenter()
 
     if (g_stream)
     {
-        g_stream->tracker.recenter_height();
+        // Recentering resets yaw + X/Z position but must NOT change height.
+        // The floor-relative Y comes from the FloorLevel tracking origin and
+        // stays valid across a sensor reset, so we don't touch height_offset.
         g_stream->tracker.recenter_requested.store(true);
         g_stream->tracker.lobby_recenter_requested.store(true);
     }
