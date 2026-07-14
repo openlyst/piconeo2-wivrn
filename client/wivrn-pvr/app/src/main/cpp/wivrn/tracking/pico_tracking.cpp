@@ -532,7 +532,7 @@ void pico_native_tracker::run()
 				if (measured > 0)
 				{
 					int64_t base = base_prediction_ns.load();
-					constexpr int64_t photon_safety_ns = 7'000000LL;
+					constexpr int64_t photon_safety_ns = 3'000000LL;
 					int64_t target = measured + photon_safety_ns;
 					int64_t correction = target - base;
 					if (correction < 0) correction = 0;

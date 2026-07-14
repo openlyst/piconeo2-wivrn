@@ -2832,20 +2832,15 @@ void *renderThread(void *) {
                     PVR_TimeWarpEvent(0);
                 };
 
-                // SUBMIT THE PREVIOUS (already GPU-complete) FRAME *FIRST*, before
-                // we spend this iteration de-foveating the current one. The previous
-                // slot's textures + pose were finalized last frame and don't depend on
-                // anything we do below, so handing them to the warp now -- instead of
-                // after the render -- gets the frame in front of the warp ~one render's
-                // worth of CPU/GPU-issue time sooner each frame (lower motion-to-photon).
-                // Its fence is a full frame old, so the wait returns ~instantly.
-                // The inaugural frame (no previous slot yet) is submitted AFTER its own
-                // render below; ALVR's compositor_start/report_submit accounting
-                // stays paired on the current `ts` either way (the +1-frame texture
-                // hand-off is orthogonal to the latency bookkeeping).
+                // SUBMIT THE CURRENT frame right after rendering it (below), not the
+                // previous frame's slot. This eliminates the +1 frame of world-content
+                // latency (~14ms at 72Hz) that the old pipelined approach added.
+                // Trade-off: we must glClientWaitSync on the current frame's fence
+                // (up to ~20ms budget) instead of a frame-old fence that's already
+                // signalled. Under healthy streaming the blit is fast (<5ms GPU) so
+                // the wait returns well within budget.
                 bool firstFrame = !gPrevSwapValid;
                 uint64_t _tEnqStart = diagTiming ? nowNs() : 0;
-                if (!firstFrame) submitSlot(gPrevSwapIdx, 5000000ULL /* ~0ms; frame old */);
                 if (diagTiming) { uint64_t e = nowNs(); if (e - _tEnqStart > _mEnq) _mEnq = e - _tEnqStart; }
 
                 AlvrStreamViewParams svp[2];
@@ -3081,12 +3076,11 @@ void *renderThread(void *) {
                     gSwapFrameTs[gSwapIdx] = ts;
                     if (diagTiming) { _tEnc = nowNs(); if (_tEnc - _tEncStart > _mEnc) _mEnc = _tEnc - _tEncStart; }
 
-                    // The inaugural frame has no previous slot, so it wasn't submitted
-                    // by the previous-frame block above -- submit it now (after its own
-                    // render). The just-issued render fence isn't signalled yet, so the
-                    // client-wait gets a wide ~50ms budget; happens only once per stream
-                    // start / foveation re-sync, so the stall is cosmetic.
-                    if (firstFrame) submitSlot(gSwapIdx, 50000000ULL /* ~50ms: render in flight */);
+                    // Submit the CURRENT frame's slot now that rendering is done.
+                    // The fence was just issued, so wait with a generous budget.
+                    // This is the zero-pipeline path: the frame we just rendered
+                    // is the one handed to the warp, eliminating the +1 frame latency.
+                    submitSlot(gSwapIdx, 20000000ULL /* ~20ms: render in flight */);
                     gPrevSwapIdx = gSwapIdx; gPrevSwapValid = true;
                 }
                 // Report the submit->present queue time. GetFractionalVsync()'s
@@ -3098,17 +3092,10 @@ void *renderThread(void *) {
                 double frac = fv - floor(fv);
                 float timeToVsync = (frac >= 0.0 && frac <= 1.0) ? (float)((1.0 - frac) * interval)
                                                                  : interval;
-                // Account for the +1-frame submit pipeline. In steady state the texture
-                // we just rendered for `ts` is NOT the one handed to the warp this
-                // iteration -- that's the PREVIOUS slot. `ts`'s texture is submitted NEXT
-                // iteration and presents ~one interval LATER than the naive next-vsync,
-                // so its true submit->photon queue is interval + time-to-vsync. Reporting
-                // only time-to-vsync would understate frame `ts`'s latency by a whole
-                // frame and bias the server's pose-extrapolation horizon short (the warp
-                // hides head latency by reproject, but a truer horizon = less residual
-                // correction). The inaugural frame has no pipeline (submitted the same
-                // iteration), so it gets no +1.
-                float vsyncQ = timeToVsync + (firstFrame ? 0.0f : interval);
+                // No +1-frame pipeline: the texture we just rendered for `ts` IS the
+                // one handed to the warp this iteration, so its submit->photon queue
+                // is just the time to the next vsync.
+                float vsyncQ = timeToVsync;
                 alvr_report_submit(ts, (uint64_t) vsyncQ);
                 gSwapIdx = (gSwapIdx + 1) % kSwapLen;
                 // Measure actual decoder output. submits = loop iterations that
@@ -3166,6 +3153,8 @@ void *renderThread(void *) {
                             bd[0], bd[1], bd[2], bd[3], bd[4], bd[5]
                         };
                         g_stream->notify_stream_stats_detailed(stats, 13);
+                        LOGI("LATENCY: total=%.1fms enc=%.1f send=%.1f net=%.1f dec=%.1f wait=%.1f blit=%.1f",
+                             total_ms, bd[0], bd[1], bd[2], bd[3], bd[4], bd[5]);
                     }
 
                     gVidDecoded.store(sDecoded); gVidSubmit.store(sSubmits); gVidDropped.store(sDropped);
