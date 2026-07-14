@@ -1339,6 +1339,19 @@ static void *trackingThread(void *) {
             LOGI("controller world origin captured (%.2f,%.2f,%.2f)", px, py, pz);
         }
 
+        // All alvr_send_* functions are no-op stubs in the WiVRn streaming path.
+        // The pico_native_tracker (pico_tracking.cpp) handles all tracking uplink
+        // to the WiVRn server. Skip the useless ALVR velocity filtering, motion
+        // building, and button edge detection — they just waste CPU on the little
+        // cores and add gCtrlMutex contention that the pico_native_tracker doesn't
+        // need. The head pose is already published to gHeadData above, which is
+        // all the pico_native_tracker reads from this thread.
+        tframe++;
+        tsAddNs(nextTick, kPeriodNs);
+        clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &nextTick, nullptr);
+        continue;
+
+        // ---- Below: dead code (alvr_send_* are stubs) kept for reference ----
         AlvrDeviceMotion hmd = {};
         hmd.device_id = alvrHeadId;
         hmd.pose.orientation = { qx, qy, qz, qw };

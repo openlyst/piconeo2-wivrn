@@ -290,9 +290,9 @@ void pico_native_tracker::step_head_filter(const float pos[3], const neo2::quat 
 		double dt = (double)(ts - head_prev_ts) * 1e-9;
 		if (dt > 0.002 && dt < 0.05)
 		{
-			head_lin_vel[0] = (float)((pos[0] - head_prev_pos[0]) / dt);
-			head_lin_vel[1] = (float)((pos[1] - head_prev_pos[1]) / dt);
-			head_lin_vel[2] = (float)((pos[2] - head_prev_pos[2]) / dt);
+			float lvx = (float)((pos[0] - head_prev_pos[0]) / dt);
+			float lvy = (float)((pos[1] - head_prev_pos[1]) / dt);
+			float lvz = (float)((pos[2] - head_prev_pos[2]) / dt);
 
 			neo2::quat delta = neo2::normalize_quat(
 				neo2::multiply_quat(orient, neo2::conjugate_quat(head_prev_orient)));
@@ -304,19 +304,25 @@ void pico_native_tracker::step_head_filter(const float pos[3], const neo2::quat 
 			float w = delta.w > 1.0f ? 1.0f : delta.w;
 			float angle = 2.0f * std::acos(w);
 			float s = std::sqrt(1.0f - w * w);
+			float avx = 0, avy = 0, avz = 0;
 			if (s > 1e-6f)
 			{
 				float k = (angle / s) / (float)dt;
-				head_ang_vel[0] = delta.x * k;
-				head_ang_vel[1] = delta.y * k;
-				head_ang_vel[2] = delta.z * k;
+				avx = delta.x * k; avy = delta.y * k; avz = delta.z * k;
 			}
-			else
-			{
-				head_ang_vel[0] = 0;
-				head_ang_vel[1] = 0;
-				head_ang_vel[2] = 0;
-			}
+
+			// EMA smoothing (dt-normalized, rate-stable). tau=0.1s for head:
+			// filters differentiation noise from the 300Hz position sampling
+			// without adding noticeable lag. The WiVRn server's 2nd-order
+			// polynomial interpolator amplifies velocity noise into positional
+			// overshoot, so smoothing here directly reduces motion sickness.
+			const float a = 1.0f - expf(-(float)dt / 0.1f);
+			head_lin_vel[0] += (lvx - head_lin_vel[0]) * a;
+			head_lin_vel[1] += (lvy - head_lin_vel[1]) * a;
+			head_lin_vel[2] += (lvz - head_lin_vel[2]) * a;
+			head_ang_vel[0] += (avx - head_ang_vel[0]) * a;
+			head_ang_vel[1] += (avy - head_ang_vel[1]) * a;
+			head_ang_vel[2] += (avz - head_ang_vel[2]) * a;
 		}
 	}
 	head_prev_pos[0] = pos[0];
@@ -334,15 +340,16 @@ void pico_native_tracker::step_ctrl_filter(int hand, const float pos_m[3], const
 		double dt = (double)(ts - ctrl_prev_ts[hand]) * 1e-9;
 		if (dt > 0.002 && dt < 0.05)
 		{
-			ctrl_lin_vel[hand][0] = (float)((pos_m[0] - ctrl_prev_pos[hand][0]) / dt);
-			ctrl_lin_vel[hand][1] = (float)((pos_m[1] - ctrl_prev_pos[hand][1]) / dt);
-			ctrl_lin_vel[hand][2] = (float)((pos_m[2] - ctrl_prev_pos[hand][2]) / dt);
+			float lvx = (float)((pos_m[0] - ctrl_prev_pos[hand][0]) / dt);
+			float lvy = (float)((pos_m[1] - ctrl_prev_pos[hand][1]) / dt);
+			float lvz = (float)((pos_m[2] - ctrl_prev_pos[hand][2]) / dt);
 
+			float avx, avy, avz;
 			if (hw_ang_vel)
 			{
-				ctrl_ang_vel[hand][0] = -hw_ang_vel[0];
-				ctrl_ang_vel[hand][1] = -hw_ang_vel[1];
-				ctrl_ang_vel[hand][2] = hw_ang_vel[2];
+				avx = -hw_ang_vel[0];
+				avy = -hw_ang_vel[1];
+				avz = hw_ang_vel[2];
 			}
 			else
 			{
@@ -359,17 +366,23 @@ void pico_native_tracker::step_ctrl_filter(int hand, const float pos_m[3], const
 				if (s > 1e-6f)
 				{
 					float k = (angle / s) / (float)dt;
-					ctrl_ang_vel[hand][0] = delta.x * k;
-					ctrl_ang_vel[hand][1] = delta.y * k;
-					ctrl_ang_vel[hand][2] = delta.z * k;
+					avx = delta.x * k; avy = delta.y * k; avz = delta.z * k;
 				}
 				else
 				{
-					ctrl_ang_vel[hand][0] = 0;
-					ctrl_ang_vel[hand][1] = 0;
-					ctrl_ang_vel[hand][2] = 0;
+					avx = avy = avz = 0;
 				}
 			}
+
+			// EMA smoothing, tau=0.05s for controllers (faster than head's
+			// 0.1s — controllers need less lag for responsive interaction).
+			const float a = 1.0f - expf(-(float)dt / 0.05f);
+			ctrl_lin_vel[hand][0] += (lvx - ctrl_lin_vel[hand][0]) * a;
+			ctrl_lin_vel[hand][1] += (lvy - ctrl_lin_vel[hand][1]) * a;
+			ctrl_lin_vel[hand][2] += (lvz - ctrl_lin_vel[hand][2]) * a;
+			ctrl_ang_vel[hand][0] += (avx - ctrl_ang_vel[hand][0]) * a;
+			ctrl_ang_vel[hand][1] += (avy - ctrl_ang_vel[hand][1]) * a;
+			ctrl_ang_vel[hand][2] += (avz - ctrl_ang_vel[hand][2]) * a;
 		}
 	}
 	ctrl_prev_pos[hand][0] = pos_m[0];
@@ -591,7 +604,16 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 	from_headset::tracking pkt{};
 
 	pkt.production_timestamp = headset_ns;
-	pkt.timestamp = to_xr_time(headset_ns + prediction_ns.load());
+	// Send the pose at production_timestamp (when it was actually sampled).
+	// The server's polynomial interpolator uses this timestamp as the time
+	// axis for the pose — it will extrapolate from here to the target display
+	// time using the velocity we provide. The official WiVRn client sets
+	// timestamp = t0 + prediction_ns because OpenXR's xrLocateSpace already
+	// extrapolates the pose to that time; we don't have that, so we must NOT
+	// add prediction_ns (that would tell the server the pose is already at
+	// the predicted time, causing it to skip extrapolation and leaving the
+	// full pipeline latency as uncorrected motion delay).
+	pkt.timestamp = to_xr_time(headset_ns);
 
 	pkt.view_flags = XR_VIEW_STATE_ORIENTATION_VALID_BIT |
 	                 XR_VIEW_STATE_POSITION_VALID_BIT |
