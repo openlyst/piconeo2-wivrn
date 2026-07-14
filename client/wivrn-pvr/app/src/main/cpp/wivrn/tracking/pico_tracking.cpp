@@ -88,9 +88,12 @@ void pico_native_tracker::start()
 	if (running.load())
 		return;
 	running = true;
-	height_calibrated = false;
+	// Preserve height calibration across reconnects. Resetting here forces a
+	// recalibration to 1.5m on the first head pose, which breaks the height if
+	// the user already calibrated (e.g. sitting down). Only an explicit recenter
+	// should recalibrate.
 	thread = std::thread([this] { run(); });
-	spdlog::info("Native tracker started");
+	spdlog::info("Native tracker started (height_calibrated={})", height_calibrated);
 }
 
 void pico_native_tracker::stop()
