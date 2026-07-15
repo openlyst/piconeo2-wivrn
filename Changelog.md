@@ -1,4 +1,4 @@
-# RC6 (unreleased)
+# RC6
 
  - Add language support
  - Use the headset OK button to click stuff in the UI when you don't have controllers connected
