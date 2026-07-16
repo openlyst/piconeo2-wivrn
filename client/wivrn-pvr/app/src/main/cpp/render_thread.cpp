@@ -3712,37 +3712,6 @@ void *renderThread(void *) {
                 glBindVertexArray(0);
             }
             glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE);
-            // Native HUD text and SETTINGS window replaced by the ported WiVRn lobby UI.
-            // Controller laser beam (world-space) when a controller drives the pointer.
-            if (ptrFromController) {
-                const float L = laserLen;
-                float exr = laserOx + laserDx*L, eyr = laserOy + laserDy*L, ezr = laserOz + laserDz*L;
-                // WiVRn-style pointer beam: soft blue-white.
-                float lv[12] = { laserOx,laserOy,laserOz, 0.70f,0.82f,1.00f,
-                                 exr,eyr,ezr,                   0.70f,0.82f,1.00f };
-                glBindBuffer(GL_ARRAY_BUFFER, gLaserVbo);
-                glBufferData(GL_ARRAY_BUFFER, sizeof(lv), lv, GL_DYNAMIC_DRAW);
-                Mat4 lMvp = mat4Mul(sproj, sview);   // verts already in world space
-                glUseProgram(gProg);
-                glBindVertexArray(gLaserVao);
-                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, lMvp.m);
-                glDrawArrays(GL_LINES, 0, 2);
-                glBindVertexArray(0);
-            }
-            // Controller models: wireframe meshes attached to each live controller
-            // pose (room frame, like the laser). Mesh is pre-scaled to metres and
-            // centred at origin; model = T(pos) * R(quat).
-            for (int h = 0; h < 2; h++) {
-                if (!ctrlConn[h] || gCtrlVertCount[h] <= 0) continue;
-                Mat4 M = quatToMat4(ctrlQuat[h][0], ctrlQuat[h][1], ctrlQuat[h][2], ctrlQuat[h][3]);
-                M.m[12] = ctrlPos[h][0]; M.m[13] = ctrlPos[h][1]; M.m[14] = ctrlPos[h][2];
-                Mat4 cMvp = mat4Mul(sproj, mat4Mul(sview, M));
-                glUseProgram(gProg);
-                glBindVertexArray(gCtrlVao[h]);
-                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, cMvp.m);
-                glDrawArrays(GL_LINES, 0, gCtrlVertCount[h]);
-                glBindVertexArray(0);
-            }
             // Eye-gaze debug marker: the green disc at the live RAW Tobii gaze point.
             // Gated by the persisted EYE DEBUG toggle (in the settings panel).
             if (gEyeDebugOn.load() && gEyeOnline.load() && gGazeValid.load() && gGazeVertCount > 0) {
