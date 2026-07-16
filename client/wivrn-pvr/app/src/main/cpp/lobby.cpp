@@ -395,9 +395,11 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 
 	Mat4 vp = mat4_mul(proj, view);
 
+	draw_quad(head_orient, head_pos, fov, ipd, eye);
+
 	if (draw_controllers)
 	{
-		glDepthMask(GL_TRUE);
+		glDisable(GL_DEPTH_TEST);
 		static int ctrl_log_count = 0;
 		bool any_ctrl = false;
 		for (int h = 0; h < 2; h++)
@@ -453,11 +455,10 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 			     controllers[0].position[0]*0.001f, controllers[0].position[1]*0.001f, controllers[0].position[2]*0.001f,
 			     controllers[1].position[0]*0.001f, controllers[1].position[1]*0.001f, controllers[1].position[2]*0.001f);
 
+		glEnable(GL_DEPTH_TEST);
 		glBindVertexArray(0);
 		glUseProgram(0);
 	}
-
-	draw_quad(head_orient, head_pos, fov, ipd, eye);
 }
 
 GLuint pico_lobby::get_external_texture()
