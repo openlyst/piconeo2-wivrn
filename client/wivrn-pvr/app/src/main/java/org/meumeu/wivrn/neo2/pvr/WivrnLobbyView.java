@@ -2112,7 +2112,7 @@ public class WivrnLobbyView {
 
             float stickMag = Math.abs(thumbstickY);
             if (stickMag > 0.3f) {
-                thumbstickAccum += thumbstickY * 15f;
+                thumbstickAccum -= thumbstickY * 15f;
                 if (Math.abs(thumbstickAccum) >= 1f) {
                     launchScrollY = Math.max(0, Math.min(launchMaxScroll, launchScrollY + thumbstickAccum));
                     thumbstickAccum = 0;
