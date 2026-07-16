@@ -4,7 +4,6 @@
 #include "eye_tracking.h"
 #include "latency_tracker.h"
 #include "input.h"
-#include "app_state.h"
 
 #include <spdlog/spdlog.h>
 #include <android/log.h>
@@ -511,7 +510,7 @@ void pico_native_tracker::run()
 					svrRecenterOrientation();
 					recenterHeadTrackerAW();
 					recenter_requested.store(true);
-					gLobbyRecenterReq.store(true);
+					lobby_recenter_requested.store(true);
 				}
 				home_press_ts[h] = 0;
 			}
