@@ -26,21 +26,32 @@ jobs:
         with:
           packages: 'ndk;26.3.11579264 cmake;3.22.1'
 
-      - name: Build debug APK
+      - name: Decode signing keystore
         working-directory: client/wivrn-pvr
-        run: ./gradlew :app:assembleDebug --no-daemon
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > wivrn-release.keystore
+          cat > ../keystore.properties <<'PROPS'
+          storeFile=wivrn-release.keystore
+          PROPS
+          echo "storePassword=${{ secrets.KEYSTORE_PASSWORD }}" >> ../keystore.properties
+          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> ../keystore.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> ../keystore.properties
+
+      - name: Build release APK
+        working-directory: client/wivrn-pvr
+        run: ./gradlew :app:assembleRelease --no-daemon
 
       - name: Rename APK
         run: |
           mkdir -p artifacts
-          cp client/wivrn-pvr/app/build/outputs/apk/debug/app-debug.apk \
-             artifacts/wivrn-pvr-debug.apk
+          cp client/wivrn-pvr/app/build/outputs/apk/release/app-release.apk \
+             artifacts/wivrn-pvr-release.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: wivrn-pvr-apk
-          path: artifacts/wivrn-pvr-debug.apk
+          path: artifacts/wivrn-pvr-release.apk
           retention-days: 0
 
       - name: Get short SHA
@@ -53,5 +64,11 @@ jobs:
         with:
           tag_name: ci-${{ steps.sha.outputs.sha7 }}
           name: Build ${{ steps.sha.outputs.sha7 }}
-          files: artifacts/wivrn-pvr-debug.apk
+          files: artifacts/wivrn-pvr-release.apk
           prerelease: true
+
+      - name: Clean up signing secrets
+        if: always()
+        working-directory: client/wivrn-pvr
+        run: |
+          rm -f wivrn-release.keystore ../keystore.properties

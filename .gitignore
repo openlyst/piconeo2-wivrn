@@ -19,6 +19,7 @@ a.out
 *.pgm
 *.zip
 *.keystore
+keystore.properties
 gradle.properties
 local.properties
 compile_commands.json
