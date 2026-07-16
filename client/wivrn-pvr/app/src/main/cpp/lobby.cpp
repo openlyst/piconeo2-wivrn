@@ -400,6 +400,7 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	if (draw_controllers)
 	{
 		glDisable(GL_DEPTH_TEST);
+		glUseProgram(program);
 		static int ctrl_log_count = 0;
 		bool any_ctrl = false;
 		for (int h = 0; h < 2; h++)
