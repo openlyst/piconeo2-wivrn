@@ -365,17 +365,6 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 
 	if (eye == 0)
 	{
-		// Keep the panel planted in space, but make it billboard toward the head so
-		// the UI texture doesn't stretch from an oblique viewing angle.
-		// Skip in overlay mode — recenter_facing already set the correct yaw
-		// and we don't want to override it every frame.
-		if (!overlay)
-		{
-			float dx = head_pos[0] - panel_pos[0];
-			float dz = head_pos[2] - panel_pos[2];
-			if (fabsf(dx) > 1e-5f || fabsf(dz) > 1e-5f)
-				panel_yaw = atan2f(-dx, dz);
-		}
 		update_interaction(head_orient, head_pos, controllers, head_trigger);
 	}
 
@@ -639,7 +628,7 @@ void pico_lobby::recenter_facing(const float head_pos[3], float fwd_x, float fwd
 	panel_pos[0] = head_pos[0] + fwd_x * kPanelDist;
 	panel_pos[1] = head_pos[1];
 	panel_pos[2] = head_pos[2] + fwd_z * kPanelDist;
-	panel_yaw = atan2f(fwd_x, -fwd_z);
+	panel_yaw = atan2f(-fwd_x, -fwd_z);
 	LOGI("Lobby recentered (facing), panel pos=(%.2f,%.2f,%.2f) yaw=%.2f fwd=(%.2f,%.2f)",
 	     panel_pos[0], panel_pos[1], panel_pos[2], panel_yaw, fwd_x, fwd_z);
 }
