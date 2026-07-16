@@ -666,19 +666,6 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 		float dir[3] = {0, 0, -1};
 		float ray_dir[3];
 		neo2::rotate_vector(cq, dir, ray_dir);
-		// Match wivrn-pvr's controller laser: pitch the beam down 30 degrees in the
-		// controller's local frame (toward its local -Y / underside).
-		float up_dir[3] = {0, 1, 0};
-		float ray_up[3];
-		neo2::rotate_vector(cq, up_dir, ray_up);
-		const float kTilt = 30.0f * 0.01745329f;
-		float ca = cosf(kTilt), sa = sinf(kTilt);
-		float tilted_dir[3] = {
-			ray_dir[0] * ca - ray_up[0] * sa,
-			ray_dir[1] * ca - ray_up[1] * sa,
-			ray_dir[2] * ca - ray_up[2] * sa,
-		};
-		for (int i = 0; i < 3; i++) ray_dir[i] = tilted_dir[i];
 
 		float u, v;
 		bool hit = ray_plane_intersect(origin, ray_dir, panel_pos, normal, u_axis, v_axis, half_w, half_h, u, v);
