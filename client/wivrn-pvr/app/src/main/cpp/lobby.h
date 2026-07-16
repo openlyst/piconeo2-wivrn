@@ -96,6 +96,10 @@ public:
 	float head_touch_y = -1;
 	bool head_touch_down = false;
 	bool head_touch_pressed = false;
+	float prev_head_touch_x = -2;
+	float prev_head_touch_y = -2;
+	bool prev_head_touch_down = false;
+	bool prev_head_touch_pressed = false;
 	pico_lobby() = default;
 	~pico_lobby();
 

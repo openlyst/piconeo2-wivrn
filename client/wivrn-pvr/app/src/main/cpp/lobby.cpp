@@ -799,10 +799,32 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 		}
 
 		prev_head_trigger = head_trigger;
+
+		bool head_touch_changed =
+			head_touch_x != prev_head_touch_x ||
+			head_touch_y != prev_head_touch_y ||
+			head_touch_down != prev_head_touch_down ||
+			head_touch_pressed != prev_head_touch_pressed;
+		if (head_touch_changed) {
+			push_lobby_touch_to_java(-1, head_touch_x, head_touch_y,
+			                         head_touch_down, head_touch_pressed, 0.0f);
+			prev_head_touch_x = head_touch_x;
+			prev_head_touch_y = head_touch_y;
+			prev_head_touch_down = head_touch_down;
+			prev_head_touch_pressed = head_touch_pressed;
+		}
 	}
 	else
 	{
 		prev_head_trigger = false;
+		// Controllers took over — clear any stale head cursor on the Java side.
+		if (prev_head_touch_x >= -1 || prev_head_touch_down || prev_head_touch_pressed) {
+			push_lobby_touch_to_java(-1, -1, -1, false, false, 0.0f);
+			prev_head_touch_x = -2;
+			prev_head_touch_y = -2;
+			prev_head_touch_down = false;
+			prev_head_touch_pressed = false;
+		}
 	}
 
 	if (!debug_laser_hit)
