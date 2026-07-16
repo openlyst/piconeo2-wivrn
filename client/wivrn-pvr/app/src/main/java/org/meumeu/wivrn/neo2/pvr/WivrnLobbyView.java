@@ -2090,8 +2090,6 @@ public class WivrnLobbyView {
         touchDown = down;
         touchPressed = pressed;
 
-        android.util.Log.i("WiVRn-Lobby", "handleTouch x=" + x + " y=" + y + " down=" + down + " pressed=" + pressed + " state=" + connectionState);
-
         if (pressed) {
             android.util.Log.i("WiVRn-Lobby", "CLICK DISPATCH x=" + x + " y=" + y + " state=" + connectionState + " tab=" + currentTab);
         }

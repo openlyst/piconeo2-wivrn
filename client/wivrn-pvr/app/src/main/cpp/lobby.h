@@ -115,6 +115,7 @@ public:
 	void recenter_facing(const float head_pos[3], float fwd_x, float fwd_z);
 
 	void update_texture(int width, int height, const void * pixels);
+	void update_texture_argb(int width, int height, const uint32_t * pixels);
 	void flush_pending_texture();
 	GLuint get_external_texture();
 	void set_surface_texture(jobject st, jmethodID update_method);

@@ -498,6 +498,25 @@ void pico_lobby::update_texture(int width, int height, const void * pixels)
 	tex_pending = true;
 }
 
+void pico_lobby::update_texture_argb(int width, int height, const uint32_t * pixels)
+{
+	std::lock_guard<std::mutex> lock(tex_mutex);
+	pending_tex_w = width;
+	pending_tex_h = height;
+	size_t n = (size_t)width * height;
+	pending_tex_data.resize(n * 4);
+	const uint32_t *src = pixels;
+	uint8_t *dst = pending_tex_data.data();
+	for (size_t i = 0; i < n; i++) {
+		uint32_t px = src[i];
+		dst[i * 4]     = (uint8_t)((px >> 16) & 0xFF);
+		dst[i * 4 + 1] = (uint8_t)((px >> 8)  & 0xFF);
+		dst[i * 4 + 2] = (uint8_t)(px         & 0xFF);
+		dst[i * 4 + 3] = (uint8_t)((px >> 24) & 0xFF);
+	}
+	tex_pending = true;
+}
+
 void pico_lobby::flush_pending_texture()
 {
 	std::lock_guard<std::mutex> lock(tex_mutex);

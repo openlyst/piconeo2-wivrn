@@ -78,7 +78,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private final float[] mHaptic = new float[2];
 
     // Ported WiVRn lobby UI (matches pico_oxr).
-    private native void nativeUpdateLobbyTexture(byte[] pixels, int width, int height);
+    private native void nativeUpdateLobbyTexture(int[] pixels, int width, int height);
     public native void nativeSetFov(float fovDeg);
     private native boolean nativeReady();
     private native void nativeConnect(String hostname, int port, boolean tcpOnly);
@@ -705,7 +705,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             final int w = 1400;
             final int h = 900;
             int[] pixels = new int[w * h];
-            byte[] rgba = new byte[w * h * 4];
             int frameCount = 0;
             while (mUiRenderRunning) {
                 try {
@@ -713,14 +712,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                         lobbyView.render();
                         Bitmap bmp = lobbyView.getBitmap();
                         bmp.getPixels(pixels, 0, w, 0, 0, w, h);
-                        for (int i = 0; i < pixels.length; i++) {
-                            int px = pixels[i];
-                            rgba[i * 4]     = (byte) ((px >> 16) & 0xFF); // R
-                            rgba[i * 4 + 1] = (byte) ((px >> 8)  & 0xFF); // G
-                            rgba[i * 4 + 2] = (byte) (px        & 0xFF); // B
-                            rgba[i * 4 + 3] = (byte) ((px >> 24) & 0xFF); // A
-                        }
-                        nativeUpdateLobbyTexture(rgba, w, h);
+                        nativeUpdateLobbyTexture(pixels, w, h);
                         lobbyView.markClean();
                         if (++frameCount % 60 == 0)
                             Log.i(TAG, "lobby UI frame " + frameCount + " uploaded");
