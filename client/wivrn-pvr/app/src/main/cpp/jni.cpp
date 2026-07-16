@@ -289,17 +289,19 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStop(JNIEnv *env, jobject thiz
     LOGI("nativeStop done");
 }
 
-// Update the lobby UI texture from Java-side Bitmap pixels (RGBA bytes).
+// Update the lobby UI texture from Java-side Bitmap pixels (ARGB ints).
+// The per-pixel ARGB→RGBA conversion is done here in C++ instead of a slow
+// Java loop — 1.26M iterations in interpreted Java was the UI framerate killer.
 extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeUpdateLobbyTexture(
-        JNIEnv *env, jobject thiz, jbyteArray pixels, jint width, jint height) {
+        JNIEnv *env, jobject thiz, jintArray pixels, jint width, jint height) {
     (void) thiz;
     if (!gLobby || !pixels) return;
     jsize n = env->GetArrayLength(pixels);
-    if (n < width * height * 4) return;
-    std::vector<uint8_t> buf(n);
-    env->GetByteArrayRegion(pixels, 0, n, (jbyte *)buf.data());
-    gLobby->update_texture(width, height, buf.data());
+    if (n < width * height) return;
+    std::vector<uint32_t> argb(n);
+    env->GetIntArrayRegion(pixels, 0, n, (jint *)argb.data());
+    gLobby->update_texture_argb(width, height, argb.data());
 }
 
 // Push the latest lobby pointer state back to the Java UI thread. Called from the
