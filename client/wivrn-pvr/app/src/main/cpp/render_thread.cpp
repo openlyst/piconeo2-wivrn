@@ -3457,23 +3457,12 @@ void *renderThread(void *) {
                 float ux = 2.0f*(qx2*qy2 - qw2*qz2);
                 float uy = 1.0f - 2.0f*(qx2*qx2 + qz2*qz2);
                 float uz = 2.0f*(qy2*qz2 + qw2*qx2);
-                // Tilt the laser DOWN 30deg in the controller's local frame (toward
-                // its underside) -- more natural pointing ergonomics. Pitch the
-                // forward vector toward -up (up = controller local +Y axis).
-                {
-                    const float th = 30.0f * 0.01745329f;
-                    float ca = cosf(th), sa = sinf(th);
-                    ptrDx = ptrDx*ca - ux*sa;
-                    ptrDy = ptrDy*ca - uy*sa;
-                    ptrDz = ptrDz*ca - uz*sa;
-                }
                 // Emit from a FIXED point on the model -- the front-top tip near
                 // the ring/trigger -- expressed in the controller's OWN axes
                 // (untilted forward + local up), so it stays anchored there in
-                // every orientation (offsetting along the tilted beam looked
-                // centred head-on but drifted off from the side).
+                // every orientation.
                 const float kFrontOff = 0.075f;    // toward the front tip (pointing axis)
-                const float kUpOff    = -0.005f;   // down the front face toward the tip (was +0.025)
+                const float kUpOff    = -0.005f;   // down the front face toward the tip
                 ptrOx = cc[h].pos[0]*0.001f + fwd0x*kFrontOff + ux*kUpOff;
                 ptrOy = cc[h].pos[1]*0.001f + fwd0y*kFrontOff + uy*kUpOff;
                 ptrOz = cc[h].pos[2]*0.001f + fwd0z*kFrontOff + uz*kUpOff;
