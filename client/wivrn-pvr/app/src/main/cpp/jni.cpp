@@ -43,8 +43,13 @@ static void do_full_recenter()
         // after the reset makes Y=0.
         g_stream->tracker.recenter_height();
         g_stream->tracker.recenter_requested.store(true);
-        g_stream->tracker.lobby_recenter_requested.store(true);
     }
+
+    // Always recenter the lobby panel after a sensor reset — the head frame
+    // changes, so the old panel position/yaw is invalid. The render thread
+    // does a simple fixed recenter (panel at origin + 2m forward, yaw=0)
+    // since the sensor reset already makes the head face forward.
+    gLobbyRecenterReq.store(true);
 
     // Full sensor reset: reset position + orientation (including tilt for 3DoF),
     // then recenter the head tracker so the current facing becomes forward.

@@ -3481,31 +3481,31 @@ void *renderThread(void *) {
                 hudAnchored = false;
                 if (gLobby) {
                     float fx = -headRot.m[8], fz = -headRot.m[10];
-                    float fn = sqrtf(fx*fx + fz*fz);
-                    if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
-                    float yaw = atan2f(-fx, -fz);
                     float hp[3] = {px, py, pz};
-                    gLobby->recenter(hp, yaw);
+                    gLobby->recenter_facing(hp, fx, fz);
                 }
             }
             recenterPrev = recenterDown;
         }
 
         // Full recenter from controller home long-press or settings button:
-        // tracker sets lobby_recenter_requested, render thread does the lobby
-        // panel re-anchor (needs head pose which the tracker doesn't have in
-        // world space). Sensor reset + height calibration already done by tracker.
+        // do_full_recenter() already did the sensor reset + set gLobbyRecenterReq.
+        // The tracker's lobby_recenter_requested is now redundant — handled below.
         if (g_stream && g_stream->tracker.lobby_recenter_requested.exchange(false))
+        {
+            // Already handled by gLobbyRecenterReq below.
+        }
+
+        // Lobby recenter after sensor reset: the sensor reset makes the head
+        // face forward at origin, so just place the panel 2m ahead at yaw=0.
+        // Reading the head pose here would race with the tracking thread
+        // (stale pre-reset orientation → wrong yaw → rotated panel).
+        if (gLobbyRecenterReq.exchange(false))
         {
             hudAnchored = false;
             if (gLobby) {
-                float fx = -headRot.m[8], fz = -headRot.m[10];
-                float fn = sqrtf(fx*fx + fz*fz);
-                if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
-                float yaw = atan2f(-fx, -fz);
-                float hp[3] = {px, py, pz};
-                gLobby->recenter(hp, yaw);
-                LOGI("lobby recentered by controller home long-press");
+                gLobby->recenter(nullptr, 0.0f);
+                LOGI("lobby recentered after sensor reset (fixed yaw=0)");
             }
         }
 
@@ -3521,14 +3521,7 @@ void *renderThread(void *) {
             svrRecenterOrientation();
             recenterHeadTrackerAW();
             hudAnchored = false;
-            if (gLobby) {
-                float fx = -headRot.m[8], fz = -headRot.m[10];
-                float fn = sqrtf(fx*fx + fz*fz);
-                if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
-                float yaw = atan2f(-fx, -fz);
-                float hp[3] = {px, py, pz};
-                gLobby->recenter(hp, yaw);
-            }
+            gLobbyRecenterReq.store(true);
         }
 
         bool okClicked = gOkClick.exchange(false);

@@ -46,6 +46,7 @@ extern std::atomic<bool>   gWivrnPassthrough;
 extern std::atomic<bool>   gWivrnMicrophone;
 extern std::atomic<float>  gWivrnCtrlVibration; // 0..1
 extern std::atomic<bool>   gWivrnRecenterReq;   // one-shot button flag
+extern std::atomic<bool>   gLobbyRecenterReq;   // one-shot: recenter lobby after sensor reset
 
 // ---- Stream FOV (higher-DPI lever) -----------------------------------------
 // The server renders into a FIXED per-eye buffer (1664^2) at whatever FOV the
