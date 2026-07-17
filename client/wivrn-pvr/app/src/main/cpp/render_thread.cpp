@@ -2577,6 +2577,28 @@ void *renderThread(void *) {
                     gLobby->recenter_facing(hp, fx, fz);
                 }
             }
+            // Notify the server that the user is interacting with the in-stream
+            // lobby overlay, mirroring WiVRn's session_state_changed +
+            // stream_tab_changed flow.  When the overlay is open the session
+            // drops to VISIBLE so the server (and SteamVR overlays) know the
+            // user is in a menu and can react accordingly; when it closes we
+            // restore FOCUSED + hidden tab.
+            if (g_stream && g_stream->session) {
+                try {
+                    g_stream->session->send_control(
+                        from_headset::session_state_changed{
+                            .state = nowLobby ? XR_SESSION_STATE_VISIBLE
+                                              : XR_SESSION_STATE_FOCUSED,
+                        });
+                    g_stream->session->send_control(
+                        from_headset::stream_tab_changed{
+                            .tab = nowLobby ? stream_tab::applications
+                                            : stream_tab::hidden,
+                        });
+                } catch (std::exception & e) {
+                    LOGI("toggleManualLobby: failed to notify server: %s", e.what());
+                }
+            }
             gOkClick.store(false);               // swallow any pending click
             LOGI("%s -> manual lobby = %d (stream stays alive)", why, (int)nowLobby);
         };

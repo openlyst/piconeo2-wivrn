@@ -2,6 +2,7 @@
 #include "pico_stutter.h"
 #include "latency_tracker.h"
 #include "eye_tracking.h"
+#include "app_state.h"   // gManualLobby (in-stream lobby overlay flag)
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/android_sink.h>
@@ -769,11 +770,15 @@ void streaming_client::network_loop()
 
 			// Re-send session state every 2s so the server updates
 			// visibility/focus for newly connected OpenXR apps.
+			// When the in-stream lobby overlay (gManualLobby) is open the
+			// session is VISIBLE, not FOCUSED, so the server and SteamVR
+			// overlays know the user is interacting with a menu.
 			if (now - last_state_ping_ns > 2'000'000'000LL)
 			{
 				last_state_ping_ns = now;
 				session->send_control(from_headset::session_state_changed{
-					.state = XR_SESSION_STATE_FOCUSED,
+					.state = gManualLobby.load() ? XR_SESSION_STATE_VISIBLE
+					                             : XR_SESSION_STATE_FOCUSED,
 				});
 			}
 
