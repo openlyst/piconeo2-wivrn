@@ -96,6 +96,9 @@ public class WivrnLobbyView {
     private float dragStartScroll = 0;
     private float prevTouchY = -1;
     private float thumbstickAccum = 0;
+    private float settingsScrollY = 0;
+    private float settingsMaxScroll = 0;
+    private float settingsThumbstickAccum = 0;
     private float pressStartX = -1;
     private float pressStartY = -1;
     private boolean pressDragged = false;
@@ -161,6 +164,7 @@ public class WivrnLobbyView {
     private boolean microphoneEnabled = false;
     private boolean lowerResWireless = false;
     private boolean dynamicBitrate = true;
+    private boolean passthroughEnabled = true;
     private int languageSetting = 0;
 
     private String addServerName = "";
@@ -713,6 +717,7 @@ public class WivrnLobbyView {
         streamResolutionScale = sp.getInt("stream_resolution_scale", 100);
         lowerResWireless = sp.getBoolean("lower_res_wireless", false);
         dynamicBitrate = sp.getBoolean("dynamic_bitrate", true);
+        passthroughEnabled = sp.getBoolean("passthrough", true);
         languageSetting = sp.getInt("language", 0);
     }
 
@@ -731,6 +736,7 @@ public class WivrnLobbyView {
             .putInt("stream_resolution_scale", streamResolutionScale)
             .putBoolean("lower_res_wireless", lowerResWireless)
             .putBoolean("dynamic_bitrate", dynamicBitrate)
+            .putBoolean("passthrough", passthroughEnabled)
             .putInt("language", languageSetting)
             .apply();
     }
@@ -1083,6 +1089,13 @@ public class WivrnLobbyView {
     }
 
     private void renderSettings(float x, float w) {
+        float contentTop = TOPBAR_HEIGHT + 10;
+        float contentH = height - contentTop - 10;
+
+        canvas.save();
+        canvas.clipRect(0, contentTop, width, contentTop + contentH);
+        canvas.translate(0, -settingsScrollY);
+
         float y = 30;
 
         canvas.drawText(i18n.s(R.string.settings_title), x, y + 30, textLargePaint);
@@ -1101,6 +1114,7 @@ public class WivrnLobbyView {
         y = drawCheckbox(x, y, w, i18n.s(R.string.setting_microphone), microphoneEnabled, false);
         y = drawCheckbox(x, y, w, i18n.s(R.string.setting_lower_res_wireless), lowerResWireless, false);
         y = drawCheckbox(x, y, w, i18n.s(R.string.setting_dynamic_bitrate), dynamicBitrate, false);
+        y = drawCheckbox(x, y, w, "PASSTHROUGH", passthroughEnabled, false);
 
         y = drawDropdown(x, y, w, i18n.s(R.string.setting_language),
             new String[]{i18n.s(R.string.lang_system), "English", "简体中文"},
@@ -1108,9 +1122,15 @@ public class WivrnLobbyView {
 
         y += 20;
         RectF resetBtn = new RectF(x, y, x + 200, y + BUTTON_HEIGHT);
-        boolean resetHover = touchDown && resetBtn.contains(touchX, touchY);
+        boolean resetHover = touchDown && resetBtn.contains(touchX, touchY + settingsScrollY);
         canvas.drawRoundRect(resetBtn, 10, 10, resetHover ? buttonDangerBgPaint : buttonDangerBgPaint);
         drawCenteredText(i18n.s(R.string.restore_defaults), resetBtn, textPaint);
+
+        float totalContentH = y + BUTTON_HEIGHT + 20;
+        settingsMaxScroll = Math.max(0, totalContentH - contentH);
+        settingsScrollY = Math.max(0, Math.min(settingsScrollY, settingsMaxScroll));
+
+        canvas.restore();
 
         if (showResetConfirm) {
             renderResetConfirmDialog();
@@ -2120,6 +2140,18 @@ public class WivrnLobbyView {
             } else {
                 thumbstickAccum = 0;
             }
+        } else if ((connectionState != STATE_CONNECTED && currentTab == TAB_SETTINGS) ||
+                   (connectionState == STATE_CONNECTED && streamTab == STREAM_TAB_SETTINGS)) {
+            float stickMag = Math.abs(thumbstickY);
+            if (stickMag > 0.3f) {
+                settingsThumbstickAccum -= thumbstickY * 15f;
+                if (Math.abs(settingsThumbstickAccum) >= 1f) {
+                    settingsScrollY = Math.max(0, Math.min(settingsMaxScroll, settingsScrollY + settingsThumbstickAccum));
+                    settingsThumbstickAccum = 0;
+                }
+            } else {
+                settingsThumbstickAccum = 0;
+            }
         }
 
         prevTouchY = touchY;
@@ -2160,7 +2192,7 @@ public class WivrnLobbyView {
 
     private void handleSliderDrag(float x, float y) {
         float contentX, sliderW;
-        float adjustedY = y - (TOPBAR_HEIGHT + 10);
+        float adjustedY = y - (TOPBAR_HEIGHT + 10) + settingsScrollY;
 
         if (connectionState == STATE_CONNECTED && streamTab == STREAM_TAB_SETTINGS) {
             handleSettingsSliderDrag(x, adjustedY);
@@ -2250,7 +2282,7 @@ public class WivrnLobbyView {
                 handleServerListClick(x, adjustedY);
                 break;
             case TAB_SETTINGS:
-                handleSettingsClick(x, adjustedY);
+                handleSettingsClick(x, adjustedY + settingsScrollY);
                 break;
             case TAB_ABOUT:
                 handleAboutClick(x, adjustedY);
@@ -2369,7 +2401,7 @@ public class WivrnLobbyView {
         }
 
         if (streamTab == STREAM_TAB_SETTINGS) {
-            float adjustedY = y - (TOPBAR_HEIGHT + 10);
+            float adjustedY = y - (TOPBAR_HEIGHT + 10) + settingsScrollY;
             handleSettingsClick(x, adjustedY);
             return;
         }
@@ -2594,6 +2626,17 @@ public class WivrnLobbyView {
             dynamicBitrate = !dynamicBitrate;
             saveSettings();
             ((MainActivity) context).nativeSetDynamicBitrate(dynamicBitrate);
+            markDirty();
+            return;
+        }
+        sy += 40;
+
+        // Passthrough
+        RectF ptCheckbox = new RectF(contentX, sy, contentX + 30, sy + 30);
+        if (ptCheckbox.contains(x, y) || (x >= contentX && x <= contentX + contentW && y >= sy - 5 && y <= sy + 35)) {
+            passthroughEnabled = !passthroughEnabled;
+            saveSettings();
+            ((MainActivity) context).nativeSetPassthrough(passthroughEnabled);
             markDirty();
             return;
         }
