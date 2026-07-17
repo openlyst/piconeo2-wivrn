@@ -150,14 +150,15 @@ void pico_passthrough::start()
 {
     if (camera_on) return;
 
-    // Pvr_GetCameraData_Ext auto-initializes the camera on first call (it
-    // calls GuardianSystem::InitializeCamera internally). PVR_StartCameraPreview
-    // does NOT init the camera — if called before init, mpCamera is null and
-    // no frames are produced. So trigger the init first, then set the rect
-    // and start the preview loop.
+    // Init the camera via GetCameraData_Ext (triggers GuardianSystem::InitializeCamera),
+    // then start the preview and enable the SeeThrough layer. The SeeThrough
+    // system has its own frame delivery path that actually receives frames
+    // from the camera hardware — the raw GetCameraData_Ext path returns zero
+    // buffers because the camera_callback never fires through it.
     Pvr_GetCameraData_Ext();
     PVR_SetCameraImageRect(kCamW, kCamH);
-    PVR_StartCameraPreview(1);   // 1 = start, 0 = stop
+    PVR_StartCameraPreview(1);
+    Pvr_BoundarySetSeeThroughVisible(true);
     camera_on = true;
     LOGI("passthrough camera started (%dx%d)", kCamW, kCamH);
 }
@@ -165,7 +166,8 @@ void pico_passthrough::start()
 void pico_passthrough::stop()
 {
     if (!camera_on) return;
-    PVR_StartCameraPreview(0);   // 0 = stop
+    Pvr_BoundarySetSeeThroughVisible(false);
+    PVR_StartCameraPreview(0);
     camera_on = false;
     LOGI("passthrough camera stopped");
 }
@@ -175,17 +177,28 @@ void pico_passthrough::draw(int eye)
     if (!gl_ready || !camera_on) return;
     if (eye < 0 || eye > 1) return;
 
-    // Pvr_GetCameraData_Ext returns the full side-by-side stereo frame
-    // (grayscale, kCamW x kCamH, 1 byte/pixel). The SDK's SeeThroughExt
-    // renderer splits it in half per eye. We do the same: left eye gets
-    // the left half, right eye gets the right half.
-    unsigned char *frame = Pvr_GetCameraData_Ext();
-    if (!frame)
-        return;
+    // Pvr_BoundaryGetSeeThroughData goes through the SeeThrough system which
+    // has working frame delivery. Returns: data ptr, valid flag, w, h, count, timestamp.
+    bool valid = false;
+    unsigned int w = 0, h = 0, count = 0;
+    long long ts = 0;
+    unsigned char *frame = Pvr_BoundaryGetSeeThroughData(eye, &valid, &w, &h, &count, &ts);
 
-    int half_w = kCamW / 2;
-    unsigned char *eye_data = frame + (eye * half_w);
-    upload_frame(eye, eye_data, half_w, kCamH);
+    if (!frame || !valid || w == 0 || h == 0) {
+        // Fall back to the other eye
+        int other = eye ^ 1;
+        frame = Pvr_BoundaryGetSeeThroughData(other, &valid, &w, &h, &count, &ts);
+        if (!frame || !valid || w == 0 || h == 0)
+            return;
+    }
+
+    static int frame_count = 0;
+    if (++frame_count % 300 == 0) {
+        LOGI("passthrough: see-through frame %d eye=%d %dx%d bytes=[%d,%d,%d,%d]",
+             frame_count, eye, (int)w, (int)h, frame[0], frame[1], frame[2], frame[3]);
+    }
+
+    upload_frame(eye, frame, (int)w, (int)h);
 
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
