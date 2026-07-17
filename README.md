@@ -92,9 +92,10 @@ Or grab a pre-built signed APK from the [GitHub releases](https://github.com/ope
 
 Got questions or want to contribute? Join the Discord: [https://discord.gg/RQ9nSpmtfU](https://discord.gg/RQ9nSpmtfU)
 
+Listed on [NeoRevived](https://openlyst.github.io/neorevived/#/entry/streaming/gitlab.HttpAnimations.piconeo2-wivrn) — the Pico Neo 2 revival hub.
+
 ## Acknowledgments
 
 - [WiVRn](https://github.com/Vrixyz/WiVRn) — The upstream project this client is based on
 - [ALVR Pico Legacy](https://github.com/Juspertinry/alvr-pico-legacy) — Rendering reference for the Pico Neo 2
 - [Pico SDK](https://developer.picoxr.com/) — Pico Neo 2 SDK
-- [NeoRevived](https://openlyst.github.io/neorevived/#/entry/streaming/gitlab.HttpAnimations.piconeo2-wivrn) — Listed on the NeoRevived Pico Neo 2 revival hub
