@@ -2564,12 +2564,11 @@ void *renderThread(void *) {
         // All toggle in/out. Only active during streaming (gStreaming && gDecoderReady)
         // so stale controller data before the stream starts can't open the lobby.
         auto toggleManualLobby = [&](const char *why) {
-            bool nowLobby = !gManualLobby.load();
-            gManualLobby.store(nowLobby);
-            if (nowLobby) {
+            bool nowHidden = !gManualLobby.load();
+            gManualLobby.store(nowHidden);
+            if (!nowHidden) {
+                // Lobby is being un-hidden — reposition in front of the user.
                 hudAnchored = false;
-                // Reposition the lobby panel in front of where the user is facing
-                // so the overlay opens at a natural viewing angle.
                 if (gLobby) {
                     Mat4 hr = quatToMat4(qx, qy, qz, qw);
                     float fx = -hr.m[8], fz = -hr.m[10];
@@ -2578,7 +2577,7 @@ void *renderThread(void *) {
                 }
             }
             gOkClick.store(false);               // swallow any pending click
-            LOGI("%s -> manual lobby = %d (stream stays alive)", why, (int)nowLobby);
+            LOGI("%s -> lobby %s (stream stays alive)", why, nowHidden ? "hidden" : "shown");
         };
         const bool canToggle = gStreaming && gDecoderReady;
         {
@@ -2641,17 +2640,12 @@ void *renderThread(void *) {
             // glDeleteTextures slots the free-running warp is still sampling (that was
             // the manual-lobby<->stream toggle crash). Re-entering the lobby cancels a
             // pending free (handled in the lobby block: it disarms lobbyFreeDelay).
-            if (gLobbyEyeReady && lobbyFreeDelay < 0) {
-                lobbyFreeDelay = kSwapLen + 2;   // wait out the 4-entry warp ring + margin
-            }
-            if (lobbyFreeDelay == 0) {
-                eglMakeCurrent(dpy, pbuf, pbuf, ctx);
-                freeLobbyTarget();
-                lastRenderedIdx = -1; lobbyEyeIdx = 0;   // force a fresh render on rebuild
-                lobbyFreeDelay = -1;
-            } else if (lobbyFreeDelay > 0) {
-                lobbyFreeDelay--;
-            }
+            //
+            // UNIFIED LOBBY: We no longer free lobby textures during streaming.
+            // The lobby UI persists as an overlay on top of the video (like WiVRn),
+            // so the textures must stay alive. This costs ~94MB but eliminates the
+            // separate streaming UI state and its overlay tracking bugs.
+            // (lobbyFreeDelay disabled — lobby stays resident.)
             // (0/1) ADAPTIVE PHASE-LOCK + UPDATE SOURCE (HW path).
             // The warp free-runs reprojection every vsync; the beat comes from
             // the AGE of the video frame we submit jittering as the PC's frame
@@ -3032,10 +3026,11 @@ void *renderThread(void *) {
                       glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     }
                     // ---- Stream overlay: draw lobby UI on top of the live video ----
-                    // When gManualLobby is toggled mid-stream, we composite the lobby
-                    // UI directly on top of the video in gSwap (overlay mode: no color
-                    // clear, only depth). The video keeps playing underneath.
-                    if (gManualLobby.load() && gLobby) {
+                    // UNIFIED LOBBY: The lobby UI always renders on top of the video
+                    // during streaming (like WiVRn). gManualLobby can still hide it
+                    // if the user wants an unobstructed view, but by default the
+                    // lobby panel is visible and interactive.
+                    if (gLobby && !gManualLobby.load()) {
                         if (alvrFence) { glWaitSync(alvrFence, 0, GL_TIMEOUT_IGNORED); glDeleteSync(alvrFence); alvrFence = 0; }
                         int ew = g_stream ? g_stream->eye_width.load() : 0;
                         int eh = g_stream ? g_stream->eye_height.load() : 0;
@@ -3086,7 +3081,7 @@ void *renderThread(void *) {
                     // is long-signalled -> no torn texture, no render stall.
                     uint64_t _tEncStart = diagTiming ? nowNs() : 0;
                     if (gSwapFence[gSwapIdx]) glDeleteSync(gSwapFence[gSwapIdx]);
-                    if (diagPage != 0 || warnActive || gManualLobby.load()) {
+                    if (diagPage != 0 || warnActive || !gManualLobby.load()) {
                         // HUD / battery-popup path: extra work was issued in our ctx,
                         // ordered after ALVR via glWaitSync; a fresh fence covers it all.
                         gSwapFence[gSwapIdx] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);

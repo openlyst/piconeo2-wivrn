@@ -37,6 +37,10 @@ public class WivrnLobbyView {
     public static final int TAB_ABOUT = 2;
     public static final int TAB_LICENSES = 3;
     public static final int TAB_EXIT = 4;
+    // Streaming tabs (only shown in sidebar when connected)
+    public static final int TAB_APPLICATIONS = 5;
+    public static final int TAB_LAUNCH = 6;
+    public static final int TAB_STATS = 7;
 
     public static final int STATE_IDLE = 0;
     public static final int STATE_CONNECTING = 1;
@@ -774,7 +778,7 @@ public class WivrnLobbyView {
                 errorMessage = message != null ? message : "";
             }
             if (state == STATE_CONNECTED) {
-                streamTab = STREAM_TAB_APPLICATIONS;
+                currentTab = TAB_APPLICATIONS;
             }
             markDirty();
         }
@@ -906,9 +910,9 @@ public class WivrnLobbyView {
             renderConnecting();
         } else if (connectionState == STATE_DISCONNECTED) {
             renderDisconnected();
-        } else if (connectionState == STATE_CONNECTED) {
-            renderConnected();
         } else {
+            // Unified lobby: same sidebar + content for both idle and connected.
+            // When connected, streaming tabs (Applications, Stats) are added.
             renderSidebar();
             renderTopBar();
             renderContent();
@@ -921,18 +925,23 @@ public class WivrnLobbyView {
     private void renderSidebar() {
         canvas.drawRect(0, 0, SIDEBAR_WIDTH, height, sidebarBgPaint);
 
-        String[] tabs = {
-            i18n.s(R.string.tab_server_list),
-            i18n.s(R.string.tab_settings),
-            i18n.s(R.string.tab_about),
-            i18n.s(R.string.tab_licenses),
-            i18n.s(R.string.tab_exit)
-        };
-        int[] tabIds = {TAB_SERVER_LIST, TAB_SETTINGS, TAB_ABOUT, TAB_LICENSES, TAB_EXIT};
+        java.util.List<String> tabs = new java.util.ArrayList<>();
+        java.util.List<Integer> tabIds = new java.util.ArrayList<>();
+
+        tabs.add(i18n.s(R.string.tab_server_list)); tabIds.add(TAB_SERVER_LIST);
+        if (connectionState == STATE_CONNECTED) {
+            tabs.add(i18n.s(R.string.stream_applications)); tabIds.add(TAB_APPLICATIONS);
+            tabs.add(i18n.s(R.string.stream_launch)); tabIds.add(TAB_LAUNCH);
+            tabs.add(i18n.s(R.string.stream_stats)); tabIds.add(TAB_STATS);
+        }
+        tabs.add(i18n.s(R.string.tab_settings)); tabIds.add(TAB_SETTINGS);
+        tabs.add(i18n.s(R.string.tab_about)); tabIds.add(TAB_ABOUT);
+        tabs.add(i18n.s(R.string.tab_licenses)); tabIds.add(TAB_LICENSES);
+        tabs.add(i18n.s(R.string.tab_exit)); tabIds.add(TAB_EXIT);
 
         float y = 30;
-        for (int i = 0; i < tabs.length; i++) {
-            boolean selected = currentTab == tabIds[i];
+        for (int i = 0; i < tabs.size(); i++) {
+            boolean selected = currentTab == tabIds.get(i);
             RectF rect = new RectF(10, y, SIDEBAR_WIDTH - 10, y + TAB_HEIGHT);
 
             if (selected) {
@@ -947,10 +956,23 @@ public class WivrnLobbyView {
 
             Paint.FontMetrics fm = textPaint.getFontMetrics();
             float textY = y + (TAB_HEIGHT - (fm.descent - fm.ascent)) / 2 - fm.ascent;
-            canvas.drawText(tabs[i], 30, textY, textPaint);
+            canvas.drawText(tabs.get(i), 30, textY, textPaint);
             textPaint.setColor(Color.rgb(230, 235, 245));
 
             y += TAB_HEIGHT + 10;
+        }
+
+        // Disconnect button at the bottom when connected
+        if (connectionState == STATE_CONNECTED) {
+            float discY = height - TAB_HEIGHT - 30;
+            RectF discBtn = new RectF(10, discY, SIDEBAR_WIDTH - 10, discY + TAB_HEIGHT);
+            boolean discHover = touchDown && discBtn.contains(touchX, touchY);
+            canvas.drawRoundRect(discBtn, 10, 10, discHover ? buttonDangerBgPaint : buttonDangerBgPaint);
+            textPaint.setColor(Color.WHITE);
+            Paint.FontMetrics fm = textPaint.getFontMetrics();
+            float textY = discY + (TAB_HEIGHT - (fm.descent - fm.ascent)) / 2 - fm.ascent;
+            canvas.drawText(i18n.s(R.string.disconnect), 30, textY, textPaint);
+            textPaint.setColor(Color.rgb(230, 235, 245));
         }
     }
 
@@ -964,6 +986,15 @@ public class WivrnLobbyView {
         switch (currentTab) {
             case TAB_SERVER_LIST:
                 renderServerList(contentX, contentW);
+                break;
+            case TAB_APPLICATIONS:
+                renderStreamApplications(contentX, contentW);
+                break;
+            case TAB_LAUNCH:
+                renderStreamLaunch(contentX, contentW);
+                break;
+            case TAB_STATS:
+                renderStreamStats(contentX, contentW);
                 break;
             case TAB_SETTINGS:
                 renderSettings(contentX, contentW);
@@ -2114,7 +2145,7 @@ public class WivrnLobbyView {
             android.util.Log.i("WiVRn-Lobby", "CLICK DISPATCH x=" + x + " y=" + y + " state=" + connectionState + " tab=" + currentTab);
         }
 
-        if (connectionState == STATE_CONNECTED && streamTab == STREAM_TAB_LAUNCH) {
+        if (currentTab == TAB_LAUNCH) {
             if (down && prevDown && y != prevY) {
                 if (dragStartY < 0) {
                     dragStartY = prevY;
@@ -2140,8 +2171,7 @@ public class WivrnLobbyView {
             } else {
                 thumbstickAccum = 0;
             }
-        } else if ((connectionState != STATE_CONNECTED && currentTab == TAB_SETTINGS) ||
-                   (connectionState == STATE_CONNECTED && streamTab == STREAM_TAB_SETTINGS)) {
+        } else if (currentTab == TAB_SETTINGS) {
             float stickMag = Math.abs(thumbstickY);
             if (stickMag > 0.3f) {
                 settingsThumbstickAccum -= thumbstickY * 15f;
@@ -2162,7 +2192,7 @@ public class WivrnLobbyView {
             pressDragged = false;
         }
 
-        if (connectionState == STATE_CONNECTED && streamTab == STREAM_TAB_LAUNCH) {
+        if (currentTab == TAB_LAUNCH) {
             if (pressed) {
                 activeSlider = SLIDER_NONE;
             } else if (!down && prevDown && !pressDragged) {
@@ -2193,11 +2223,6 @@ public class WivrnLobbyView {
     private void handleSliderDrag(float x, float y) {
         float contentX, sliderW;
         float adjustedY = y - (TOPBAR_HEIGHT + 10) + settingsScrollY;
-
-        if (connectionState == STATE_CONNECTED && streamTab == STREAM_TAB_SETTINGS) {
-            handleSettingsSliderDrag(x, adjustedY);
-            return;
-        }
 
         if (currentTab != TAB_SETTINGS) return;
         if (showAddServer) return;
@@ -2260,10 +2285,6 @@ public class WivrnLobbyView {
             handleDisconnectedClick(x, y);
             return;
         }
-        if (connectionState == STATE_CONNECTED) {
-            handleStreamClick(x, y);
-            return;
-        }
 
         if (showAddServer) {
             handleAddServerClick(x, y);
@@ -2280,6 +2301,15 @@ public class WivrnLobbyView {
         switch (currentTab) {
             case TAB_SERVER_LIST:
                 handleServerListClick(x, adjustedY);
+                break;
+            case TAB_APPLICATIONS:
+                handleStreamApplicationsClick(x, adjustedY);
+                break;
+            case TAB_LAUNCH:
+                handleStreamLaunchClick(x, adjustedY);
+                break;
+            case TAB_STATS:
+                // stats are display-only, no clicks
                 break;
             case TAB_SETTINGS:
                 handleSettingsClick(x, adjustedY + settingsScrollY);
@@ -2305,124 +2335,114 @@ public class WivrnLobbyView {
         }
     }
 
-    private void handleStreamClick(float x, float y) {
-        if (x < SIDEBAR_WIDTH) {
-            String[] tabs = {"Applications", "Launch", "Stats", "Settings"};
-            int[] tabIds = {STREAM_TAB_APPLICATIONS, STREAM_TAB_LAUNCH, STREAM_TAB_STATS, STREAM_TAB_SETTINGS};
-            float ty = 30;
-            for (int i = 0; i < tabs.length; i++) {
-                RectF rect = new RectF(10, ty, SIDEBAR_WIDTH - 10, ty + TAB_HEIGHT);
-                if (rect.contains(x, y)) {
-                    streamTab = tabIds[i];
-                    if (streamTab == STREAM_TAB_LAUNCH && !appListRequested && availableAppNames.length == 0) {
-                        ((MainActivity) context).onRequestAppList();
-                        appListRequested = true;
-                    }
-                    markDirty();
-                    return;
-                }
-                ty += TAB_HEIGHT + 5;
+    private void handleStreamApplicationsClick(float x, float y) {
+        float contentX = SIDEBAR_WIDTH + 20;
+        float contentW = width - contentX - 20;
+
+        if (runningApps == null || runningApps.length == 0)
+            return;
+
+        float cardY = 40 + 70;
+        for (int i = 0; i < runningApps.length; i++) {
+            boolean isOverlay = i < runningAppOverlays.length && runningAppOverlays[i];
+            if (isOverlay && (i == 0 || !(i - 1 < runningAppOverlays.length && runningAppOverlays[i - 1]))) {
+                cardY += 15 + 35;
             }
 
-            float disconnectY = height - TAB_HEIGHT - 30;
-            RectF disconnectBtn = new RectF(10, disconnectY, SIDEBAR_WIDTH - 10, disconnectY + TAB_HEIGHT);
-            if (disconnectBtn.contains(x, y)) {
-                ((MainActivity) context).onDisconnectRequested();
-                connectionState = STATE_IDLE;
+            RectF stopBtn = new RectF(contentX + contentW - 60, cardY + 15, contentX + contentW - 15, cardY + 55);
+            if (stopBtn.contains(x, y) && i < runningAppIds.length) {
+                ((MainActivity) context).onStopApp(runningAppIds[i]);
                 markDirty();
                 return;
             }
-            return;
-        }
 
-        float contentX = SIDEBAR_WIDTH + 30;
-        float contentW = width - contentX - 30;
-
-        if (streamTab == STREAM_TAB_APPLICATIONS) {
-            if (runningApps == null || runningApps.length == 0)
+            RectF card = new RectF(contentX, cardY, contentX + contentW, cardY + 70);
+            if (card.contains(x, y) && !isOverlay && i < runningAppIds.length) {
+                boolean isActive = i < runningAppActives.length && runningAppActives[i];
+                if (!isActive) {
+                    ((MainActivity) context).onSetActiveApp(runningAppIds[i]);
+                }
+                markDirty();
                 return;
-
-            float cardY = 40 + 70;
-            for (int i = 0; i < runningApps.length; i++) {
-                boolean isOverlay = i < runningAppOverlays.length && runningAppOverlays[i];
-                if (isOverlay && (i == 0 || !(i - 1 < runningAppOverlays.length && runningAppOverlays[i - 1]))) {
-                    cardY += 15 + 35;
-                }
-
-                RectF stopBtn = new RectF(contentX + contentW - 60, cardY + 15, contentX + contentW - 15, cardY + 55);
-                if (stopBtn.contains(x, y) && i < runningAppIds.length) {
-                    ((MainActivity) context).onStopApp(runningAppIds[i]);
-                    markDirty();
-                    return;
-                }
-
-                RectF card = new RectF(contentX, cardY, contentX + contentW, cardY + 70);
-                if (card.contains(x, y) && !isOverlay && i < runningAppIds.length) {
-                    boolean isActive = i < runningAppActives.length && runningAppActives[i];
-                    if (!isActive) {
-                        ((MainActivity) context).onSetActiveApp(runningAppIds[i]);
-                    }
-                    markDirty();
-                    return;
-                }
-
-                cardY += 85;
             }
-            return;
-        }
 
-        if (streamTab == STREAM_TAB_LAUNCH) {
-            if (availableAppNames == null || availableAppNames.length == 0) {
-                float refreshY = 40 + 70 + 80;
-                RectF refreshBtn = new RectF(contentX, refreshY, contentX + 200, refreshY + BUTTON_HEIGHT);
-                if (refreshBtn.contains(x, y)) {
-                    ((MainActivity) context).onRequestAppList();
-                    appListRequested = true;
+            cardY += 85;
+        }
+    }
+
+    private void handleStreamLaunchClick(float x, float y) {
+        float contentX = SIDEBAR_WIDTH + 20;
+        float contentW = width - contentX - 20;
+
+        if (availableAppNames == null || availableAppNames.length == 0) {
+            float refreshY = 40 + 70 + 80;
+            RectF refreshBtn = new RectF(contentX, refreshY, contentX + 200, refreshY + BUTTON_HEIGHT);
+            if (refreshBtn.contains(x, y)) {
+                ((MainActivity) context).onRequestAppList();
+                appListRequested = true;
+                markDirty();
+                return;
+            }
+        } else {
+            float cardH = 90;
+            float gap = 12;
+            float startY = 40 + 70;
+
+            for (int i = 0; i < availableAppNames.length; i++) {
+                float cy = startY + i * (cardH + gap) - launchScrollY;
+                RectF card = new RectF(contentX, cy, contentX + contentW, cy + cardH);
+                if (card.contains(x, y) && i < availableAppIds.length) {
+                    ((MainActivity) context).onStartApp(availableAppIds[i]);
+                    launchingAppName = availableAppNames[i];
+                    launchingStartTime = System.currentTimeMillis();
                     markDirty();
                     return;
-                }
-            } else {
-                float cardH = 90;
-                float gap = 12;
-                float startY = 40 + 70;
-
-                for (int i = 0; i < availableAppNames.length; i++) {
-                    float cy = startY + i * (cardH + gap) - launchScrollY;
-                    RectF card = new RectF(contentX, cy, contentX + contentW, cy + cardH);
-                    if (card.contains(x, y) && i < availableAppIds.length) {
-                        ((MainActivity) context).onStartApp(availableAppIds[i]);
-                        launchingAppName = availableAppNames[i];
-                        launchingStartTime = System.currentTimeMillis();
-                        markDirty();
-                        return;
-                    }
                 }
             }
-        }
-
-        if (streamTab == STREAM_TAB_SETTINGS) {
-            float adjustedY = y - (TOPBAR_HEIGHT + 10) + settingsScrollY;
-            handleSettingsClick(x, adjustedY);
-            return;
         }
     }
 
     private void handleSidebarClick(float x, float y) {
-        String[] tabs = {"Server List", "Settings", "About", "Licenses", "Exit"};
-        int[] tabIds = {TAB_SERVER_LIST, TAB_SETTINGS, TAB_ABOUT, TAB_LICENSES, TAB_EXIT};
+        java.util.List<Integer> tabIds = new java.util.ArrayList<>();
+        tabIds.add(TAB_SERVER_LIST);
+        if (connectionState == STATE_CONNECTED) {
+            tabIds.add(TAB_APPLICATIONS);
+            tabIds.add(TAB_LAUNCH);
+            tabIds.add(TAB_STATS);
+        }
+        tabIds.add(TAB_SETTINGS);
+        tabIds.add(TAB_ABOUT);
+        tabIds.add(TAB_LICENSES);
+        tabIds.add(TAB_EXIT);
+
         float ty = 30;
-        for (int i = 0; i < tabs.length; i++) {
+        for (int i = 0; i < tabIds.size(); i++) {
             RectF rect = new RectF(10, ty, SIDEBAR_WIDTH - 10, ty + TAB_HEIGHT);
             if (rect.contains(x, y)) {
-                currentTab = tabIds[i];
+                currentTab = tabIds.get(i);
                 if (currentTab == TAB_EXIT) {
                     currentTab = TAB_SERVER_LIST;
                     ((MainActivity) context).finish();
+                }
+                if (currentTab == TAB_LAUNCH && !appListRequested && availableAppNames.length == 0) {
+                    ((MainActivity) context).onRequestAppList();
+                    appListRequested = true;
                 }
                 markDirty();
                 return;
             }
             ty += TAB_HEIGHT + 10;
+        }
+
+        // Disconnect button at the bottom
+        if (connectionState == STATE_CONNECTED) {
+            float discY = height - TAB_HEIGHT - 30;
+            RectF discBtn = new RectF(10, discY, SIDEBAR_WIDTH - 10, discY + TAB_HEIGHT);
+            if (discBtn.contains(x, y)) {
+                ((MainActivity) context).onDisconnectRequested();
+                markDirty();
+                return;
+            }
         }
     }
 
