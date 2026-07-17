@@ -99,3 +99,4 @@ Got questions or want to contribute? Join the Discord: [https://discord.gg/RQ9nS
 - [WiVRn](https://github.com/Vrixyz/WiVRn) — The upstream project this client is based on
 - [ALVR Pico Legacy](https://github.com/Juspertinry/alvr-pico-legacy) — Rendering reference for the Pico Neo 2
 - [Pico SDK](https://developer.picoxr.com/) — Pico Neo 2 SDK
+- [NeoRevived](https://openlyst.github.io/neorevived/#/entry/streaming/gitlab.HttpAnimations.piconeo2-wivrn) — Listed on the NeoRevived Pico Neo 2 revival hub
