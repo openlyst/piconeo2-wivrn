@@ -20,8 +20,6 @@ Native WiVRn client for the Pico Neo 2 and Pico Neo 2 Eye. Stream PC VR games to
 - Audio streaming
 - Overlay application support
 - Eye tracking (Pico Neo 2 Eye only)
-- In-app settings panel with EQ, brightness, IPD, FOV, and codec/bitrate controls
-- Low-latency hardware compositor pipeline with async reprojection
 
 ## WiVRn Version
 
