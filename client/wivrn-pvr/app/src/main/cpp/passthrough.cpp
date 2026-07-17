@@ -309,20 +309,27 @@ void pico_passthrough::draw(int eye)
     if (!img_reader) return;
 
     // Acquire a new frame only on the first eye of each frame pair.
-    // The image is held until both eyes have uploaded their halves,
-    // then released on the second eye.
+    // If no new frame is available (camera runs slower than render loop),
+    // reuse the last frame's texture — don't return early, or the render
+    // thread's black clear will flicker through.
+    static int acq_ok = 0, acq_empty = 0, acq_err = 0;
+    static int log_tick = 0;
+    static int draw_counts[2] = {0, 0};
+
+    if (eye == 0)
+        got_new_this_frame = false;
+
     if (eye == 0)
     {
-        if (pending_image)
-        {
-            AImage_delete(pending_image);
-            pending_image = nullptr;
-        }
-
         AImage *image = nullptr;
         media_status_t rc = AImageReader_acquireLatestImage(img_reader, &image);
+
         if (rc == AMEDIA_OK && image)
         {
+            // Got a new frame — release the old one and cache the new.
+            if (pending_image)
+                AImage_delete(pending_image);
+
             int32_t w = 0, h = 0;
             AImage_getWidth(image, &w);
             AImage_getHeight(image, &h);
@@ -337,13 +344,34 @@ void pico_passthrough::draw(int eye)
             pending_h = h;
             pending_y = y_data;
             pending_stride = y_stride;
+            acq_ok++;
+            got_new_this_frame = true;
 
             static int frame_count = 0;
             if (++frame_count % 300 == 0)
-                LOGI("passthrough: frame %d %dx%d stride=%d pix=%d bytes=[%d,%d,%d,%d]",
+                LOGI("passthrough: cam frame %d %dx%d stride=%d pix=%d bytes=[%d,%d,%d,%d]",
                      frame_count, w, h, y_stride, y_pix,
                      y_data[0], y_data[100], y_data[500], y_data[1000]);
         }
+        else if (rc == AMEDIA_IMG_NO_BUFFER_AVAILABLE)
+        {
+            // No new frame — reuse the last one (pending_image stays).
+            acq_empty++;
+        }
+        else
+        {
+            acq_err++;
+            if (pending_image)
+            {
+                AImage_delete(pending_image);
+                pending_image = nullptr;
+                pending_y = nullptr;
+            }
+        }
+
+        if (++log_tick % 300 == 0)
+            LOGI("passthrough: acquire stats ok=%d empty=%d err=%d pending=%p",
+                 acq_ok, acq_empty, acq_err, (void *)pending_image);
     }
 
     if (!pending_image || !pending_y) return;
@@ -351,15 +379,28 @@ void pico_passthrough::draw(int eye)
     // Split SBS frame: left eye = left half, right eye = right half.
     int half_w = pending_w / 2;
     const uint8_t *eye_data = pending_y + eye * half_w;
-    upload_eye(eye, half_w, pending_h, eye_data, pending_stride);
 
-    // Release the image after the second eye is done.
-    if (eye == 1 && pending_image)
+    // Upload the eye's half when we have a new frame, or if the texture
+    // hasn't been initialised yet. On frames with no new camera data we
+    // skip the upload and just re-draw the existing texture content.
+    if (got_new_this_frame || eye_tex[eye] == 0)
+        upload_eye(eye, half_w, pending_h, eye_data, pending_stride);
+
+    // Release the image after the second eye is done — but ONLY if we
+    // uploaded a new frame this tick. If we reused the last frame (no new
+    // camera data), keep the image alive so the next tick's eye 0 can
+    // still fall back on it if acquire returns no-buffer-again.
+    if (eye == 1 && got_new_this_frame && pending_image)
     {
         AImage_delete(pending_image);
         pending_image = nullptr;
         pending_y = nullptr;
     }
+
+    draw_counts[eye]++;
+    if (draw_counts[eye] % 300 == 0)
+        LOGI("passthrough: draw eye=%d count=%d tex=%u new=%d",
+             eye, draw_counts[eye], eye_tex[eye], (int)got_new_this_frame);
 
     // Render
     glDisable(GL_DEPTH_TEST);

@@ -33,6 +33,7 @@ class pico_passthrough
 	int  pending_w = 0, pending_h = 0;
 	uint8_t *pending_y = nullptr;
 	int  pending_stride = 0;
+	bool got_new_this_frame = false;   // set on eye 0, read on eye 1
 
 	bool gl_ready = false;
 	bool camera_on = false;
