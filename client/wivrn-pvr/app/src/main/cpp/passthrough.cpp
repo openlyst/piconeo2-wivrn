@@ -136,11 +136,32 @@ void pico_passthrough::build_mesh()
     }
 
     // Convert tangent space to clip space. The mesh was calibrated for
-    // the headset's display FOV. Using a slightly smaller value than the
-    // lobby's 101° fills the black bars at top/bottom — the mesh extends
-    // further in clip space, covering the full screen.
-    const float fov_deg = 97.0f;
+    // the headset's display FOV (~101 degrees).
+    const float fov_deg = 101.0f;
     const float tan_half = tanf(fov_deg * 0.5f * (float)M_PI / 180.0f);
+
+    // The camera's vertical FOV is narrower than the display, so the mesh
+    // doesn't reach y=±1 in clip space where x is visible. Find the actual
+    // y extent within the visible x range and scale y to fill the screen.
+    float y_min = 1e9f, y_max = -1e9f;
+    for (auto &p : grid)
+    {
+        float cx = p.xl / tan_half;
+        if (cx >= -1.0f && cx <= 1.0f)
+        {
+            float cy = p.yl / tan_half;
+            if (cy < y_min) y_min = cy;
+            if (cy > y_max) y_max = cy;
+        }
+    }
+    float y_scale = 1.0f;
+    if (y_max > y_min && y_max < 1.0f && y_min > -1.0f)
+    {
+        float y_range = y_max - y_min;
+        if (y_range > 0.0f)
+            y_scale = 2.0f / y_range;
+    }
+    LOGI("passthrough: y fill scale=%.3f (visible y=[%.3f, %.3f])", y_scale, y_min, y_max);
 
     // Build per-eye vertex data: pos (clip space) + uv (camera texture)
     // V is flipped because camera frames are top-down, GL textures bottom-up.
@@ -151,8 +172,8 @@ void pico_passthrough::build_mesh()
     for (int i = 0; i < gw * gh; i++)
     {
         auto &p = grid[i];
-        verts_left[i]  = { p.xl / tan_half, p.yl / tan_half, p.u, 1.0f - p.v };
-        verts_right[i] = { p.xr / tan_half, p.yr / tan_half, p.u, 1.0f - p.v };
+        verts_left[i]  = { p.xl / tan_half, (p.yl / tan_half) * y_scale, p.u, 1.0f - p.v };
+        verts_right[i] = { p.xr / tan_half, (p.yr / tan_half) * y_scale, p.u, 1.0f - p.v };
     }
 
     // Build index buffer for the grid triangles
