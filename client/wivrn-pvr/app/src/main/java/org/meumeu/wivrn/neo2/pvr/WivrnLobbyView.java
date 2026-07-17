@@ -164,6 +164,7 @@ public class WivrnLobbyView {
     private boolean microphoneEnabled = false;
     private boolean lowerResWireless = false;
     private boolean dynamicBitrate = true;
+    private boolean passthroughEnabled = true;
     private int languageSetting = 0;
 
     private String addServerName = "";
@@ -716,6 +717,7 @@ public class WivrnLobbyView {
         streamResolutionScale = sp.getInt("stream_resolution_scale", 100);
         lowerResWireless = sp.getBoolean("lower_res_wireless", false);
         dynamicBitrate = sp.getBoolean("dynamic_bitrate", true);
+        passthroughEnabled = sp.getBoolean("passthrough", true);
         languageSetting = sp.getInt("language", 0);
     }
 
@@ -734,6 +736,7 @@ public class WivrnLobbyView {
             .putInt("stream_resolution_scale", streamResolutionScale)
             .putBoolean("lower_res_wireless", lowerResWireless)
             .putBoolean("dynamic_bitrate", dynamicBitrate)
+            .putBoolean("passthrough", passthroughEnabled)
             .putInt("language", languageSetting)
             .apply();
     }
@@ -1111,6 +1114,7 @@ public class WivrnLobbyView {
         y = drawCheckbox(x, y, w, i18n.s(R.string.setting_microphone), microphoneEnabled, false);
         y = drawCheckbox(x, y, w, i18n.s(R.string.setting_lower_res_wireless), lowerResWireless, false);
         y = drawCheckbox(x, y, w, i18n.s(R.string.setting_dynamic_bitrate), dynamicBitrate, false);
+        y = drawCheckbox(x, y, w, "PASSTHROUGH", passthroughEnabled, false);
 
         y = drawDropdown(x, y, w, i18n.s(R.string.setting_language),
             new String[]{i18n.s(R.string.lang_system), "English", "简体中文"},
@@ -2622,6 +2626,17 @@ public class WivrnLobbyView {
             dynamicBitrate = !dynamicBitrate;
             saveSettings();
             ((MainActivity) context).nativeSetDynamicBitrate(dynamicBitrate);
+            markDirty();
+            return;
+        }
+        sy += 40;
+
+        // Passthrough
+        RectF ptCheckbox = new RectF(contentX, sy, contentX + 30, sy + 30);
+        if (ptCheckbox.contains(x, y) || (x >= contentX && x <= contentX + contentW && y >= sy - 5 && y <= sy + 35)) {
+            passthroughEnabled = !passthroughEnabled;
+            saveSettings();
+            ((MainActivity) context).nativeSetPassthrough(passthroughEnabled);
             markDirty();
             return;
         }

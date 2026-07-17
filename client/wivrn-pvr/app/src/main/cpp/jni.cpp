@@ -13,6 +13,7 @@
 #include "render_thread.h"   // gVM/gActivity/gVrClass/gRunning/gThread, setWindow, renderThread, gSleepReq
 #include "input.h"           // CtrlState, gCtrl/gCtrlMutex, gHeadData/gHeadMutex
 #include "app_state.h"       // gOkHeld/gSideHeld/gOkClick
+#include "passthrough.h"     // gPassthrough (extern in render_thread.cpp)
 #include "lobby.h"
 #include "log.h"
 #include "pico_sdk.h"        // Pvr_ResetSensor
@@ -439,6 +440,19 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetDynamicBitrate(JNIEnv *, jo
     if (!g_stream) return;
     g_stream->dynamic_bitrate_enabled.store(enabled == JNI_TRUE);
     LOGI("Dynamic bitrate %s", enabled == JNI_TRUE ? "enabled" : "disabled");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetPassthrough(JNIEnv *, jobject, jboolean enabled) {
+    gWivrnPassthrough.store(enabled == JNI_TRUE);
+    extern pico_passthrough * gPassthrough;
+    if (enabled == JNI_TRUE) {
+        if (gPassthrough && !gPassthrough->is_camera_on()) gPassthrough->start();
+    } else {
+        if (gPassthrough && gPassthrough->is_camera_on()) gPassthrough->stop();
+    }
+    saveAllConfig();
+    LOGI("Passthrough %s", enabled == JNI_TRUE ? "enabled" : "disabled");
 }
 
 extern "C" JNIEXPORT void JNICALL
