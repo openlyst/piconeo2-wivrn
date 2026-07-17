@@ -161,8 +161,9 @@ void pico_passthrough::start()
 void pico_passthrough::stop()
 {
     if (!camera_on) return;
-
-    Pvr_BoundarySetSeeThroughVisible(false);
+    // There's no explicit PVR_StopCameraPreview export; the camera frame loop
+    // simply stops producing frames when nobody polls Pvr_GetCameraData_Ext.
+    // The camera device stays open (initialized) for a fast restart.
     camera_on = false;
     LOGI("passthrough camera stopped");
 }
