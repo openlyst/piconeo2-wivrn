@@ -48,7 +48,17 @@ class pico_passthrough
 
 	void build_shaders();
 	void build_geometry();
+	void rebuild_quad(float scale_x, float scale_y);
 	void upload_eye(int eye, int w, int h, const uint8_t *data, int row_stride);
+
+	// Quad scale in clip space. The camera FOV (~47°x30° per eye) is
+	// much narrower than the headset display FOV (~101°), so the quad
+	// must be scaled down to match. Without this the camera image is
+	// stretched across the full display FOV, making everything look
+	// 2-3x closer/bigger than reality.
+	// Computed from sensor specs: 0.7168mm x 0.448mm, focal 0.83mm.
+	float quad_sx = 0.356f;
+	float quad_sy = 0.222f;
 
 public:
 	pico_passthrough() = default;
@@ -58,6 +68,7 @@ public:
 	void start();
 	void stop();
 	void draw(int eye);
+	void set_scale(float sx, float sy);
 
 	bool is_camera_on() const { return camera_on; }
 };
