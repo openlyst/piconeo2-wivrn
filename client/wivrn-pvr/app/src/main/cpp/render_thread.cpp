@@ -3702,22 +3702,15 @@ void *renderThread(void *) {
         if (gEyeTrackReapply.exchange(false)) applyServerEyeTracking(gStreaming);
         if (gBrightnessApply.exchange(false)) applyHmdBrightness(gBrightnessFrac.load(), env);
 
-        // Render the lobby scene (world floor grid + world-locked HUD + gaze disc)
-        // into the currently-bound FBO for the given per-eye projection + view.
-        // Shared by the HW-compositor and self-present paths.
+        // Render the lobby scene (passthrough background + world-locked HUD +
+        // gaze disc) into the currently-bound FBO for the given per-eye
+        // projection + view. Shared by the HW-compositor and self-present paths.
         auto drawLobbyScene = [&](const Mat4 &sproj, const Mat4 &sview, const Mat4 &sEyeShift, int eyeIdx) {
-            // World-fixed geometry (floor grid, anchored panels) draws through the
-            // head-tracked view; player-attached geometry (laser, gaze) uses it too.
-            const Mat4 &worldView = sview;
-            if (gGridVertCount > 0) {
-                glEnable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE);
-                glUseProgram(gProg);
-                Mat4 gridMvp = mat4Mul(sproj, worldView);   // model = identity (floor at y=0)
-                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, gridMvp.m);
-                glBindVertexArray(gGridVao);        // wireframe floor grid
-                glDrawArrays(GL_LINES, 0, gGridVertCount);
-                glBindVertexArray(0);
-            }
+            // Passthrough camera background replaces the old dark-void + grid
+            // floor. Drawn first as a fullscreen quad so everything else
+            // (laser, controllers, gaze marker, lobby UI) composites on top.
+            if (gPassthrough && gPassthrough->is_camera_on())
+                gPassthrough->draw(eyeIdx);
             glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE);
             // Native HUD text and SETTINGS window replaced by the ported WiVRn lobby UI.
             // Controller laser beam (world-space) when a controller drives the pointer.
