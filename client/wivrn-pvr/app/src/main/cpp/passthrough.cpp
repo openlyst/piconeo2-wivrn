@@ -76,33 +76,29 @@ void pico_passthrough::build_shaders()
 
 void pico_passthrough::build_geometry()
 {
+    // Fullscreen quad. UV (0,0) = top-left of texture, (1,1) = bottom-right.
+    // The camera Y plane arrives top-row-first, so we flip V so the image
+    // is upright: map UV v=0 -> texcoord v=1 (bottom of texture = top of image
+    // after GL's bottom-up convention). Actually GL textures are bottom-up
+    // by default, and the camera delivers top-down, so we flip V in the UVs.
+    static const float verts[] = {
+        -1, -1, 0,  0, 1,
+         1, -1, 0,  1, 1,
+        -1,  1, 0,  0, 0,
+        -1,  1, 0,  0, 0,
+         1, -1, 0,  1, 1,
+         1,  1, 0,  1, 0,
+    };
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
     glGenBuffers(1, &vbo);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    // Initial upload with default scale
-    rebuild_quad(quad_sx, quad_sy);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 20, (void *)0);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 20, (void *)12);
     glEnableVertexAttribArray(1);
     glBindVertexArray(0);
-}
-
-void pico_passthrough::rebuild_quad(float sx, float sy)
-{
-    // Quad in clip space, scaled by (sx, sy). UVs flipped on V axis
-    // because the camera delivers top-down while GL textures are bottom-up.
-    float verts[] = {
-        -sx, -sy, 0,  0, 1,
-         sx, -sy, 0,  1, 1,
-        -sx,  sy, 0,  0, 0,
-        -sx,  sy, 0,  0, 0,
-         sx, -sy, 0,  1, 1,
-         sx,  sy, 0,  1, 0,
-    };
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_DYNAMIC_DRAW);
 }
 
 void pico_passthrough::upload_eye(int eye, int w, int h, const uint8_t *data, int row_stride)
@@ -160,20 +156,7 @@ void pico_passthrough::init()
     if (!program) { LOGE("passthrough: shader init failed, aborting"); return; }
     build_geometry();
     gl_ready = true;
-    LOGI("passthrough GL resources ready (quad scale %.3f x %.3f)", quad_sx, quad_sy);
-}
-
-void pico_passthrough::set_scale(float sx, float sy)
-{
-    quad_sx = sx;
-    quad_sy = sy;
-    if (gl_ready && vao)
-    {
-        glBindVertexArray(vao);
-        rebuild_quad(sx, sy);
-        glBindVertexArray(0);
-        LOGI("passthrough: quad scale set to %.3f x %.3f", sx, sy);
-    }
+    LOGI("passthrough GL resources ready");
 }
 
 static void on_capture_failed(void *ctx, ACameraCaptureSession *s,
