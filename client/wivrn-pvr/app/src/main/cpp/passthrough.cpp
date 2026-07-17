@@ -5,18 +5,30 @@
 #include <dlfcn.h>
 
 // SDK's SeeThrough renderer functions (C++ mangled, looked up via dlsym).
-// getSeethroughInstance() returns the GsSeeThroughExt singleton.
-// SetForcedToShow(true) bypasses the distance-to-boundary gate.
-// DoRender(eye) renders the camera layer with the SDK's own shader/texture.
 typedef void *(*getSeethroughInstance_t)();
 typedef void (*SetForcedToShow_t)(void *, bool);
 typedef void (*DoRender_t)(void *, int);
 typedef void (*SetOpacity_t)(void *, float);
 
+// TrackingService camera functions (C++ mangled, looked up via dlsym).
+// These go through IPC to the PvrService tracking service to get camera frames.
+// CameraType is an enum (0 = front/tracking camera on Neo 2).
+typedef int (*TrackingService_InitClient_t)();
+typedef int (*TrackingService_AttachCamera_t)(void *, int);
+typedef int (*TrackingService_AcquireCameraFrame_t)(int, void *);
+typedef int (*TrackingService_ReleaseCameraFrame_t)(int);
+typedef void (*TrackingService_SetCameraFrameCallbacks_t)(void *, int, void *);
+
 static getSeethroughInstance_t pfn_getSeethroughInstance = nullptr;
 static SetForcedToShow_t       pfn_setForcedToShow = nullptr;
 static DoRender_t              pfn_doRender = nullptr;
 static SetOpacity_t            pfn_setOpacity = nullptr;
+
+static TrackingService_InitClient_t             pfn_ts_initClient = nullptr;
+static TrackingService_AttachCamera_t           pfn_ts_attachCamera = nullptr;
+static TrackingService_AcquireCameraFrame_t     pfn_ts_acquireFrame = nullptr;
+static TrackingService_ReleaseCameraFrame_t     pfn_ts_releaseFrame = nullptr;
+static TrackingService_SetCameraFrameCallbacks_t pfn_ts_setCallbacks = nullptr;
 
 static void load_seethrough_syms()
 {
@@ -26,9 +38,20 @@ static void load_seethrough_syms()
     pfn_setForcedToShow       = (SetForcedToShow_t)dlsym(h, "_ZN3PVR15GsSeeThroughExt15SetForcedToShowEb");
     pfn_doRender              = (DoRender_t)dlsym(h, "_ZN3PVR15GsSeeThroughExt8DoRenderEi");
     pfn_setOpacity            = (SetOpacity_t)dlsym(h, "_ZN3PVR15GsSeeThroughExt10SetOpacityEf");
+
+    pfn_ts_initClient    = (TrackingService_InitClient_t)dlsym(h, "_Z26TrackingService_InitClientv");
+    pfn_ts_attachCamera  = (TrackingService_AttachCamera_t)dlsym(h, "_Z28TrackingService_AttachCameraPv10CameraType");
+    pfn_ts_acquireFrame  = (TrackingService_AcquireCameraFrame_t)dlsym(h, "_Z34TrackingService_AcquireCameraFramePv10CameraTypeP12frame_item_t");
+    pfn_ts_releaseFrame  = (TrackingService_ReleaseCameraFrame_t)dlsym(h, "_Z34TrackingService_ReleaseCameraFramePv10CameraType");
+    pfn_ts_setCallbacks  = (TrackingService_SetCameraFrameCallbacks_t)dlsym(h, "_Z39TrackingService_SetCameraFrameCallbacksPv10CameraTypePFviyiE");
+
     LOGI("passthrough: syms inst=%p show=%p render=%p opacity=%p",
          (void*)pfn_getSeethroughInstance, (void*)pfn_setForcedToShow,
          (void*)pfn_doRender, (void*)pfn_setOpacity);
+    LOGI("passthrough: ts syms init=%p attach=%p acquire=%p release=%p callbacks=%p",
+         (void*)pfn_ts_initClient, (void*)pfn_ts_attachCamera,
+         (void*)pfn_ts_acquireFrame, (void*)pfn_ts_releaseFrame,
+         (void*)pfn_ts_setCallbacks);
 }
 
 // Fullscreen clip-space quad: position (xyz) + UV. No view/projection needed —
@@ -189,14 +212,16 @@ void pico_passthrough::start()
     fDstcToShowSeeThrough = 1000000.0f;
     fDstcToShowSeeThroughComp = 1000000.0f;
 
-    if (pfn_getSeethroughInstance && pfn_setForcedToShow) {
-        void *inst = pfn_getSeethroughInstance();
-        if (inst) {
-            pfn_setForcedToShow(inst, true);
-            if (pfn_setOpacity) pfn_setOpacity(inst, 1.0f);
-            LOGI("passthrough: forced SeeThrough show on instance %p", inst);
-        } else {
-            LOGE("passthrough: getSeethroughInstance returned null");
+    // Try attaching the camera directly through the TrackingService API.
+    // The GsCameraClient::init() may not actually attach — the tracking
+    // service might need an explicit AttachCamera call to deliver frames.
+    if (pfn_ts_initClient && pfn_ts_attachCamera) {
+        int client = pfn_ts_initClient();
+        LOGI("passthrough: TrackingService_InitClient=%d", client);
+        if (client) {
+            // CameraType 0 = front/tracking camera
+            int rc = pfn_ts_attachCamera((void *)1, 0);
+            LOGI("passthrough: TrackingService_AttachCamera=%d", rc);
         }
     }
 
@@ -222,30 +247,49 @@ void pico_passthrough::draw(int eye)
 {
     if (!gl_ready || !camera_on) return;
     if (eye < 0 || eye > 1) return;
-    if (!pfn_getSeethroughInstance || !pfn_doRender) return;
 
-    void *inst = pfn_getSeethroughInstance();
-    if (!inst) return;
-
-    // SetForcedToShow on the same instance we're about to render with,
-    // since getSeethroughInstance() may return a fresh instance each call.
-    if (pfn_setForcedToShow)
-        pfn_setForcedToShow(inst, true);
-    if (pfn_setOpacity)
-        pfn_setOpacity(inst, 1.0f);
-
-    static int log_count = 0;
-    if (++log_count % 300 == 0) {
-        int state = Pvr_GetSeeThroughState();
-        LOGI("passthrough: DoRender eye=%d state=%d inst=%p", eye, state, inst);
+    // Try getting a frame through TrackingService_AcquireCameraFrame.
+    // frame_item_t is opaque — we just need a large enough buffer.
+    if (pfn_ts_acquireFrame) {
+        unsigned char frame_buf[512] = {};
+        int rc = pfn_ts_acquireFrame(0, frame_buf);
+        static int acq_log = 0;
+        if (++acq_log % 300 == 0)
+            LOGI("passthrough: AcquireCameraFrame rc=%d eye=%d", rc, eye);
+        if (rc == 0 && pfn_ts_releaseFrame)
+            pfn_ts_releaseFrame(0);
     }
 
-    glDisable(GL_DEPTH_TEST);
-    glDepthMask(GL_FALSE);
+    // Also try the SDK's SeeThrough DoRender.
+    if (pfn_getSeethroughInstance && pfn_doRender) {
+        void *inst = pfn_getSeethroughInstance();
+        if (inst) {
+            if (pfn_setForcedToShow) pfn_setForcedToShow(inst, true);
+            if (pfn_setOpacity) pfn_setOpacity(inst, 1.0f);
 
-    pfn_doRender(inst, eye);
+            static int log_count = 0;
+            if (++log_count % 300 == 0) {
+                int state = Pvr_GetSeeThroughState();
+                LOGI("passthrough: DoRender eye=%d state=%d inst=%p", eye, state, inst);
+            }
 
-    glDepthMask(GL_TRUE);
+            glDisable(GL_DEPTH_TEST);
+            glDepthMask(GL_FALSE);
+            pfn_doRender(inst, eye);
+            glDepthMask(GL_TRUE);
+        }
+    }
+
+    // Also try Pvr_GetCameraData_Ext to see if frames are arriving now.
+    static int data_log = 0;
+    if (++data_log % 300 == 0) {
+        unsigned char *frame = Pvr_GetCameraData_Ext();
+        if (frame)
+            LOGI("passthrough: GetCameraData_Ext=%p bytes=[%d,%d,%d,%d]",
+                 (void*)frame, frame[0], frame[1], frame[2], frame[3]);
+        else
+            LOGI("passthrough: GetCameraData_Ext=null");
+    }
 }
 
 pico_passthrough::~pico_passthrough()
