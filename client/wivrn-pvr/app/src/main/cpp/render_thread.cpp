@@ -1957,8 +1957,13 @@ void *renderThread(void *) {
     buildGazeMarker();       // eye-gaze debug disc (shown only on Neo 2 EYE)
     buildTextBuffers();      // dynamic VBO for the lobby IP/status HUD text + slider
     buildReticle();          // head-gaze crosshair (shown in lobby, no controllers)
-    buildGridFloor();        // lobby floor grid (spatial reference, not a void)
     buildControllerMeshes(); // Neo 2 controller wireframes (from /system OBJ)
+    // Passthrough camera background replaces the old dark-void + grid-floor
+    // environment. The lobby UI panels composite on top of the live camera feed.
+    if (gPassthrough) {
+        gPassthrough->init();
+        gPassthrough->start();
+    }
 
     RenderEventFunc re = (RenderEventFunc) GetRenderEventFunc();
     LOGI("GetRenderEventFunc=%p", (void *) re);
