@@ -2468,6 +2468,8 @@ void *renderThread(void *) {
                 destroyStreamSwapchain();   // also resets the pipeline (no stale slot)
                 gFovResyncPending = false;   // drop any pending re-sync for the dead stream
                 applyServerEyeTracking(false);       // stream gone -> turn the IR off
+                // Back in the lobby — restart the passthrough camera background.
+                if (gPassthrough) gPassthrough->start();
                 LOGI("ALVR STREAMING_STOPPED -> decoder+swapchain torn down");
             } else if (ev.tag == ALVR_EVENT_REAL_TIME_CONFIG) {
                 // The server changed a live setting mid-session. CHECK for a
