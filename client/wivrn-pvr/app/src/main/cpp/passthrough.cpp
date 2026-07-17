@@ -98,6 +98,9 @@ void pico_passthrough::upload_frame(int eye, unsigned char *data, int w, int h)
 {
     if (!data || w <= 0 || h <= 0) return;
 
+    // The Neo 2 camera delivers grayscale (1 byte/pixel). The SDK's own
+    // SeeThrough renderer uploads with GL_LUMINANCE / GL_UNSIGNED_BYTE.
+    // Using GL_RGBA here caused a 4x buffer overread → SIGSEGV in glTexImage2D.
     if (eye_tex[eye] == 0)
     {
         glGenTextures(1, &eye_tex[eye]);
@@ -106,24 +109,25 @@ void pico_passthrough::upload_frame(int eye, unsigned char *data, int w, int h)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, w, h, 0,
+                     GL_LUMINANCE, GL_UNSIGNED_BYTE, data);
         eye_w[eye] = w;
         eye_h[eye] = h;
     }
     else
     {
         glBindTexture(GL_TEXTURE_2D, eye_tex[eye]);
-        // Re-allocate if the frame size changed (shouldn't normally happen,
-        // but the SDK can deliver a different resolution on re-init).
         if (w != eye_w[eye] || h != eye_h[eye])
         {
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, w, h, 0,
+                         GL_LUMINANCE, GL_UNSIGNED_BYTE, data);
             eye_w[eye] = w;
             eye_h[eye] = h;
         }
         else
         {
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, data);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h,
+                            GL_LUMINANCE, GL_UNSIGNED_BYTE, data);
         }
     }
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -173,17 +177,17 @@ void pico_passthrough::draw(int eye)
     if (!gl_ready || !camera_on) return;
     if (eye < 0 || eye > 1) return;
 
-    // Pvr_GetCameraData_Ext returns a pointer to the latest camera frame
-    // (RGBA, kCamW x kCamH as set by PVR_SetCameraImageRect). Returns null
-    // if no frame is available yet. Same frame for both eyes (single camera).
+    // Pvr_GetCameraData_Ext returns the full side-by-side stereo frame
+    // (grayscale, kCamW x kCamH, 1 byte/pixel). The SDK's SeeThroughExt
+    // renderer splits it in half per eye. We do the same: left eye gets
+    // the left half, right eye gets the right half.
     unsigned char *frame = Pvr_GetCameraData_Ext();
     if (!frame)
         return;
 
-    // Use the same texture for both eyes — the Neo 2 has a single tracking
-    // camera, so both eyes get the same frame.
-    int tex_eye = 0;
-    upload_frame(tex_eye, frame, kCamW, kCamH);
+    int half_w = kCamW / 2;
+    unsigned char *eye_data = frame + (eye * half_w);
+    upload_frame(eye, eye_data, half_w, kCamH);
 
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
@@ -191,7 +195,7 @@ void pico_passthrough::draw(int eye)
 
     glUseProgram(program);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, eye_tex[tex_eye]);
+    glBindTexture(GL_TEXTURE_2D, eye_tex[eye]);
     glUniform1i(sampler_loc, 0);
 
     glBindVertexArray(vao);
