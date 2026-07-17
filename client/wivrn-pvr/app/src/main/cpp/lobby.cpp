@@ -368,9 +368,8 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	{
 		// Keep the panel planted in space, but make it billboard toward the head so
 		// the UI texture doesn't stretch from an oblique viewing angle.
-		// Skip in overlay mode — recenter_facing already set the correct yaw
-		// and we don't want to override it every frame.
-		if (!overlay)
+		// Skip while grabbing (the user is repositioning it) and in overlay mode.
+		if (!overlay && !grabbing)
 		{
 			float dx = head_pos[0] - panel_pos[0];
 			float dz = head_pos[2] - panel_pos[2];
@@ -659,6 +658,150 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 
 	bool any_ctrl = controllers[0].connected || controllers[1].connected;
 
+	// --- Grip-to-grab logic ---
+	// Detect grip rising edge while ray hits the panel. While held, the
+	// panel follows the controller so the grab point stays under the ray.
+	// This is similar to WiVRn's squeeze-to-recenter: the panel position
+	// tracks the controller, maintaining the relative offset captured at
+	// grab start. Release drops the panel in place.
+
+	// First pass: compute ray hits for both hands so we can pick the
+	// grab hand (the one that pressed grip while hitting the panel).
+	float hit_points[2][3] = {{0}};
+	bool  ray_hits[2] = {false, false};
+	float hit_u[2] = {0}, hit_v[2] = {0};
+
+	for (int h = 0; h < 2; h++)
+	{
+		if (!controllers[h].connected)
+			continue;
+
+		float origin[3] = {
+			controllers[h].position[0] * 0.001f,
+			controllers[h].position[1] * 0.001f,
+			controllers[h].position[2] * 0.001f,
+		};
+		neo2::quat cq = neo2::normalize_quat({
+			-controllers[h].orientation[0],
+			-controllers[h].orientation[1],
+			controllers[h].orientation[2],
+			controllers[h].orientation[3],
+		});
+		float dir[3] = {0, 0, -1};
+		float ray_dir[3];
+		neo2::rotate_vector(cq, dir, ray_dir);
+
+		float u, v;
+		bool hit = ray_plane_intersect(origin, ray_dir, panel_pos, normal, u_axis, v_axis, half_w, half_h, u, v);
+		ray_hits[h] = hit;
+		hit_u[h] = u;
+		hit_v[h] = v;
+
+		if (hit)
+		{
+			// Compute world-space hit point
+			float denom = ray_dir[0]*normal[0] + ray_dir[1]*normal[1] + ray_dir[2]*normal[2];
+			float to_center[3] = {panel_pos[0]-origin[0], panel_pos[1]-origin[1], panel_pos[2]-origin[2]};
+			float t_val = (denom != 0) ? (to_center[0]*normal[0] + to_center[1]*normal[1] + to_center[2]*normal[2]) / denom : 0;
+			hit_points[h][0] = origin[0] + ray_dir[0] * t_val;
+			hit_points[h][1] = origin[1] + ray_dir[1] * t_val;
+			hit_points[h][2] = origin[2] + ray_dir[2] * t_val;
+		}
+	}
+
+	// Start grab on grip rising edge if the ray hits the panel
+	for (int h = 0; h < 2; h++)
+	{
+		bool grip_now = controllers[h].connected && controllers[h].grip;
+		bool grip_down = grip_now && !prev_grip[h];
+
+		if (grip_down && ray_hits[h] && !grabbing)
+		{
+			grabbing = true;
+			grab_hand = h;
+			// Capture offset from panel center to grab point
+			grab_offset[0] = hit_points[h][0] - panel_pos[0];
+			grab_offset[1] = hit_points[h][1] - panel_pos[1];
+			grab_offset[2] = hit_points[h][2] - panel_pos[2];
+			// Capture yaw offset so the panel keeps its orientation
+			float dx = hit_points[h][0] - panel_pos[0];
+			float dz = hit_points[h][2] - panel_pos[2];
+			float ctrl_to_panel_yaw = atan2f(-dx, dz);
+			grab_yaw_offset = panel_yaw - ctrl_to_panel_yaw;
+			LOGI("GRAB_START h=%d offset=(%.2f,%.2f,%.2f) yaw_off=%.2f",
+			     h, grab_offset[0], grab_offset[1], grab_offset[2], grab_yaw_offset);
+		}
+		prev_grip[h] = grip_now;
+	}
+
+	// While grabbing, update panel position to follow the controller ray
+	if (grabbing)
+	{
+		int h = grab_hand;
+		bool grip_held = controllers[h].connected && controllers[h].grip;
+
+		if (!grip_held)
+		{
+			// Release
+			grabbing = false;
+			grab_hand = -1;
+			LOGI("GRAB_END panel=(%.2f,%.2f,%.2f) yaw=%.2f", panel_pos[0], panel_pos[1], panel_pos[2], panel_yaw);
+		}
+		else
+		{
+			// Recompute the ray hit on the panel's current plane (the
+			// plane normal stays fixed during grab since yaw is frozen).
+			float origin[3] = {
+				controllers[h].position[0] * 0.001f,
+				controllers[h].position[1] * 0.001f,
+				controllers[h].position[2] * 0.001f,
+			};
+			neo2::quat cq = neo2::normalize_quat({
+				-controllers[h].orientation[0],
+				-controllers[h].orientation[1],
+				controllers[h].orientation[2],
+				controllers[h].orientation[3],
+			});
+			float dir[3] = {0, 0, -1};
+			float ray_dir[3];
+			neo2::rotate_vector(cq, dir, ray_dir);
+
+			// Intersect with the panel's plane (infinite, not just the quad)
+			float denom = ray_dir[0]*normal[0] + ray_dir[1]*normal[1] + ray_dir[2]*normal[2];
+			if (fabsf(denom) > 1e-6f)
+			{
+				float to_center[3] = {
+					panel_pos[0] - origin[0],
+					panel_pos[1] - origin[1],
+					panel_pos[2] - origin[2],
+				};
+				float t = (to_center[0]*normal[0] + to_center[1]*normal[1] + to_center[2]*normal[2]) / denom;
+				if (t > 0)
+				{
+					float hit[3] = {
+						origin[0] + ray_dir[0] * t,
+						origin[1] + ray_dir[1] * t,
+						origin[2] + ray_dir[2] * t,
+					};
+					// Move panel so the grab point stays under the ray
+					panel_pos[0] = hit[0] - grab_offset[0];
+					panel_pos[1] = hit[1] - grab_offset[1];
+					panel_pos[2] = hit[2] - grab_offset[2];
+
+					// Update yaw to follow the controller's direction around
+					// the panel, keeping the yaw offset constant
+					float dx = hit[0] - panel_pos[0];
+					float dz = hit[2] - panel_pos[2];
+					if (fabsf(dx) > 1e-5f || fabsf(dz) > 1e-5f)
+					{
+						float ctrl_to_panel_yaw = atan2f(-dx, dz);
+						panel_yaw = ctrl_to_panel_yaw + grab_yaw_offset;
+					}
+				}
+			}
+		}
+	}
+
 	for (int h = 0; h < 2; h++)
 	{
 		last_hit[h].valid = false;
@@ -668,6 +811,16 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 			lobby_touch_x[h] = -1;
 			lobby_touch_down[h] = false;
 			lobby_touch_pressed[h] = false;
+			continue;
+		}
+
+		// Suppress touch while this hand is grabbing
+		if (grabbing && grab_hand == h)
+		{
+			lobby_touch_x[h] = -1;
+			lobby_touch_down[h] = false;
+			lobby_touch_pressed[h] = false;
+			prev_trigger[h] = false;
 			continue;
 		}
 
