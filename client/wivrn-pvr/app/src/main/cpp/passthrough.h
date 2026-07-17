@@ -17,11 +17,22 @@ class pico_passthrough
 {
 	GLuint program = 0;
 	GLuint vao = 0, vbo = 0;
-	GLint mvp_loc = -1;
 	GLint sampler_loc = -1;
 
-	GLuint y_tex = 0;
+	// One texture per eye — the SBS camera frame is split into left/right
+	// halves and uploaded to separate textures so both eyes can render in
+	// the same frame without overwriting each other.
+	GLuint eye_tex[2] = {0, 0};
 	int   tex_w = 0, tex_h = 0;
+
+	// Frame counter to detect when we're on the second eye of a pair.
+	// acquireLatestImage is called once per frame (first eye), and the
+	// image is held until the second eye finishes, then deleted.
+	int  frame_seq = 0;
+	AImage *pending_image = nullptr;
+	int  pending_w = 0, pending_h = 0;
+	uint8_t *pending_y = nullptr;
+	int  pending_stride = 0;
 
 	bool gl_ready = false;
 	bool camera_on = false;
@@ -36,7 +47,7 @@ class pico_passthrough
 
 	void build_shaders();
 	void build_geometry();
-	void upload_frame(int w, int h, const uint8_t *y_data, int y_row_stride);
+	void upload_eye(int eye, int w, int h, const uint8_t *data, int row_stride);
 
 public:
 	pico_passthrough() = default;

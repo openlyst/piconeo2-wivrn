@@ -76,13 +76,18 @@ void pico_passthrough::build_shaders()
 
 void pico_passthrough::build_geometry()
 {
+    // Fullscreen quad. UV (0,0) = top-left of texture, (1,1) = bottom-right.
+    // The camera Y plane arrives top-row-first, so we flip V so the image
+    // is upright: map UV v=0 -> texcoord v=1 (bottom of texture = top of image
+    // after GL's bottom-up convention). Actually GL textures are bottom-up
+    // by default, and the camera delivers top-down, so we flip V in the UVs.
     static const float verts[] = {
-        -1, -1, 0,  0, 0,
-         1, -1, 0,  1, 0,
-        -1,  1, 0,  0, 1,
-        -1,  1, 0,  0, 1,
-         1, -1, 0,  1, 0,
-         1,  1, 0,  1, 1,
+        -1, -1, 0,  0, 1,
+         1, -1, 0,  1, 1,
+        -1,  1, 0,  0, 0,
+        -1,  1, 0,  0, 0,
+         1, -1, 0,  1, 1,
+         1,  1, 0,  1, 0,
     };
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
@@ -96,14 +101,16 @@ void pico_passthrough::build_geometry()
     glBindVertexArray(0);
 }
 
-void pico_passthrough::upload_frame(int w, int h, const uint8_t *data, int row_stride)
+void pico_passthrough::upload_eye(int eye, int w, int h, const uint8_t *data, int row_stride)
 {
     if (!data || w <= 0 || h <= 0) return;
+    GLuint tex = eye_tex[eye];
 
-    if (y_tex == 0)
+    if (tex == 0)
     {
-        glGenTextures(1, &y_tex);
-        glBindTexture(GL_TEXTURE_2D, y_tex);
+        glGenTextures(1, &tex);
+        eye_tex[eye] = tex;
+        glBindTexture(GL_TEXTURE_2D, tex);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -115,7 +122,7 @@ void pico_passthrough::upload_frame(int w, int h, const uint8_t *data, int row_s
     }
     else
     {
-        glBindTexture(GL_TEXTURE_2D, y_tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
         if (w != tex_w || h != tex_h)
         {
             glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0,
@@ -125,8 +132,8 @@ void pico_passthrough::upload_frame(int w, int h, const uint8_t *data, int row_s
         }
     }
 
-    // Use UNPACK_ROW_LENGTH so we can upload a sub-rect of a wider source
-    // buffer in a single call instead of 400 row-by-row glTexSubImage2D's.
+    // UNPACK_ROW_LENGTH lets us upload a sub-rect (eye's half) from a
+    // wider source buffer in one call. row_stride is the full frame width.
     if (row_stride != w)
     {
         glPixelStorei(GL_UNPACK_ROW_LENGTH, row_stride);
@@ -269,6 +276,8 @@ void pico_passthrough::stop()
 {
     if (!camera_on) return;
 
+    if (pending_image) { AImage_delete(pending_image); pending_image = nullptr; }
+
     if (cam_session)
     {
         ACameraCaptureSession_stopRepeating(cam_session);
@@ -299,44 +308,67 @@ void pico_passthrough::draw(int eye)
     }
     if (!img_reader) return;
 
-    AImage *image = nullptr;
-    media_status_t rc = AImageReader_acquireLatestImage(img_reader, &image);
-    if (rc != AMEDIA_OK || !image)
-        return;
+    // Acquire a new frame only on the first eye of each frame pair.
+    // The image is held until both eyes have uploaded their halves,
+    // then released on the second eye.
+    if (eye == 0)
+    {
+        if (pending_image)
+        {
+            AImage_delete(pending_image);
+            pending_image = nullptr;
+        }
 
-    int32_t src_w = 0, src_h = 0;
-    AImage_getWidth(image, &src_w);
-    AImage_getHeight(image, &src_h);
+        AImage *image = nullptr;
+        media_status_t rc = AImageReader_acquireLatestImage(img_reader, &image);
+        if (rc == AMEDIA_OK && image)
+        {
+            int32_t w = 0, h = 0;
+            AImage_getWidth(image, &w);
+            AImage_getHeight(image, &h);
+            uint8_t *y_data = nullptr;
+            int y_len = 0, y_stride = 0, y_pix = 0;
+            AImage_getPlaneData(image, 0, &y_data, &y_len);
+            AImage_getPlaneRowStride(image, 0, &y_stride);
+            AImage_getPlanePixelStride(image, 0, &y_pix);
 
-    uint8_t *y_data = nullptr;
-    int y_len = 0, y_row_stride = 0, y_pix_stride = 0;
-    AImage_getPlaneData(image, 0, &y_data, &y_len);
-    AImage_getPlaneRowStride(image, 0, &y_row_stride);
-    AImage_getPlanePixelStride(image, 0, &y_pix_stride);
+            pending_image = image;
+            pending_w = w;
+            pending_h = h;
+            pending_y = y_data;
+            pending_stride = y_stride;
 
-    static int frame_count = 0;
-    if (++frame_count % 300 == 0)
-        LOGI("passthrough: frame %d %dx%d y_stride=%d y_pix=%d bytes=[%d,%d,%d,%d]",
-             frame_count, src_w, src_h, y_row_stride, y_pix_stride,
-             y_data[0], y_data[100], y_data[500], y_data[1000]);
+            static int frame_count = 0;
+            if (++frame_count % 300 == 0)
+                LOGI("passthrough: frame %d %dx%d stride=%d pix=%d bytes=[%d,%d,%d,%d]",
+                     frame_count, w, h, y_stride, y_pix,
+                     y_data[0], y_data[100], y_data[500], y_data[1000]);
+        }
+    }
 
-    // Side-by-side stereo: left eye = left half, right eye = right half.
-    // Y plane row stride is the full frame width (1280); each eye's
-    // column offset within a row is eye * half_w.
-    int half_w = src_w / 2;
-    const uint8_t *eye_data = y_data + eye * half_w;
+    if (!pending_image || !pending_y) return;
 
-    upload_frame(half_w, src_h, eye_data, y_row_stride);
+    // Split SBS frame: left eye = left half, right eye = right half.
+    int half_w = pending_w / 2;
+    const uint8_t *eye_data = pending_y + eye * half_w;
+    upload_eye(eye, half_w, pending_h, eye_data, pending_stride);
 
-    AImage_delete(image);
+    // Release the image after the second eye is done.
+    if (eye == 1 && pending_image)
+    {
+        AImage_delete(pending_image);
+        pending_image = nullptr;
+        pending_y = nullptr;
+    }
 
+    // Render
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
     glDisable(GL_CULL_FACE);
 
     glUseProgram(program);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, y_tex);
+    glBindTexture(GL_TEXTURE_2D, eye_tex[eye]);
     glUniform1i(sampler_loc, 0);
 
     glBindVertexArray(vao);
@@ -355,5 +387,6 @@ pico_passthrough::~pico_passthrough()
     if (program) glDeleteProgram(program);
     if (vao) glDeleteVertexArrays(1, &vao);
     if (vbo) glDeleteBuffers(1, &vbo);
-    if (y_tex) glDeleteTextures(1, &y_tex);
+    for (int i = 0; i < 2; i++)
+        if (eye_tex[i]) glDeleteTextures(1, &eye_tex[i]);
 }
