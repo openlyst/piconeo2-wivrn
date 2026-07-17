@@ -14,7 +14,7 @@ void main()
 )";
 
 static const char *frag_src = R"(#version 310 es
-precision mediump sampler2D;
+precision mediump float;
 uniform sampler2D u_tex;
 in vec2 v_uv;
 out vec4 frag;
