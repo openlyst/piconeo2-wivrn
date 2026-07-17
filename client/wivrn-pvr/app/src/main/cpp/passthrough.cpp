@@ -386,16 +386,13 @@ void pico_passthrough::draw(int eye)
     if (got_new_this_frame || eye_tex[eye] == 0)
         upload_eye(eye, half_w, pending_h, eye_data, pending_stride);
 
-    // Release the image after the second eye is done — but ONLY if we
-    // uploaded a new frame this tick. If we reused the last frame (no new
-    // camera data), keep the image alive so the next tick's eye 0 can
-    // still fall back on it if acquire returns no-buffer-again.
-    if (eye == 1 && got_new_this_frame && pending_image)
-    {
-        AImage_delete(pending_image);
-        pending_image = nullptr;
-        pending_y = nullptr;
-    }
+    // Don't release pending_image here — keep it alive until eye 0's
+    // next acquire replaces it with a new frame. The ImageReader has 4
+    // buffers so holding one extra is fine, and this guarantees we always
+    // have a fallback when the camera runs slower than the render loop
+    // (otherwise eye 0 would see null pending on no-buffer ticks and
+    // return early → black flicker).
+    // pending_image is released in stop() or when replaced by a new frame.
 
     draw_counts[eye]++;
     if (draw_counts[eye] % 300 == 0)
