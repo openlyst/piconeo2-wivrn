@@ -87,8 +87,8 @@ class pico_lobby
 	bool debug_trigger_down = false;
 	int debug_frame_count = 0;
 
-	static constexpr float panel_w = 1.2f;
-	static constexpr float panel_h = 0.77f;
+	static constexpr float panel_w = 0.8f;
+	static constexpr float panel_h = 0.51f;
 
 	void draw_quad(const float head_orient[4], const float head_pos[3],
 	               const XrFovf & fov, float ipd, int eye);
