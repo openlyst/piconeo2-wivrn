@@ -108,6 +108,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private boolean hasPendingConnection = false;
     private long lastConnectFlushMs = 0;
     private static final long CONNECT_DEBOUNCE_MS = 2000;
+    private volatile boolean nativeConnecting = false;
 
     // Pico CV controller service: bound once, then polled on a background thread
     // and pushed to native. headDof/handDof = 1,1 requests 6DoF.
@@ -312,6 +313,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (host != null && !host.isEmpty()) {
             boolean sameTarget = host.equals(pendingHost) && port == pendingPort && tcpOnly == pendingTcpOnly;
             long now = System.currentTimeMillis();
+            if (nativeConnecting && sameTarget) {
+                Log.i(TAG, "intent: already connecting to " + host + ":" + port + ", ignoring duplicate");
+                return;
+            }
             if (sameTarget && hasPendingConnection && (now - lastConnectFlushMs) < CONNECT_DEBOUNCE_MS) {
                 if (pin != null && !pin.isEmpty()) {
                     Log.i(TAG, "intent debounce: updating pin only for " + host + ":" + port);
@@ -351,8 +356,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         lastConnectFlushMs = System.currentTimeMillis();
         if (lobbyView != null) {
             nativeSetBitrate(lobbyView.getBitrate());
+            lobbyView.markAutoconnectAttempted();
         }
         nativeConnect(pendingHost, pendingPort, pendingTcpOnly);
+        nativeConnecting = true;
         if (pendingPin != null && !pendingPin.isEmpty()) {
             nativeSetPin(pendingPin);
         }
@@ -741,7 +748,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     // ---- WiVRn lobby view callbacks ----
     public void onServerConnect(String hostname, int port, boolean tcpOnly) {
+        if (nativeConnecting) {
+            Log.i(TAG, "lobby: connect requested " + hostname + ":" + port + " tcp=" + tcpOnly + " — ignored, already connecting");
+            return;
+        }
         Log.i(TAG, "lobby: connect requested " + hostname + ":" + port + " tcp=" + tcpOnly);
+        nativeConnecting = true;
         try { nativeConnect(hostname, port, tcpOnly); } catch (Throwable t) { Log.e(TAG, "nativeConnect failed", t); }
     }
     public void onIpdChanged(float ipdMm) {
@@ -755,6 +767,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         try { nativeSetPin(pin); } catch (Throwable t) { Log.e(TAG, "nativeSetPin failed", t); }
     }
     public void onDisconnectRequested() {
+        nativeConnecting = false;
         try { nativeDisconnect(); } catch (Throwable t) { Log.e(TAG, "nativeDisconnect failed", t); }
     }
     public void onReconnectRequested() {}
@@ -788,6 +801,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     // WiVRn streaming_client callbacks.
     public void onConnectionStateChanged(int state, String message) {
+        if (state == WivrnLobbyView.STATE_DISCONNECTED || state == WivrnLobbyView.STATE_IDLE) {
+            nativeConnecting = false;
+        }
         runOnUiThread(() -> {
             if (lobbyView != null) lobbyView.setConnectionState(state, message);
         });

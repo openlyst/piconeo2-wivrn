@@ -225,6 +225,8 @@ public class WivrnLobbyView {
 
     private boolean autoconnectAttempted = false;
 
+    public void markAutoconnectAttempted() { autoconnectAttempted = true; }
+
     public WivrnLobbyView(Context context) {
         this.context = context;
         this.bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
@@ -245,6 +247,8 @@ public class WivrnLobbyView {
         for (ServerEntry s : servers) {
             if (s.autoconnect) {
                 Log.i(TAG, "Autoconnecting to " + s.hostname + ":" + s.port);
+                connectionState = STATE_CONNECTING;
+                statusMessage = "Connecting...";
                 ((MainActivity) context).onServerConnect(s.hostname, s.port, s.tcpOnly);
                 return;
             }
@@ -2450,6 +2454,8 @@ public class WivrnLobbyView {
             RectF connectBtn = new RectF(contentX + contentW - BUTTON_WIDTH - 20, cardY + 20, contentX + contentW - 20, cardY + 20 + BUTTON_HEIGHT);
             if (connectBtn.contains(x, y)) {
                 selectedServerIndex = i;
+                connectionState = STATE_CONNECTING;
+                statusMessage = "Connecting...";
                 ((MainActivity) context).onServerConnect(s.hostname, s.port, s.tcpOnly);
                 markDirty();
                 return;
