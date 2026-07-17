@@ -3859,7 +3859,7 @@ void *renderThread(void *) {
             if (gLobbyEyeReady && rtInited) {
                 {
                     eglMakeCurrent(dpy, pbuf, pbuf, ctx);   // stay offscreen; warp owns the window
-                    if (gGridThemeDirty.exchange(false)) { buildGridFloor(); buildControllerMeshes(); }   // recolour floor + controllers
+                    if (gGridThemeDirty.exchange(false)) { buildControllerMeshes(); }   // recolour controllers (grid floor removed — passthrough replaces it)
                     for (int eye = 0; eye < 2; eye++) {
                         float ex = (eye == 0 ? -softIpdM()*0.5f : softIpdM()*0.5f);
                         Mat4 eyeShift = mat4Translate(-ex, 0, 0);
