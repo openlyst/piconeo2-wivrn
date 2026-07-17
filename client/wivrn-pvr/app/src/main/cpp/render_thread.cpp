@@ -1962,8 +1962,8 @@ void *renderThread(void *) {
     // warp ring (4 entries) has fully cycled to fresh stream textures before freeing.
     // -1 = no free pending.
     int  lobbyFreeDelay = -1;
-    // gGridThemeDirty is now a global atomic (app_state.h): the menu raises it, the
-    // render loop consumes it below to rebuild the floor VBO.
+    // gGridThemeDirty is a global atomic (app_state.h): the menu raises it, the
+    // render loop consumes it below to recolour the controller wireframes.
 
     // Spin up the fixed-rate tracking/uplink thread now that the SDK + ALVR are
     // initialized and the path ids are populated. It runs independently of this
