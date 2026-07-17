@@ -141,6 +141,15 @@ static Mat4 mat4_rotate_y(float angle)
 	return r;
 }
 
+static Mat4 mat4_rotate_x(float angle)
+{
+	float c = cosf(angle), s = sinf(angle);
+	Mat4 r = mat4_identity();
+	r.m[5] = c;  r.m[6] = -s;
+	r.m[9] = s;  r.m[10] = c;
+	return r;
+}
+
 static Mat4 quat_to_mat4(const float q[4])
 {
 	float x = q[0], y = q[1], z = q[2], w = q[3];
@@ -372,8 +381,17 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 		{
 			float dx = head_pos[0] - panel_pos[0];
 			float dz = head_pos[2] - panel_pos[2];
-			if (fabsf(dx) > 1e-5f || fabsf(dz) > 1e-5f)
+			float dy = head_pos[1] - panel_pos[1];
+			float horiz = sqrtf(dx*dx + dz*dz);
+			if (horiz > 1e-5f)
+			{
 				panel_yaw = atan2f(-dx, dz);
+				// Tilt toward head: if panel is above head, tilt top
+				// forward; if below, tilt top back. Clamp to +-35deg.
+				panel_pitch = atan2f(dy, horiz);
+				if (panel_pitch > 0.61f) panel_pitch = 0.61f;
+				if (panel_pitch < -0.61f) panel_pitch = -0.61f;
+			}
 		}
 		update_interaction(head_orient, head_pos, controllers, head_trigger);
 	}
@@ -545,7 +563,8 @@ void pico_lobby::draw_quad(const float head_orient[4], const float head_pos[3],
 	Mat4 vp = mat4_mul(proj, view);
 
 	Mat4 model = mat4_mul(mat4_translate(panel_pos[0], panel_pos[1], panel_pos[2]),
-	                      mat4_rotate_y(panel_yaw));
+	                      mat4_mul(mat4_rotate_y(panel_yaw),
+	                      mat4_rotate_x(panel_pitch)));
 
 	Mat4 scale = mat4_scale(panel_w * 0.5f, panel_h * 0.5f, 1.0f);
 	model = mat4_mul(model, scale);
@@ -772,13 +791,22 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 			panel_pos[1] = hit[1];
 			panel_pos[2] = hit[2];
 
-			// Compute new yaw facing the head from this position
+			// Compute new yaw and pitch facing the head from this position
 			float dx = head_pos[0] - panel_pos[0];
 			float dz = head_pos[2] - panel_pos[2];
+			float dy = head_pos[1] - panel_pos[1];
+			float horiz = sqrtf(dx*dx + dz*dz);
 			float new_yaw = panel_yaw;
-			if (fabsf(dx) > 1e-5f || fabsf(dz) > 1e-5f)
+			float new_pitch = 0;
+			if (horiz > 1e-5f)
+			{
 				new_yaw = atan2f(-dx, dz);
+				new_pitch = atan2f(dy, horiz);
+				if (new_pitch > 0.61f) new_pitch = 0.61f;
+				if (new_pitch < -0.61f) new_pitch = -0.61f;
+			}
 			panel_yaw = new_yaw;
+			panel_pitch = new_pitch;
 
 			// Recompute panel axes with the new yaw
 			float ncy = cosf(new_yaw), nsy = sinf(new_yaw);

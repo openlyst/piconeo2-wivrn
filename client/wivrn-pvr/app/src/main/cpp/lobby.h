@@ -52,6 +52,7 @@ class pico_lobby
 
 	float panel_pos[3] = {0, 0.0f, -2.5f};
 	float panel_yaw = 0.0f;
+	float panel_pitch = 0.0f;
 	bool prev_trigger[2] = {false, false};
 	bool prev_head_trigger = false;
 
