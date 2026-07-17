@@ -141,6 +141,15 @@ static Mat4 mat4_rotate_y(float angle)
 	return r;
 }
 
+static Mat4 mat4_rotate_x(float angle)
+{
+	float c = cosf(angle), s = sinf(angle);
+	Mat4 r = mat4_identity();
+	r.m[5] = c;  r.m[6] = -s;
+	r.m[9] = s;  r.m[10] = c;
+	return r;
+}
+
 static Mat4 quat_to_mat4(const float q[4])
 {
 	float x = q[0], y = q[1], z = q[2], w = q[3];
@@ -321,7 +330,7 @@ void pico_lobby::init(int w, int h)
 	// can move it in front of the user when desired.
 	panel_pos[0] = 0.0f;
 	panel_pos[1] = 1.6f;
-	panel_pos[2] = -2.0f;
+	panel_pos[2] = -0.8f;
 	panel_yaw = 0.0f;
 
 	initialized = true;
@@ -366,16 +375,23 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 
 	if (eye == 0)
 	{
-		// Keep the panel planted in space, but make it billboard toward the head so
-		// the UI texture doesn't stretch from an oblique viewing angle.
-		// Skip in overlay mode — recenter_facing already set the correct yaw
-		// and we don't want to override it every frame.
+		// Billboard toward the head. update_interaction's grab logic
+		// also recomputes yaw internally after moving the panel.
 		if (!overlay)
 		{
 			float dx = head_pos[0] - panel_pos[0];
 			float dz = head_pos[2] - panel_pos[2];
-			if (fabsf(dx) > 1e-5f || fabsf(dz) > 1e-5f)
+			float dy = head_pos[1] - panel_pos[1];
+			float horiz = sqrtf(dx*dx + dz*dz);
+			if (horiz > 1e-5f)
+			{
 				panel_yaw = atan2f(-dx, dz);
+				// Tilt toward head: if panel is above head, tilt top
+				// forward; if below, tilt top back. Clamp to +-35deg.
+				panel_pitch = atan2f(dy, horiz);
+				if (panel_pitch > 0.61f) panel_pitch = 0.61f;
+				if (panel_pitch < -0.61f) panel_pitch = -0.61f;
+			}
 		}
 		update_interaction(head_orient, head_pos, controllers, head_trigger);
 	}
@@ -547,7 +563,8 @@ void pico_lobby::draw_quad(const float head_orient[4], const float head_pos[3],
 	Mat4 vp = mat4_mul(proj, view);
 
 	Mat4 model = mat4_mul(mat4_translate(panel_pos[0], panel_pos[1], panel_pos[2]),
-	                      mat4_rotate_y(panel_yaw));
+	                      mat4_mul(mat4_rotate_y(panel_yaw),
+	                      mat4_rotate_x(panel_pitch)));
 
 	Mat4 scale = mat4_scale(panel_w * 0.5f, panel_h * 0.5f, 1.0f);
 	model = mat4_mul(model, scale);
@@ -622,7 +639,7 @@ void pico_lobby::set_resolution(int w, int h)
 
 void pico_lobby::recenter(const float head_pos[3], float head_yaw)
 {
-	constexpr float kPanelDist = 2.0f;
+	constexpr float kPanelDist = 0.8f;
 	float cy = std::cosf(head_yaw), sy = std::sinf(head_yaw);
 	panel_pos[0] = (head_pos ? head_pos[0] : 0.0f) - sy * kPanelDist;
 	panel_pos[1] = head_pos ? head_pos[1] : 0.0f;
@@ -633,7 +650,7 @@ void pico_lobby::recenter(const float head_pos[3], float head_yaw)
 
 void pico_lobby::recenter_facing(const float head_pos[3], float fwd_x, float fwd_z)
 {
-	constexpr float kPanelDist = 2.0f;
+	constexpr float kPanelDist = 0.8f;
 	float n = sqrtf(fwd_x * fwd_x + fwd_z * fwd_z);
 	if (n < 1e-5f) { fwd_x = 0; fwd_z = -1; n = 1; }
 	fwd_x /= n; fwd_z /= n;
@@ -659,6 +676,154 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 
 	bool any_ctrl = controllers[0].connected || controllers[1].connected;
 
+	// --- Grip-to-grab logic ---
+	// When grip is pressed while the ray hits the panel, capture the grab
+	// point in panel-local UV. Each frame while held, intersect the
+	// controller ray with the panel plane and reposition the panel so the
+	// grab UV stays under the ray. The offset is in panel-local space so
+	// it stays correct even as billboard rotates the yaw to face the head.
+
+	// First pass: compute ray hits for both hands
+	float hit_points[2][3] = {{0}};
+	bool  ray_hits[2] = {false, false};
+	float hit_uv[2][2] = {{0}};
+
+	for (int h = 0; h < 2; h++)
+	{
+		if (!controllers[h].connected)
+			continue;
+
+		float origin[3] = {
+			controllers[h].position[0] * 0.001f,
+			controllers[h].position[1] * 0.001f,
+			controllers[h].position[2] * 0.001f,
+		};
+		neo2::quat cq = neo2::normalize_quat({
+			-controllers[h].orientation[0],
+			-controllers[h].orientation[1],
+			controllers[h].orientation[2],
+			controllers[h].orientation[3],
+		});
+		float dir[3] = {0, 0, -1};
+		float ray_dir[3];
+		neo2::rotate_vector(cq, dir, ray_dir);
+
+		float u, v;
+		bool hit = ray_plane_intersect(origin, ray_dir, panel_pos, normal, u_axis, v_axis, half_w, half_h, u, v);
+		ray_hits[h] = hit;
+		hit_uv[h][0] = u;
+		hit_uv[h][1] = v;
+
+		if (hit)
+		{
+			float denom = ray_dir[0]*normal[0] + ray_dir[1]*normal[1] + ray_dir[2]*normal[2];
+			float to_center[3] = {panel_pos[0]-origin[0], panel_pos[1]-origin[1], panel_pos[2]-origin[2]};
+			float t_val = (denom != 0) ? (to_center[0]*normal[0] + to_center[1]*normal[1] + to_center[2]*normal[2]) / denom : 0;
+			hit_points[h][0] = origin[0] + ray_dir[0] * t_val;
+			hit_points[h][1] = origin[1] + ray_dir[1] * t_val;
+			hit_points[h][2] = origin[2] + ray_dir[2] * t_val;
+		}
+	}
+
+	// Start grab on grip rising edge if the ray hits the panel
+	for (int h = 0; h < 2; h++)
+	{
+		bool grip_now = controllers[h].connected && controllers[h].grip;
+		bool grip_down = grip_now && !prev_grip[h];
+
+		if (grip_down && ray_hits[h] && !grabbing)
+		{
+			grabbing = true;
+			grab_hand = h;
+			grab_u = hit_uv[h][0];
+			grab_v = hit_uv[h][1];
+			// Distance from controller to the grab point
+			float dx = hit_points[h][0] - controllers[h].position[0] * 0.001f;
+			float dy = hit_points[h][1] - controllers[h].position[1] * 0.001f;
+			float dz = hit_points[h][2] - controllers[h].position[2] * 0.001f;
+			grab_dist = sqrtf(dx*dx + dy*dy + dz*dz);
+			LOGI("GRAB_START h=%d uv=(%.2f,%.2f) dist=%.2f", h, grab_u, grab_v, grab_dist);
+		}
+		prev_grip[h] = grip_now;
+	}
+
+	// While grabbing, move panel so the grab UV stays under the controller ray
+	if (grabbing)
+	{
+		int h = grab_hand;
+		bool grip_held = controllers[h].connected && controllers[h].grip;
+
+		if (!grip_held)
+		{
+			grabbing = false;
+			grab_hand = -1;
+			LOGI("GRAB_END panel=(%.2f,%.2f,%.2f) yaw=%.2f", panel_pos[0], panel_pos[1], panel_pos[2], panel_yaw);
+		}
+		else
+		{
+			float origin[3] = {
+				controllers[h].position[0] * 0.001f,
+				controllers[h].position[1] * 0.001f,
+				controllers[h].position[2] * 0.001f,
+			};
+			neo2::quat cq = neo2::normalize_quat({
+				-controllers[h].orientation[0],
+				-controllers[h].orientation[1],
+				controllers[h].orientation[2],
+				controllers[h].orientation[3],
+			});
+			float dir[3] = {0, 0, -1};
+			float ray_dir[3];
+			neo2::rotate_vector(cq, dir, ray_dir);
+
+			// Project a point at grab_dist along the controller ray.
+			float hit[3] = {
+				origin[0] + ray_dir[0] * grab_dist,
+				origin[1] + ray_dir[1] * grab_dist,
+				origin[2] + ray_dir[2] * grab_dist,
+			};
+
+			// Temporarily set panel_pos to the hit point so we can
+			// compute the billboard yaw from the new position, then
+			// use that yaw to compute the panel-local offset.
+			float old_pos[3] = {panel_pos[0], panel_pos[1], panel_pos[2]};
+			panel_pos[0] = hit[0];
+			panel_pos[1] = hit[1];
+			panel_pos[2] = hit[2];
+
+			// Compute new yaw and pitch facing the head from this position
+			float dx = head_pos[0] - panel_pos[0];
+			float dz = head_pos[2] - panel_pos[2];
+			float dy = head_pos[1] - panel_pos[1];
+			float horiz = sqrtf(dx*dx + dz*dz);
+			float new_yaw = panel_yaw;
+			float new_pitch = 0;
+			if (horiz > 1e-5f)
+			{
+				new_yaw = atan2f(-dx, dz);
+				new_pitch = atan2f(dy, horiz);
+				if (new_pitch > 0.61f) new_pitch = 0.61f;
+				if (new_pitch < -0.61f) new_pitch = -0.61f;
+			}
+			panel_yaw = new_yaw;
+			panel_pitch = new_pitch;
+
+			// Recompute panel axes with the new yaw
+			float ncy = cosf(new_yaw), nsy = sinf(new_yaw);
+			float nu_axis[3] = {ncy, 0, nsy};
+			float nv_axis[3] = {0, 1, 0};
+
+			// Now offset from the hit point by the grab UV in the
+			// new panel-local space to get the final panel center.
+			float off_x = grab_u * half_w * nu_axis[0] + grab_v * half_h * nv_axis[0];
+			float off_y = grab_u * half_w * nu_axis[1] + grab_v * half_h * nv_axis[1];
+			float off_z = grab_u * half_w * nu_axis[2] + grab_v * half_h * nv_axis[2];
+			panel_pos[0] = hit[0] - off_x;
+			panel_pos[1] = hit[1] - off_y;
+			panel_pos[2] = hit[2] - off_z;
+		}
+	}
+
 	for (int h = 0; h < 2; h++)
 	{
 		last_hit[h].valid = false;
@@ -668,6 +833,16 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 			lobby_touch_x[h] = -1;
 			lobby_touch_down[h] = false;
 			lobby_touch_pressed[h] = false;
+			continue;
+		}
+
+		// Suppress touch while this hand is grabbing
+		if (grabbing && grab_hand == h)
+		{
+			lobby_touch_x[h] = -1;
+			lobby_touch_down[h] = false;
+			lobby_touch_pressed[h] = false;
+			prev_trigger[h] = false;
 			continue;
 		}
 

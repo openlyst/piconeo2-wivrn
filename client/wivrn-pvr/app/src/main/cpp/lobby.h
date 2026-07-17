@@ -52,8 +52,22 @@ class pico_lobby
 
 	float panel_pos[3] = {0, 0.0f, -2.5f};
 	float panel_yaw = 0.0f;
+	float panel_pitch = 0.0f;
 	bool prev_trigger[2] = {false, false};
 	bool prev_head_trigger = false;
+
+	// Grip-to-grab state. When the user holds grip while pointing at the
+	// panel, the panel follows the controller freely in 3D space.
+	bool prev_grip[2] = {false, false};
+	bool grabbing = false;
+	int  grab_hand = -1;
+	// Grab point in panel-local UV (-1..1) and distance from controller
+	// to the grab point, both captured at grab start. Each frame we
+	// project a point at that distance along the controller ray and
+	// offset by the panel-local grab UV to get the new panel center.
+	float grab_u = 0;
+	float grab_v = 0;
+	float grab_dist = 0;
 
 	struct ray_hit
 	{
@@ -73,8 +87,8 @@ class pico_lobby
 	bool debug_trigger_down = false;
 	int debug_frame_count = 0;
 
-	static constexpr float panel_w = 2.0f;
-	static constexpr float panel_h = 1.286f;
+	static constexpr float panel_w = 0.8f;
+	static constexpr float panel_h = 0.51f;
 
 	void draw_quad(const float head_orient[4], const float head_pos[3],
 	               const XrFovf & fov, float ipd, int eye);
