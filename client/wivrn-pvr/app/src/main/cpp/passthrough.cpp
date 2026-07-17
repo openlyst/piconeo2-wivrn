@@ -146,9 +146,14 @@ void pico_passthrough::start()
 {
     if (camera_on) return;
 
+    // Pvr_GetCameraData_Ext auto-initializes the camera on first call (it
+    // calls GuardianSystem::InitializeCamera internally). PVR_StartCameraPreview
+    // does NOT init the camera — if called before init, mpCamera is null and
+    // no frames are produced. So trigger the init first, then set the rect
+    // and start the preview loop.
+    Pvr_GetCameraData_Ext();
     PVR_SetCameraImageRect(kCamW, kCamH);
     PVR_StartCameraPreview(0);
-    Pvr_BoundarySetSeeThroughVisible(true);
     camera_on = true;
     LOGI("passthrough camera started (%dx%d)", kCamW, kCamH);
 }
