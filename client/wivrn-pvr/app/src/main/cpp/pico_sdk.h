@@ -73,6 +73,34 @@ extern "C" {
     // Pvr_ShutdownSDKBoundary(). Returns count of geometry points (0 if unset).
     int   Pvr_BoundaryGetDimensions(float *x, float *y, float *z, bool isPlayArea);
     bool  Pvr_BoundaryGetConfigured();
+    // --- See-through / passthrough camera -----------------------------------
+    // RE'd from libPvr_UnitySDK exports. The Neo 2 has a front-facing tracking
+    // camera whose frames can be surfaced as a passthrough background. The Unity
+    // SDK wraps these as UPvr_StartCameraFrame / UPvr_GetRawCameraData /
+    // UPvr_BoundaryGetSeeThroughData / UPvr_BoundarySetSeeThroughVisible.
+    // StartCameraPreview kicks the camera frame loop; SetCameraImageRect sets the
+    // resolution the frames are scaled/delivered at. GetCameraData_Ext returns a
+    // pointer to the latest raw frame buffer (RGBA, w*h*4 bytes as set by
+    // SetCameraImageRect) and auto-initializes the camera on first call.
+    // BoundaryGetSeeThroughData is the per-eye variant: cameraIndex 0=left, 1=right,
+    // fills width/height/count/timestamp out-params and returns the frame buffer
+    // pointer (null if no frame available). BoundarySetSeeThroughVisible gates
+    // whether the runtime composites the camera layer; GetSeeThroughState reads it
+    // back (0=off, 1=gradient, 2=total).
+    void  PVR_StartCameraPreview(int mode);
+    void  PVR_SetCameraImageRect(int width, int height);
+    unsigned char *Pvr_GetCameraData_Ext();
+    unsigned char *Pvr_BoundaryGetSeeThroughData(int cameraIndex, bool *valid,
+                                                  unsigned int *width, unsigned int *height,
+                                                  unsigned int *count, long long *timestamp);
+    void  Pvr_BoundarySetSeeThroughVisible(bool visible);
+    void  Pvr_BoundarySeeThroughSetVisible_(bool visible);
+    int   Pvr_GetSeeThroughState();
+    // Distance thresholds that gate SeeThrough activation. Setting
+    // fDstcToShowSeeThrough very large forces always-on (the system thinks
+    // the user is always "close to boundary").
+    extern float fDstcToShowSeeThrough;
+    extern float fDstcToShowSeeThroughComp;
     void *GetRenderEventFunc();
     bool  Pvr_SetSinglePassDepthBufferWidthHeight(int width, int height);
     void  Pvr_GetFOV(float *outA, float *outB);

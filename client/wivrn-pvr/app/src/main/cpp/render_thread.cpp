@@ -41,6 +41,7 @@
 #include "settings_panel.h"  // unified lobby SETTINGS window (sidebar + scroll)
 #include "app_state.h"   // shared lobby/render knobs: IPD, input edges, toggles, diag
 #include "lobby.h"       // ported pico_oxr WiVRn lobby UI panel
+#include "passthrough.h" // passthrough camera background for the lobby
 #include "lobby_panels.h"// diagnostics overlay builders
 #include "input.h"       // controller + head-pose shared state
 #include "foveation.h"   // readFoveationParams() from the settings JSON
@@ -100,6 +101,7 @@ ANativeWindow *gPendingWindow = nullptr;   // latest window (or null)
 std::atomic<bool> gWindowDirty{false};     // a change is pending (see render_thread.h)
 
 pico_lobby * gLobby = new pico_lobby();
+pico_passthrough * gPassthrough = new pico_passthrough();
 
 // Shared "position + per-vertex colour" shader: the grid, HUD text, and eye-gaze
 // marker all reuse this same program (gProg) + uMVP.
@@ -330,42 +332,6 @@ static void buildGazeMarker() {
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
     glBindVertexArray(0);
     LOGI("gaze marker built verts=%d", gGazeVertCount);
-}
-
-// Floor grid for the lobby so it reads as a space, not a black void. Lines on the
-// y=0 plane (the calibrated floor, since we use a Floor/Stage tracking origin), in
-// a dim blue-grey. WORLD-locked (drawn with the head-tracked view) for spatial
-// reference. Reuses gProg (pos.xyz + rgb), drawn as GL_LINES.
-static GLuint gGridVao = 0, gGridVbo = 0;
-static int    gGridVertCount = 0;
-static void buildGridFloor() {
-    std::vector<float> v;
-    const float ext = 5.0f, step = 0.5f;
-    // WiVRn dark theme: dark grey grid, blue accent axes.
-    bool amber = gThemeAmber.load();
-    const float c0 = amber ? 0.34f : 0.14f, c1 = amber ? 0.22f : 0.14f, c2 = amber ? 0.08f : 0.14f;
-    const float a0 = amber ? 0.60f : 0.30f, a1 = amber ? 0.44f : 0.36f, a2 = amber ? 0.18f : 0.42f;
-    for (float i = -ext; i <= ext + 1e-3f; i += step) {
-        bool axis = (i > -1e-3f && i < 1e-3f);
-        float r = axis ? a0 : c0, g = axis ? a1 : c1, b = axis ? a2 : c2;
-        v.insert(v.end(), { -ext,0,i, r,g,b }); v.insert(v.end(), {  ext,0,i, r,g,b });
-        v.insert(v.end(), {  i,0,-ext, r,g,b }); v.insert(v.end(), {  i,0, ext, r,g,b });
-    }
-    gGridVertCount = (int)(v.size() / 6);
-    if (!gGridVao) {   // first build: create GL objects. Later calls just recolour.
-        glGenVertexArrays(1, &gGridVao);
-        glBindVertexArray(gGridVao);
-        glGenBuffers(1, &gGridVbo);
-        glBindBuffer(GL_ARRAY_BUFFER, gGridVbo);
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
-        glBindVertexArray(0);
-    }
-    glBindBuffer(GL_ARRAY_BUFFER, gGridVbo);
-    glBufferData(GL_ARRAY_BUFFER, v.size()*sizeof(float), v.data(), GL_DYNAMIC_DRAW);
-    LOGI("grid floor built verts=%d amber=%d", gGridVertCount, (int)amber);
 }
 
 // ---------------------------------------------------------------------------
@@ -1955,8 +1921,13 @@ void *renderThread(void *) {
     buildGazeMarker();       // eye-gaze debug disc (shown only on Neo 2 EYE)
     buildTextBuffers();      // dynamic VBO for the lobby IP/status HUD text + slider
     buildReticle();          // head-gaze crosshair (shown in lobby, no controllers)
-    buildGridFloor();        // lobby floor grid (spatial reference, not a void)
     buildControllerMeshes(); // Neo 2 controller wireframes (from /system OBJ)
+    // Passthrough camera background replaces the old dark-void + grid-floor
+    // environment. The lobby UI panels composite on top of the live camera feed.
+    if (gPassthrough) {
+        gPassthrough->init();
+        gPassthrough->start();
+    }
 
     RenderEventFunc re = (RenderEventFunc) GetRenderEventFunc();
     LOGI("GetRenderEventFunc=%p", (void *) re);
@@ -1991,8 +1962,8 @@ void *renderThread(void *) {
     // warp ring (4 entries) has fully cycled to fresh stream textures before freeing.
     // -1 = no free pending.
     int  lobbyFreeDelay = -1;
-    // gGridThemeDirty is now a global atomic (app_state.h): the menu raises it, the
-    // render loop consumes it below to rebuild the floor VBO.
+    // gGridThemeDirty is a global atomic (app_state.h): the menu raises it, the
+    // render loop consumes it below to recolour the controller wireframes.
 
     // Spin up the fixed-rate tracking/uplink thread now that the SDK + ALVR are
     // initialized and the path ids are populated. It runs independently of this
@@ -2129,12 +2100,14 @@ void *renderThread(void *) {
                 if (gDecoderReady) { alvr_destroy_decoder(); gDecoderReady = false; }
                 gStreaming = false;
                 alvr_pause();
+                if (gPassthrough) gPassthrough->stop();
                 gSlept = true;
                 if (g_stream && g_stream->session)
                     g_stream->session->send_control(from_headset::user_presence_changed{.present = false});
             } else if (!wantSleep && gSlept) {
                 LOGI("proximity: headset donned -> resuming stream");
                 alvr_resume();
+                if (gPassthrough) gPassthrough->start();
                 gSlept = false;
                 if (g_stream && g_stream->session)
                     g_stream->session->send_control(from_headset::user_presence_changed{.present = true});
@@ -2385,6 +2358,10 @@ void *renderThread(void *) {
                     sendViewParams();
                     gSwapIdx = 0;
                     gStreaming = true;
+                    // Stream owns the eye buffers now — stop the passthrough
+                    // camera so it's not competing for the tracking cameras
+                    // while the server feeds video.
+                    if (gPassthrough) gPassthrough->stop();
                     gResetPacer = true;          // fresh stream -> reset pacer + video counters
                     gVideoRecvPinned = false; gVideoRecvPinTries = 0;   // re-arm recv-thread pin for the new connection
                     gManualLobby.store(false);   // start in the stream, not the manual lobby
@@ -2457,6 +2434,8 @@ void *renderThread(void *) {
                 destroyStreamSwapchain();   // also resets the pipeline (no stale slot)
                 gFovResyncPending = false;   // drop any pending re-sync for the dead stream
                 applyServerEyeTracking(false);       // stream gone -> turn the IR off
+                // Back in the lobby — restart the passthrough camera background.
+                if (gPassthrough) gPassthrough->start();
                 LOGI("ALVR STREAMING_STOPPED -> decoder+swapchain torn down");
             } else if (ev.tag == ALVR_EVENT_REAL_TIME_CONFIG) {
                 // The server changed a live setting mid-session. CHECK for a
@@ -3695,22 +3674,15 @@ void *renderThread(void *) {
         if (gEyeTrackReapply.exchange(false)) applyServerEyeTracking(gStreaming);
         if (gBrightnessApply.exchange(false)) applyHmdBrightness(gBrightnessFrac.load(), env);
 
-        // Render the lobby scene (world floor grid + world-locked HUD + gaze disc)
-        // into the currently-bound FBO for the given per-eye projection + view.
-        // Shared by the HW-compositor and self-present paths.
+        // Render the lobby scene (passthrough background + world-locked HUD +
+        // gaze disc) into the currently-bound FBO for the given per-eye
+        // projection + view. Shared by the HW-compositor and self-present paths.
         auto drawLobbyScene = [&](const Mat4 &sproj, const Mat4 &sview, const Mat4 &sEyeShift, int eyeIdx) {
-            // World-fixed geometry (floor grid, anchored panels) draws through the
-            // head-tracked view; player-attached geometry (laser, gaze) uses it too.
-            const Mat4 &worldView = sview;
-            if (gGridVertCount > 0) {
-                glEnable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE);
-                glUseProgram(gProg);
-                Mat4 gridMvp = mat4Mul(sproj, worldView);   // model = identity (floor at y=0)
-                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, gridMvp.m);
-                glBindVertexArray(gGridVao);        // wireframe floor grid
-                glDrawArrays(GL_LINES, 0, gGridVertCount);
-                glBindVertexArray(0);
-            }
+            // Passthrough camera background replaces the old dark-void + grid
+            // floor. Drawn first as a fullscreen quad so everything else
+            // (laser, controllers, gaze marker, lobby UI) composites on top.
+            if (gPassthrough && gPassthrough->is_camera_on())
+                gPassthrough->draw(eyeIdx);
             glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE);
             // Native HUD text and SETTINGS window replaced by the ported WiVRn lobby UI.
             // Controller laser beam (world-space) when a controller drives the pointer.
@@ -3851,7 +3823,7 @@ void *renderThread(void *) {
             if (gLobbyEyeReady && rtInited) {
                 {
                     eglMakeCurrent(dpy, pbuf, pbuf, ctx);   // stay offscreen; warp owns the window
-                    if (gGridThemeDirty.exchange(false)) { buildGridFloor(); buildControllerMeshes(); }   // recolour floor + controllers
+                    if (gGridThemeDirty.exchange(false)) { buildControllerMeshes(); }   // recolour controllers (grid floor removed — passthrough replaces it)
                     for (int eye = 0; eye < 2; eye++) {
                         float ex = (eye == 0 ? -softIpdM()*0.5f : softIpdM()*0.5f);
                         Mat4 eyeShift = mat4Translate(-ex, 0, 0);
@@ -3861,6 +3833,11 @@ void *renderThread(void *) {
                                                GL_TEXTURE_2D, gLobbyEye[eye][lobbyEyeIdx], 0);
                         glDisable(GL_SCISSOR_TEST);
                         glViewport(0, 0, kLobbySz, kLobbySz);
+                        // Always clear colour to black first. If the passthrough
+                        // camera has a frame, drawLobbyScene overwrites it. If
+                        // not (camera warming up / error), we get a clean black
+                        // frame instead of smearing the previous frame's content
+                        // (the warp reprojects stale colour → glitchy clone artifact).
                         glClearColor(0, 0, 0, 1);
                         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
                         if (!showBlack) {

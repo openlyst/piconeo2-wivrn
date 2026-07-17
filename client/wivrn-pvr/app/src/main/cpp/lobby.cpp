@@ -336,8 +336,7 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 {
 	if (!initialized)
 	{
-		glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
+		// No lobby yet — let the passthrough background show through.
 		return;
 	}
 
@@ -357,8 +356,10 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 	}
 	else
 	{
-		glClearColor(0.05f, 0.06f, 0.09f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		// The background (passthrough camera feed or stream video) is now drawn
+		// externally before the lobby UI. Only clear depth here so the panels
+		// composite on top of whatever was already rendered.
+		glClear(GL_DEPTH_BUFFER_BIT);
 	}
 
 	debug_frame_count++;
