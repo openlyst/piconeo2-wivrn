@@ -1,14 +1,19 @@
 #include "passthrough.h"
 #include "log.h"
 #include <cstring>
+#include <cmath>
+#include <vector>
+#include <cstdio>
 
+// Vertex shader: positions are already in clip space (pre-computed from
+// the fisheye mesh tangent-space coords divided by tan(fov/2)).
 static const char *vert_src = R"(#version 310 es
-layout(location = 0) in vec3 a_pos;
+layout(location = 0) in vec2 a_pos;
 layout(location = 1) in vec2 a_uv;
 out vec2 v_uv;
 void main()
 {
-    gl_Position = vec4(a_pos, 1.0);
+    gl_Position = vec4(a_pos, 0.0, 1.0);
     v_uv = a_uv;
 }
 )";
@@ -71,34 +76,126 @@ void pico_passthrough::build_shaders()
     }
 
     sampler_loc = glGetUniformLocation(program, "u_tex");
-    LOGI("passthrough: shaders OK program=%u sampler_loc=%d", program, sampler_loc);
+    LOGI("passthrough: shaders OK program=%u sampler=%d", program, sampler_loc);
 }
 
-void pico_passthrough::build_geometry()
+// Load the fisheye undistortion mesh from grid_point_coord.txt.
+// Format: "u v x_left y_left x_right y_right" per line, 33x21 grid.
+// (u,v) are camera texture coords [0,1]; (x,y) are screen positions in
+// tangent space. We convert to clip space by dividing by tan(fov/2).
+void pico_passthrough::build_mesh()
 {
-    // Fullscreen quad. UV (0,0) = top-left of texture, (1,1) = bottom-right.
-    // The camera Y plane arrives top-row-first, so we flip V so the image
-    // is upright: map UV v=0 -> texcoord v=1 (bottom of texture = top of image
-    // after GL's bottom-up convention). Actually GL textures are bottom-up
-    // by default, and the camera delivers top-down, so we flip V in the UVs.
-    static const float verts[] = {
-        -1, -1, 0,  0, 1,
-         1, -1, 0,  1, 1,
-        -1,  1, 0,  0, 0,
-        -1,  1, 0,  0, 0,
-         1, -1, 0,  1, 1,
-         1,  1, 0,  1, 0,
-    };
-    glGenVertexArrays(1, &vao);
-    glBindVertexArray(vao);
-    glGenBuffers(1, &vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 20, (void *)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 20, (void *)12);
-    glEnableVertexAttribArray(1);
-    glBindVertexArray(0);
+    FILE *f = fopen("/system/etc/pvr/boundary/grid_point_coord.txt", "r");
+    if (!f)
+    {
+        LOGE("passthrough: cannot open grid_point_coord.txt");
+        return;
+    }
+
+    struct GridPt { float u, v, xl, yl, xr, yr; };
+    std::vector<GridPt> pts;
+    char line[256];
+    while (fgets(line, sizeof(line), f))
+    {
+        GridPt p;
+        if (sscanf(line, "%f %f %f %f %f %f",
+                   &p.u, &p.v, &p.xl, &p.yl, &p.xr, &p.yr) == 6)
+            pts.push_back(p);
+    }
+    fclose(f);
+
+    if (pts.empty())
+    {
+        LOGE("passthrough: mesh file empty or parse failed");
+        return;
+    }
+
+    // Recover grid dimensions from unique u and v values
+    std::vector<float> u_vals, v_vals;
+    for (auto &p : pts)
+    {
+        bool found_u = false, found_v = false;
+        for (float u : u_vals) if (fabsf(u - p.u) < 1e-5f) { found_u = true; break; }
+        for (float v : v_vals) if (fabsf(v - p.v) < 1e-5f) { found_v = true; break; }
+        if (!found_u) u_vals.push_back(p.u);
+        if (!found_v) v_vals.push_back(p.v);
+    }
+    int gw = u_vals.size();
+    int gh = v_vals.size();
+    LOGI("passthrough: mesh grid %dx%d (%d points)", gw, gh, (int)pts.size());
+
+    // Sort points into grid order (row-major: v outer, u inner)
+    std::vector<GridPt> grid(gw * gh);
+    for (auto &p : pts)
+    {
+        int ix = -1, iy = -1;
+        for (int i = 0; i < gw; i++) if (fabsf(u_vals[i] - p.u) < 1e-5f) { ix = i; break; }
+        for (int i = 0; i < gh; i++) if (fabsf(v_vals[i] - p.v) < 1e-5f) { iy = i; break; }
+        if (ix >= 0 && iy >= 0)
+            grid[iy * gw + ix] = p;
+    }
+
+    // Convert tangent space to clip space. The mesh was calibrated for
+    // the headset's display FOV (~101 degrees).
+    const float fov_deg = 101.0f;
+    const float tan_half = tanf(fov_deg * 0.5f * (float)M_PI / 180.0f);
+
+    // Build per-eye vertex data: pos (clip space) + uv (camera texture)
+    // V is flipped because camera frames are top-down, GL textures bottom-up.
+    struct Vert { float x, y, u, v; };
+    std::vector<Vert> verts_left(gw * gh);
+    std::vector<Vert> verts_right(gw * gh);
+
+    for (int i = 0; i < gw * gh; i++)
+    {
+        auto &p = grid[i];
+        verts_left[i]  = { p.xl / tan_half, p.yl / tan_half, p.u, 1.0f - p.v };
+        verts_right[i] = { p.xr / tan_half, p.yr / tan_half, p.u, 1.0f - p.v };
+    }
+
+    // Build index buffer for the grid triangles
+    std::vector<GLuint> indices;
+    indices.reserve((gw - 1) * (gh - 1) * 6);
+    for (int y = 0; y < gh - 1; y++)
+    {
+        for (int x = 0; x < gw - 1; x++)
+        {
+            GLuint a = y * gw + x;
+            GLuint b = y * gw + x + 1;
+            GLuint c = (y + 1) * gw + x;
+            GLuint d = (y + 1) * gw + x + 1;
+            // Two triangles per quad
+            indices.push_back(a); indices.push_back(c); indices.push_back(b);
+            indices.push_back(b); indices.push_back(c); indices.push_back(d);
+        }
+    }
+    index_count = indices.size();
+
+    // Upload to GPU
+    glGenBuffers(1, &ibo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLuint),
+                 indices.data(), GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+    for (int eye = 0; eye < 2; eye++)
+    {
+        auto &verts = (eye == 0) ? verts_left : verts_right;
+        glGenVertexArrays(1, &eye_vao[eye]);
+        glBindVertexArray(eye_vao[eye]);
+        glGenBuffers(1, &eye_vbo[eye]);
+        glBindBuffer(GL_ARRAY_BUFFER, eye_vbo[eye]);
+        glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(Vert),
+                     verts.data(), GL_STATIC_DRAW);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Vert), (void *)0);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(Vert), (void *)8);
+        glEnableVertexAttribArray(1);
+        glBindVertexArray(0);
+    }
+
+    LOGI("passthrough: mesh loaded %d verts, %d indices", gw * gh, index_count);
 }
 
 void pico_passthrough::upload_eye(int eye, int w, int h, const uint8_t *data, int row_stride)
@@ -117,23 +214,18 @@ void pico_passthrough::upload_eye(int eye, int w, int h, const uint8_t *data, in
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0,
                      GL_RED, GL_UNSIGNED_BYTE, nullptr);
-        tex_w = w;
-        tex_h = h;
     }
     else
     {
         glBindTexture(GL_TEXTURE_2D, tex);
-        if (w != tex_w || h != tex_h)
-        {
+        GLint cur_w = 0, cur_h = 0;
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &cur_w);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &cur_h);
+        if (w != cur_w || h != cur_h)
             glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0,
                          GL_RED, GL_UNSIGNED_BYTE, nullptr);
-            tex_w = w;
-            tex_h = h;
-        }
     }
 
-    // UNPACK_ROW_LENGTH lets us upload a sub-rect (eye's half) from a
-    // wider source buffer in one call. row_stride is the full frame width.
     if (row_stride != w)
     {
         glPixelStorei(GL_UNPACK_ROW_LENGTH, row_stride);
@@ -153,8 +245,9 @@ void pico_passthrough::init()
 {
     if (gl_ready) return;
     build_shaders();
-    if (!program) { LOGE("passthrough: shader init failed, aborting"); return; }
-    build_geometry();
+    if (!program) { LOGE("passthrough: shader init failed"); return; }
+    build_mesh();
+    if (index_count == 0) { LOGE("passthrough: mesh init failed"); return; }
     gl_ready = true;
     LOGI("passthrough GL resources ready");
 }
@@ -308,10 +401,6 @@ void pico_passthrough::draw(int eye)
     }
     if (!img_reader) return;
 
-    // Acquire a new frame only on the first eye of each frame pair.
-    // If no new frame is available (camera runs slower than render loop),
-    // reuse the last frame's texture — don't return early, or the render
-    // thread's black clear will flicker through.
     static int acq_ok = 0, acq_empty = 0, acq_err = 0;
     static int log_tick = 0;
     static int draw_counts[2] = {0, 0};
@@ -326,7 +415,6 @@ void pico_passthrough::draw(int eye)
 
         if (rc == AMEDIA_OK && image)
         {
-            // Got a new frame — release the old one and cache the new.
             if (pending_image)
                 AImage_delete(pending_image);
 
@@ -349,13 +437,10 @@ void pico_passthrough::draw(int eye)
 
             static int frame_count = 0;
             if (++frame_count % 300 == 0)
-                LOGI("passthrough: cam frame %d %dx%d stride=%d pix=%d bytes=[%d,%d,%d,%d]",
-                     frame_count, w, h, y_stride, y_pix,
-                     y_data[0], y_data[100], y_data[500], y_data[1000]);
+                LOGI("passthrough: cam frame %d %dx%d stride=%d", frame_count, w, h, y_stride);
         }
         else if (rc == AMEDIA_IMGREADER_NO_BUFFER_AVAILABLE)
         {
-            // No new frame — reuse the last one (pending_image stays).
             acq_empty++;
         }
         else
@@ -370,8 +455,7 @@ void pico_passthrough::draw(int eye)
         }
 
         if (++log_tick % 300 == 0)
-            LOGI("passthrough: acquire stats ok=%d empty=%d err=%d pending=%p",
-                 acq_ok, acq_empty, acq_err, (void *)pending_image);
+            LOGI("passthrough: acquire ok=%d empty=%d err=%d", acq_ok, acq_empty, acq_err);
     }
 
     if (!pending_image || !pending_y) return;
@@ -380,26 +464,14 @@ void pico_passthrough::draw(int eye)
     int half_w = pending_w / 2;
     const uint8_t *eye_data = pending_y + eye * half_w;
 
-    // Upload the eye's half when we have a new frame, or if the texture
-    // hasn't been initialised yet. On frames with no new camera data we
-    // skip the upload and just re-draw the existing texture content.
     if (got_new_this_frame || eye_tex[eye] == 0)
         upload_eye(eye, half_w, pending_h, eye_data, pending_stride);
 
-    // Don't release pending_image here — keep it alive until eye 0's
-    // next acquire replaces it with a new frame. The ImageReader has 4
-    // buffers so holding one extra is fine, and this guarantees we always
-    // have a fallback when the camera runs slower than the render loop
-    // (otherwise eye 0 would see null pending on no-buffer ticks and
-    // return early → black flicker).
-    // pending_image is released in stop() or when replaced by a new frame.
-
     draw_counts[eye]++;
     if (draw_counts[eye] % 300 == 0)
-        LOGI("passthrough: draw eye=%d count=%d tex=%u new=%d",
-             eye, draw_counts[eye], eye_tex[eye], (int)got_new_this_frame);
+        LOGI("passthrough: draw eye=%d count=%d", eye, draw_counts[eye]);
 
-    // Render
+    // Render the fisheye mesh for this eye
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
     glDisable(GL_CULL_FACE);
@@ -409,8 +481,8 @@ void pico_passthrough::draw(int eye)
     glBindTexture(GL_TEXTURE_2D, eye_tex[eye]);
     glUniform1i(sampler_loc, 0);
 
-    glBindVertexArray(vao);
-    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindVertexArray(eye_vao[eye]);
+    glDrawElements(GL_TRIANGLES, index_count, GL_UNSIGNED_INT, 0);
     glBindVertexArray(0);
 
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -423,8 +495,11 @@ pico_passthrough::~pico_passthrough()
 {
     stop();
     if (program) glDeleteProgram(program);
-    if (vao) glDeleteVertexArrays(1, &vao);
-    if (vbo) glDeleteBuffers(1, &vbo);
     for (int i = 0; i < 2; i++)
+    {
+        if (eye_vao[i]) glDeleteVertexArrays(1, &eye_vao[i]);
+        if (eye_vbo[i]) glDeleteBuffers(1, &eye_vbo[i]);
         if (eye_tex[i]) glDeleteTextures(1, &eye_tex[i]);
+    }
+    if (ibo) glDeleteBuffers(1, &ibo);
 }
