@@ -330,7 +330,7 @@ void pico_lobby::init(int w, int h)
 	// can move it in front of the user when desired.
 	panel_pos[0] = 0.0f;
 	panel_pos[1] = 1.6f;
-	panel_pos[2] = -2.0f;
+	panel_pos[2] = -0.8f;
 	panel_yaw = 0.0f;
 
 	initialized = true;
@@ -639,7 +639,7 @@ void pico_lobby::set_resolution(int w, int h)
 
 void pico_lobby::recenter(const float head_pos[3], float head_yaw)
 {
-	constexpr float kPanelDist = 1.5f;
+	constexpr float kPanelDist = 0.8f;
 	float cy = std::cosf(head_yaw), sy = std::sinf(head_yaw);
 	panel_pos[0] = (head_pos ? head_pos[0] : 0.0f) - sy * kPanelDist;
 	panel_pos[1] = head_pos ? head_pos[1] : 0.0f;
@@ -650,7 +650,7 @@ void pico_lobby::recenter(const float head_pos[3], float head_yaw)
 
 void pico_lobby::recenter_facing(const float head_pos[3], float fwd_x, float fwd_z)
 {
-	constexpr float kPanelDist = 1.5f;
+	constexpr float kPanelDist = 0.8f;
 	float n = sqrtf(fwd_x * fwd_x + fwd_z * fwd_z);
 	if (n < 1e-5f) { fwd_x = 0; fwd_z = -1; n = 1; }
 	fwd_x /= n; fwd_z /= n;
