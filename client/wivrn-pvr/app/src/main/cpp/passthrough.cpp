@@ -227,6 +227,13 @@ void pico_passthrough::draw(int eye)
     void *inst = pfn_getSeethroughInstance();
     if (!inst) return;
 
+    // SetForcedToShow on the same instance we're about to render with,
+    // since getSeethroughInstance() may return a fresh instance each call.
+    if (pfn_setForcedToShow)
+        pfn_setForcedToShow(inst, true);
+    if (pfn_setOpacity)
+        pfn_setOpacity(inst, 1.0f);
+
     static int log_count = 0;
     if (++log_count % 300 == 0) {
         int state = Pvr_GetSeeThroughState();
