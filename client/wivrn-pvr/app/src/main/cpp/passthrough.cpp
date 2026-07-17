@@ -136,8 +136,10 @@ void pico_passthrough::build_mesh()
     }
 
     // Convert tangent space to clip space. The mesh was calibrated for
-    // the headset's display FOV (~101 degrees).
-    const float fov_deg = 101.0f;
+    // the headset's display FOV. Using a slightly smaller value than the
+    // lobby's 101° fills the black bars at top/bottom — the mesh extends
+    // further in clip space, covering the full screen.
+    const float fov_deg = 97.0f;
     const float tan_half = tanf(fov_deg * 0.5f * (float)M_PI / 180.0f);
 
     // Build per-eye vertex data: pos (clip space) + uv (camera texture)
