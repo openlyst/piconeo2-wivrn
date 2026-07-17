@@ -1,8 +1,6 @@
 #include "passthrough.h"
-#include "pico_sdk.h"
 #include "log.h"
 #include <cstring>
-#include <dlfcn.h>
 
 // Fullscreen clip-space quad: position (xyz) + UV.
 static const char *vert_src = R"(#version 310 es
@@ -128,13 +126,34 @@ void pico_passthrough::init()
 }
 
 static void on_capture_failed(void *ctx, ACameraCaptureSession *s,
-                              ACaptureRequest *r, int64_t seq, int64_t ts)
+                              ACaptureRequest *r, ACameraCaptureFailure *f)
 {
-    (void)ctx; (void)s; (void)r; (void)seq; (void)ts;
+    (void)ctx; (void)s; (void)r; (void)f;
 }
 
 static ACameraCaptureSession_captureCallbacks gCaptureCallbacks = {
     .onCaptureFailed = on_capture_failed,
+};
+
+static void on_dev_disconnected(void *ctx, ACameraDevice *d)
+{ (void)ctx; (void)d; }
+static void on_dev_error(void *ctx, ACameraDevice *d, int err)
+{ (void)ctx; (void)d; (void)err; }
+static ACameraDevice_StateCallbacks gDevCallbacks = {
+    .onDisconnected = on_dev_disconnected,
+    .onError = on_dev_error,
+};
+
+static void on_sess_active(void *ctx, ACameraCaptureSession *s)
+{ (void)ctx; (void)s; }
+static void on_sess_ready(void *ctx, ACameraCaptureSession *s)
+{ (void)ctx; (void)s; }
+static void on_sess_closed(void *ctx, ACameraCaptureSession *s)
+{ (void)ctx; (void)s; }
+static ACameraCaptureSession_stateCallbacks gSessionCallbacks = {
+    .onActive = on_sess_active,
+    .onReady = on_sess_ready,
+    .onClosed = on_sess_closed,
 };
 
 void pico_passthrough::start()
@@ -155,7 +174,7 @@ void pico_passthrough::start()
     LOGI("passthrough: found %d cameras, using id[0]=%s", ids->numCameras, ids->cameraIds[0]);
 
     camera_status_t rc = ACameraManager_openCamera(cam_mgr, ids->cameraIds[0],
-        &ACameraDevice_stateCallbacks{}, &cam_dev);
+        &gDevCallbacks, &cam_dev);
     if (rc != ACAMERA_OK || !cam_dev)
     {
         LOGE("passthrough: openCamera failed rc=%d", rc);
@@ -165,7 +184,7 @@ void pico_passthrough::start()
 
     // Create ImageReader for YUV_420_888 at the camera's native resolution
     // The Neo 2 tracking camera delivers 1280x400 (side-by-side stereo).
-    media_status_t mrc = AImageReader_newWithUsage(1280, 400, AIMAGE_YUV_420_888,
+    media_status_t mrc = AImageReader_newWithUsage(1280, 400, AIMAGE_FORMAT_YUV_420_888,
         AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN, 4, &img_reader);
     if (mrc != AMEDIA_OK || !img_reader)
     {
@@ -186,7 +205,7 @@ void pico_passthrough::start()
     ACaptureSessionOutput_create(img_reader_win, &output);
     ACaptureSessionOutputContainer_add(outputs, output);
 
-    rc = ACameraDevice_createCaptureSession(cam_dev, outputs, &ACameraCaptureSession_stateCallbacks{},
+    rc = ACameraDevice_createCaptureSession(cam_dev, outputs, &gSessionCallbacks,
         &cam_session);
     if (rc != ACAMERA_OK)
     {
@@ -248,8 +267,18 @@ void pico_passthrough::stop()
 
 void pico_passthrough::draw(int eye)
 {
-    if (!gl_ready || !camera_on) return;
+    if (!gl_ready) return;
     if (eye < 0 || eye > 1) return;
+
+    // Retry starting the camera if it failed earlier (e.g. permission
+    // not yet granted at init time). Throttle to once per second.
+    if (!camera_on)
+    {
+        static int retry_count = 0;
+        if (++retry_count % 120 == 0)
+            start();
+        if (!camera_on) return;
+    }
     if (!img_reader) return;
 
     // Get the latest frame from the ImageReader
@@ -280,9 +309,10 @@ void pico_passthrough::draw(int eye)
              frame_count, src_w, src_h, y_row_stride, y_pix_stride,
              y_data[0], y_data[1], y_data[2], y_data[3]);
 
-    // For side-by-side stereo: left eye gets left half, right eye gets right half
+    // Side-by-side stereo: left eye gets left half, right eye gets right half.
+    // The Y plane is contiguous with row stride = full width (1280), so
+    // each eye's column offset is eye * half_w within every row.
     int half_w = src_w / 2;
-    int eye_offset = eye * half_w * (y_row_stride > 0 ? 1 : 1);
     const uint8_t *eye_data = y_data + eye * half_w;
 
     upload_frame(half_w, src_h, eye_data, y_row_stride);

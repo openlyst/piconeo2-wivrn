@@ -29,8 +29,7 @@ class pico_passthrough
 	// Camera2 state
 	ACameraManager *cam_mgr = nullptr;
 	ACameraDevice  *cam_dev = nullptr;
-	ACaptureSession *cam_session = nullptr;
-	ACameraCaptureSession_captureCallbacks session_cbs{};
+	ACameraCaptureSession *cam_session = nullptr;
 	ACaptureRequest *cam_request = nullptr;
 	ANativeWindow   *img_reader_win = nullptr;
 	AImageReader    *img_reader = nullptr;
