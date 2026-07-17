@@ -377,6 +377,15 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 				panel_yaw = atan2f(-dx, dz);
 		}
 		update_interaction(head_orient, head_pos, controllers, head_trigger);
+		// After the grab may have moved the panel, recompute yaw so it
+		// faces the head from its new position.
+		if (!overlay)
+		{
+			float dx = head_pos[0] - panel_pos[0];
+			float dz = head_pos[2] - panel_pos[2];
+			if (fabsf(dx) > 1e-5f || fabsf(dz) > 1e-5f)
+				panel_yaw = atan2f(-dx, dz);
+		}
 	}
 
 	glUseProgram(program);
