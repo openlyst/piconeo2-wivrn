@@ -2,6 +2,34 @@
 #include "pico_sdk.h"
 #include "log.h"
 #include <cstring>
+#include <dlfcn.h>
+
+// SDK's SeeThrough renderer functions (C++ mangled, looked up via dlsym).
+// getSeethroughInstance() returns the GsSeeThroughExt singleton.
+// SetForcedToShow(true) bypasses the distance-to-boundary gate.
+// DoRender(eye) renders the camera layer with the SDK's own shader/texture.
+typedef void *(*getSeethroughInstance_t)();
+typedef void (*SetForcedToShow_t)(void *, bool);
+typedef void (*DoRender_t)(void *, int);
+typedef void (*SetOpacity_t)(void *, float);
+
+static getSeethroughInstance_t pfn_getSeethroughInstance = nullptr;
+static SetForcedToShow_t       pfn_setForcedToShow = nullptr;
+static DoRender_t              pfn_doRender = nullptr;
+static SetOpacity_t            pfn_setOpacity = nullptr;
+
+static void load_seethrough_syms()
+{
+    void *h = dlopen("libPvr_UnitySDK.so", RTLD_NOW);
+    if (!h) { LOGE("passthrough: dlopen libPvr_UnitySDK failed: %s", dlerror()); return; }
+    pfn_getSeethroughInstance = (getSeethroughInstance_t)dlsym(h, "_ZN3PVR21getSeethroughInstanceEv");
+    pfn_setForcedToShow       = (SetForcedToShow_t)dlsym(h, "_ZN3PVR15GsSeeThroughExt15SetForcedToShowEb");
+    pfn_doRender              = (DoRender_t)dlsym(h, "_ZN3PVR15GsSeeThroughExt8DoRenderEi");
+    pfn_setOpacity            = (SetOpacity_t)dlsym(h, "_ZN3PVR15GsSeeThroughExt10SetOpacityEf");
+    LOGI("passthrough: syms inst=%p show=%p render=%p opacity=%p",
+         (void*)pfn_getSeethroughInstance, (void*)pfn_setForcedToShow,
+         (void*)pfn_doRender, (void*)pfn_setOpacity);
+}
 
 // Fullscreen clip-space quad: position (xyz) + UV. No view/projection needed —
 // the quad already fills the eye buffer edge to edge. UVs follow the same
@@ -150,6 +178,9 @@ void pico_passthrough::start()
 {
     if (camera_on) return;
 
+    if (!pfn_getSeethroughInstance)
+        load_seethrough_syms();
+
     Pvr_GetCameraData_Ext();
     PVR_SetCameraImageRect(kCamW, kCamH);
     PVR_StartCameraPreview(1);
@@ -158,16 +189,15 @@ void pico_passthrough::start()
     fDstcToShowSeeThrough = 1000000.0f;
     fDstcToShowSeeThroughComp = 1000000.0f;
 
-    // Force the SDK's SeeThrough renderer to always show, bypassing the
-    // distance-to-boundary gate. Without a guardian boundary configured,
-    // the SeeThrough state stays 0 and the camera layer never renders.
-    void *inst = PVR_getSeethroughInstance();
-    if (inst) {
-        PVR_GsSeeThroughExt_SetForcedToShow(inst, true);
-        PVR_GsSeeThroughExt_SetOpacity(inst, 1.0f);
-        LOGI("passthrough: forced SeeThrough show on instance %p", inst);
-    } else {
-        LOGE("passthrough: getSeethroughInstance returned null");
+    if (pfn_getSeethroughInstance && pfn_setForcedToShow) {
+        void *inst = pfn_getSeethroughInstance();
+        if (inst) {
+            pfn_setForcedToShow(inst, true);
+            if (pfn_setOpacity) pfn_setOpacity(inst, 1.0f);
+            LOGI("passthrough: forced SeeThrough show on instance %p", inst);
+        } else {
+            LOGE("passthrough: getSeethroughInstance returned null");
+        }
     }
 
     camera_on = true;
@@ -177,9 +207,10 @@ void pico_passthrough::start()
 void pico_passthrough::stop()
 {
     if (!camera_on) return;
-    void *inst = PVR_getSeethroughInstance();
-    if (inst)
-        PVR_GsSeeThroughExt_SetForcedToShow(inst, false);
+    if (pfn_getSeethroughInstance && pfn_setForcedToShow) {
+        void *inst = pfn_getSeethroughInstance();
+        if (inst) pfn_setForcedToShow(inst, false);
+    }
     Pvr_BoundarySetSeeThroughVisible(false);
     Pvr_BoundarySeeThroughSetVisible_(false);
     PVR_StartCameraPreview(0);
@@ -191,11 +222,9 @@ void pico_passthrough::draw(int eye)
 {
     if (!gl_ready || !camera_on) return;
     if (eye < 0 || eye > 1) return;
+    if (!pfn_getSeethroughInstance || !pfn_doRender) return;
 
-    // Use the SDK's own SeeThrough renderer. It has its own shader,
-    // geometry, and texture pipeline. SetForcedToShow(true) bypasses
-    // the distance gate so it renders even without a guardian boundary.
-    void *inst = PVR_getSeethroughInstance();
+    void *inst = pfn_getSeethroughInstance();
     if (!inst) return;
 
     static int log_count = 0;
@@ -207,7 +236,7 @@ void pico_passthrough::draw(int eye)
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
 
-    PVR_GsSeeThroughExt_DoRender(inst, eye);
+    pfn_doRender(inst, eye);
 
     glDepthMask(GL_TRUE);
 }
