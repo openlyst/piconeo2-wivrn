@@ -2392,6 +2392,10 @@ void *renderThread(void *) {
                     sendViewParams();
                     gSwapIdx = 0;
                     gStreaming = true;
+                    // Stream owns the eye buffers now — stop the passthrough
+                    // camera so it's not competing for the tracking cameras
+                    // while the server feeds video.
+                    if (gPassthrough) gPassthrough->stop();
                     gResetPacer = true;          // fresh stream -> reset pacer + video counters
                     gVideoRecvPinned = false; gVideoRecvPinTries = 0;   // re-arm recv-thread pin for the new connection
                     gManualLobby.store(false);   // start in the stream, not the manual lobby
