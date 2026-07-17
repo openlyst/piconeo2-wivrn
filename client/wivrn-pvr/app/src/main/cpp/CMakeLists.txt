@@ -18,6 +18,7 @@ find_library(gles-lib GLESv3)
 find_library(android-lib android)
 find_library(jnigraphics-lib jnigraphics)
 find_library(media-lib mediandk)
+find_library(camera2-lib camera2ndk)
 find_library(aaudio-lib aaudio)
 
 # Import the prebuilt Pico SDK native library so we can link against its
@@ -168,5 +169,6 @@ target_link_libraries(p2alvr
     ${android-lib}
     ${jnigraphics-lib}
     ${media-lib}
+    ${camera2-lib}
     ${aaudio-lib}
     ${log-lib})

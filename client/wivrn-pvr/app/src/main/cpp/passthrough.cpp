@@ -4,59 +4,7 @@
 #include <cstring>
 #include <dlfcn.h>
 
-// SDK's SeeThrough renderer functions (C++ mangled, looked up via dlsym).
-typedef void *(*getSeethroughInstance_t)();
-typedef void (*SetForcedToShow_t)(void *, bool);
-typedef void (*DoRender_t)(void *, int);
-typedef void (*SetOpacity_t)(void *, float);
-
-// TrackingService camera functions (C++ mangled, looked up via dlsym).
-// These go through IPC to the PvrService tracking service to get camera frames.
-// CameraType is an enum (0 = front/tracking camera on Neo 2).
-typedef int (*TrackingService_InitClient_t)();
-typedef int (*TrackingService_AttachCamera_t)(void *, int);
-typedef int (*TrackingService_AcquireCameraFrame_t)(int, void *);
-typedef int (*TrackingService_ReleaseCameraFrame_t)(int);
-typedef void (*TrackingService_SetCameraFrameCallbacks_t)(void *, int, void *);
-
-static getSeethroughInstance_t pfn_getSeethroughInstance = nullptr;
-static SetForcedToShow_t       pfn_setForcedToShow = nullptr;
-static DoRender_t              pfn_doRender = nullptr;
-static SetOpacity_t            pfn_setOpacity = nullptr;
-
-static TrackingService_InitClient_t             pfn_ts_initClient = nullptr;
-static TrackingService_AttachCamera_t           pfn_ts_attachCamera = nullptr;
-static TrackingService_AcquireCameraFrame_t     pfn_ts_acquireFrame = nullptr;
-static TrackingService_ReleaseCameraFrame_t     pfn_ts_releaseFrame = nullptr;
-static TrackingService_SetCameraFrameCallbacks_t pfn_ts_setCallbacks = nullptr;
-
-static void load_seethrough_syms()
-{
-    void *h = dlopen("libPvr_UnitySDK.so", RTLD_NOW);
-    if (!h) { LOGE("passthrough: dlopen libPvr_UnitySDK failed: %s", dlerror()); return; }
-    pfn_getSeethroughInstance = (getSeethroughInstance_t)dlsym(h, "_ZN3PVR21getSeethroughInstanceEv");
-    pfn_setForcedToShow       = (SetForcedToShow_t)dlsym(h, "_ZN3PVR15GsSeeThroughExt15SetForcedToShowEb");
-    pfn_doRender              = (DoRender_t)dlsym(h, "_ZN3PVR15GsSeeThroughExt8DoRenderEi");
-    pfn_setOpacity            = (SetOpacity_t)dlsym(h, "_ZN3PVR15GsSeeThroughExt10SetOpacityEf");
-
-    pfn_ts_initClient    = (TrackingService_InitClient_t)dlsym(h, "_Z26TrackingService_InitClientv");
-    pfn_ts_attachCamera  = (TrackingService_AttachCamera_t)dlsym(h, "_Z28TrackingService_AttachCameraPv10CameraType");
-    pfn_ts_acquireFrame  = (TrackingService_AcquireCameraFrame_t)dlsym(h, "_Z34TrackingService_AcquireCameraFramePv10CameraTypeP12frame_item_t");
-    pfn_ts_releaseFrame  = (TrackingService_ReleaseCameraFrame_t)dlsym(h, "_Z34TrackingService_ReleaseCameraFramePv10CameraType");
-    pfn_ts_setCallbacks  = (TrackingService_SetCameraFrameCallbacks_t)dlsym(h, "_Z39TrackingService_SetCameraFrameCallbacksPv10CameraTypePFviyiE");
-
-    LOGI("passthrough: syms inst=%p show=%p render=%p opacity=%p",
-         (void*)pfn_getSeethroughInstance, (void*)pfn_setForcedToShow,
-         (void*)pfn_doRender, (void*)pfn_setOpacity);
-    LOGI("passthrough: ts syms init=%p attach=%p acquire=%p release=%p callbacks=%p",
-         (void*)pfn_ts_initClient, (void*)pfn_ts_attachCamera,
-         (void*)pfn_ts_acquireFrame, (void*)pfn_ts_releaseFrame,
-         (void*)pfn_ts_setCallbacks);
-}
-
-// Fullscreen clip-space quad: position (xyz) + UV. No view/projection needed —
-// the quad already fills the eye buffer edge to edge. UVs follow the same
-// top-left-origin flip the lobby UI texture uses (row 0 = top of camera frame).
+// Fullscreen clip-space quad: position (xyz) + UV.
 static const char *vert_src = R"(#version 310 es
 layout(location = 0) in vec3 a_pos;
 layout(location = 1) in vec2 a_uv;
@@ -69,116 +17,102 @@ void main()
 )";
 
 static const char *frag_src = R"(#version 310 es
-precision mediump float;
-in vec2 v_uv;
+precision mediump sampler2D;
 uniform sampler2D u_tex;
-out vec4 frag_color;
+in vec2 v_uv;
+out vec4 frag;
 void main()
 {
-    frag_color = texture(u_tex, v_uv);
+    frag = vec4(texture(u_tex, v_uv).rgb, 1.0);
 }
 )";
 
-static GLuint compile_shader(GLenum type, const char *src)
-{
-    GLuint s = glCreateShader(type);
-    glShaderSource(s, 1, &src, nullptr);
-    glCompileShader(s);
-    GLint ok = GL_FALSE;
-    glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
-    if (ok != GL_TRUE)
-    {
-        char log[1024];
-        glGetShaderInfoLog(s, sizeof(log), nullptr, log);
-        LOGE("passthrough shader error: %s", log);
-        glDeleteShader(s);
-        return 0;
-    }
-    return s;
-}
-
 void pico_passthrough::build_shaders()
 {
-    GLuint v = compile_shader(GL_VERTEX_SHADER, vert_src);
-    GLuint f = compile_shader(GL_FRAGMENT_SHADER, frag_src);
-    if (!v || !f) return;
+    GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vs, 1, &vert_src, nullptr);
+    glCompileShader(vs);
+
+    GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fs, 1, &frag_src, nullptr);
+    glCompileShader(fs);
 
     program = glCreateProgram();
-    glAttachShader(program, v);
-    glAttachShader(program, f);
+    glAttachShader(program, vs);
+    glAttachShader(program, fs);
     glLinkProgram(program);
-    GLint ok = GL_FALSE;
-    glGetProgramiv(program, GL_LINK_STATUS, &ok);
-    if (ok != GL_TRUE)
-    {
-        char log[1024];
-        glGetProgramInfoLog(program, sizeof(log), nullptr, log);
-        LOGE("passthrough program link error: %s", log);
-        glDeleteProgram(program);
-        program = 0;
-    }
-    glDeleteShader(v);
-    glDeleteShader(f);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
 
     sampler_loc = glGetUniformLocation(program, "u_tex");
+    mvp_loc = glGetUniformLocation(program, "u_mvp");
 }
 
 void pico_passthrough::build_geometry()
 {
-    float quad[] = {
-        -1.0f, -1.0f, 0.0f,  0.0f, 1.0f,
-         1.0f, -1.0f, 0.0f,  1.0f, 1.0f,
-         1.0f,  1.0f, 0.0f,  1.0f, 0.0f,
-        -1.0f, -1.0f, 0.0f,  0.0f, 1.0f,
-         1.0f,  1.0f, 0.0f,  1.0f, 0.0f,
-        -1.0f,  1.0f, 0.0f,  0.0f, 0.0f,
+    // Two triangles covering clip space [-1,1]
+    static const float verts[] = {
+        -1, -1, 0,  0, 0,
+         1, -1, 0,  1, 0,
+        -1,  1, 0,  0, 1,
+        -1,  1, 0,  0, 1,
+         1, -1, 0,  1, 0,
+         1,  1, 0,  1, 1,
     };
     glGenVertexArrays(1, &vao);
-    glGenBuffers(1, &vbo);
     glBindVertexArray(vao);
+    glGenBuffers(1, &vbo);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
-    glEnableVertexAttribArray(0);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 20, (void *)0);
-    glEnableVertexAttribArray(1);
+    glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 20, (void *)12);
+    glEnableVertexAttribArray(1);
     glBindVertexArray(0);
 }
 
-void pico_passthrough::upload_frame(int eye, unsigned char *data, int w, int h)
+void pico_passthrough::upload_frame(int w, int h, const uint8_t *y_data, int y_row_stride)
 {
-    if (!data || w <= 0 || h <= 0) return;
+    if (!y_data || w <= 0 || h <= 0) return;
 
-    // The Neo 2 camera delivers grayscale (1 byte/pixel). The SDK's own
-    // SeeThrough renderer uploads with GL_LUMINANCE / GL_UNSIGNED_BYTE.
-    // Using GL_RGBA here caused a 4x buffer overread → SIGSEGV in glTexImage2D.
-    if (eye_tex[eye] == 0)
+    if (y_tex == 0)
     {
-        glGenTextures(1, &eye_tex[eye]);
-        glBindTexture(GL_TEXTURE_2D, eye_tex[eye]);
+        glGenTextures(1, &y_tex);
+        glBindTexture(GL_TEXTURE_2D, y_tex);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, w, h, 0,
-                     GL_LUMINANCE, GL_UNSIGNED_BYTE, data);
-        eye_w[eye] = w;
-        eye_h[eye] = h;
+                     GL_LUMINANCE, GL_UNSIGNED_BYTE, nullptr);
+        tex_w = w;
+        tex_h = h;
     }
     else
     {
-        glBindTexture(GL_TEXTURE_2D, eye_tex[eye]);
-        if (w != eye_w[eye] || h != eye_h[eye])
+        glBindTexture(GL_TEXTURE_2D, y_tex);
+        if (w != tex_w || h != tex_h)
         {
             glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, w, h, 0,
-                         GL_LUMINANCE, GL_UNSIGNED_BYTE, data);
-            eye_w[eye] = w;
-            eye_h[eye] = h;
+                         GL_LUMINANCE, GL_UNSIGNED_BYTE, nullptr);
+            tex_w = w;
+            tex_h = h;
         }
-        else
+    }
+
+    // Upload row by row if stride != width
+    if (y_row_stride == w)
+    {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h,
+                        GL_LUMINANCE, GL_UNSIGNED_BYTE, y_data);
+    }
+    else
+    {
+        for (int row = 0; row < h; row++)
         {
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h,
-                            GL_LUMINANCE, GL_UNSIGNED_BYTE, data);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, row, w, 1,
+                            GL_LUMINANCE, GL_UNSIGNED_BYTE,
+                            y_data + row * y_row_stride);
         }
     }
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -187,58 +121,127 @@ void pico_passthrough::upload_frame(int eye, unsigned char *data, int w, int h)
 void pico_passthrough::init()
 {
     if (gl_ready) return;
-
     build_shaders();
     build_geometry();
-    gl_ready = (program != 0 && vao != 0);
-    if (gl_ready)
-        LOGI("passthrough GL resources ready");
-    else
-        LOGE("passthrough GL init failed");
+    gl_ready = true;
+    LOGI("passthrough GL resources ready");
 }
+
+static void on_capture_failed(void *ctx, ACameraCaptureSession *s,
+                              ACaptureRequest *r, int64_t seq, int64_t ts)
+{
+    (void)ctx; (void)s; (void)r; (void)seq; (void)ts;
+}
+
+static ACameraCaptureSession_captureCallbacks gCaptureCallbacks = {
+    .onCaptureFailed = on_capture_failed,
+};
 
 void pico_passthrough::start()
 {
     if (camera_on) return;
 
-    if (!pfn_getSeethroughInstance)
-        load_seethrough_syms();
+    cam_mgr = ACameraManager_create();
+    if (!cam_mgr) { LOGE("passthrough: ACameraManager_create failed"); return; }
 
-    Pvr_GetCameraData_Ext();
-    PVR_SetCameraImageRect(kCamW, kCamH);
-    PVR_StartCameraPreview(1);
-    Pvr_BoundarySetSeeThroughVisible(true);
-    Pvr_BoundarySeeThroughSetVisible_(true);
-    fDstcToShowSeeThrough = 1000000.0f;
-    fDstcToShowSeeThroughComp = 1000000.0f;
+    ACameraIdList *ids = nullptr;
+    ACameraManager_getCameraIdList(cam_mgr, &ids);
+    if (!ids || ids->numCameras == 0)
+    {
+        LOGE("passthrough: no cameras found");
+        if (ids) ACameraManager_deleteCameraIdList(ids);
+        return;
+    }
+    LOGI("passthrough: found %d cameras, using id[0]=%s", ids->numCameras, ids->cameraIds[0]);
 
-    // Try attaching the camera directly through the TrackingService API.
-    // The GsCameraClient::init() may not actually attach — the tracking
-    // service might need an explicit AttachCamera call to deliver frames.
-    if (pfn_ts_initClient && pfn_ts_attachCamera) {
-        int client = pfn_ts_initClient();
-        LOGI("passthrough: TrackingService_InitClient=%d", client);
-        if (client) {
-            // CameraType 0 = front/tracking camera
-            int rc = pfn_ts_attachCamera((void *)1, 0);
-            LOGI("passthrough: TrackingService_AttachCamera=%d", rc);
-        }
+    camera_status_t rc = ACameraManager_openCamera(cam_mgr, ids->cameraIds[0],
+        &ACameraDevice_stateCallbacks{}, &cam_dev);
+    if (rc != ACAMERA_OK || !cam_dev)
+    {
+        LOGE("passthrough: openCamera failed rc=%d", rc);
+        ACameraManager_deleteCameraIdList(ids);
+        return;
     }
 
+    // Create ImageReader for YUV_420_888 at the camera's native resolution
+    // The Neo 2 tracking camera delivers 1280x400 (side-by-side stereo).
+    media_status_t mrc = AImageReader_newWithUsage(1280, 400, AIMAGE_YUV_420_888,
+        AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN, 4, &img_reader);
+    if (mrc != AMEDIA_OK || !img_reader)
+    {
+        LOGE("passthrough: AImageReader_new failed rc=%d", mrc);
+        ACameraManager_deleteCameraIdList(ids);
+        return;
+    }
+
+    AImageReader_getWindow(img_reader, &img_reader_win);
+    ANativeWindow_acquire(img_reader_win);
+
+    ACameraManager_deleteCameraIdList(ids);
+
+    // Build capture session: camera -> image reader surface
+    ACaptureSessionOutput *output = nullptr;
+    ACaptureSessionOutputContainer *outputs = nullptr;
+    ACaptureSessionOutputContainer_create(&outputs);
+    ACaptureSessionOutput_create(img_reader_win, &output);
+    ACaptureSessionOutputContainer_add(outputs, output);
+
+    rc = ACameraDevice_createCaptureSession(cam_dev, outputs, &ACameraCaptureSession_stateCallbacks{},
+        &cam_session);
+    if (rc != ACAMERA_OK)
+    {
+        LOGE("passthrough: createCaptureSession failed rc=%d", rc);
+        ACaptureSessionOutput_free(output);
+        ACaptureSessionOutputContainer_free(outputs);
+        return;
+    }
+
+    // Build capture request: preview -> image reader
+    rc = ACameraDevice_createCaptureRequest(cam_dev, TEMPLATE_PREVIEW, &cam_request);
+    if (rc != ACAMERA_OK)
+    {
+        LOGE("passthrough: createCaptureRequest failed rc=%d", rc);
+        ACaptureSessionOutput_free(output);
+        ACaptureSessionOutputContainer_free(outputs);
+        return;
+    }
+
+    ACameraOutputTarget *target = nullptr;
+    ACameraOutputTarget_create(img_reader_win, &target);
+    ACaptureRequest_addTarget(cam_request, target);
+
+    // Start continuous capture
+    rc = ACameraCaptureSession_setRepeatingRequest(cam_session, &gCaptureCallbacks,
+        1, &cam_request, nullptr);
+    if (rc != ACAMERA_OK)
+        LOGE("passthrough: setRepeatingRequest failed rc=%d", rc);
+    else
+        LOGI("passthrough: camera capture started");
+
+    ACameraOutputTarget_free(target);
+    ACaptureSessionOutput_free(output);
+    ACaptureSessionOutputContainer_free(outputs);
+
     camera_on = true;
-    LOGI("passthrough camera started (%dx%d)", kCamW, kCamH);
+    LOGI("passthrough camera started");
 }
 
 void pico_passthrough::stop()
 {
     if (!camera_on) return;
-    if (pfn_getSeethroughInstance && pfn_setForcedToShow) {
-        void *inst = pfn_getSeethroughInstance();
-        if (inst) pfn_setForcedToShow(inst, false);
+
+    if (cam_session)
+    {
+        ACameraCaptureSession_stopRepeating(cam_session);
+        ACameraCaptureSession_close(cam_session);
+        cam_session = nullptr;
     }
-    Pvr_BoundarySetSeeThroughVisible(false);
-    Pvr_BoundarySeeThroughSetVisible_(false);
-    PVR_StartCameraPreview(0);
+    if (cam_request) { ACaptureRequest_free(cam_request); cam_request = nullptr; }
+    if (cam_dev) { ACameraDevice_close(cam_dev); cam_dev = nullptr; }
+    if (img_reader_win) { ANativeWindow_release(img_reader_win); img_reader_win = nullptr; }
+    if (img_reader) { AImageReader_delete(img_reader); img_reader = nullptr; }
+    if (cam_mgr) { ACameraManager_delete(cam_mgr); cam_mgr = nullptr; }
+
     camera_on = false;
     LOGI("passthrough camera stopped");
 }
@@ -247,56 +250,70 @@ void pico_passthrough::draw(int eye)
 {
     if (!gl_ready || !camera_on) return;
     if (eye < 0 || eye > 1) return;
+    if (!img_reader) return;
 
-    // Try getting a frame through TrackingService_AcquireCameraFrame.
-    // frame_item_t is opaque — we just need a large enough buffer.
-    if (pfn_ts_acquireFrame) {
-        unsigned char frame_buf[512] = {};
-        int rc = pfn_ts_acquireFrame(0, frame_buf);
-        static int acq_log = 0;
-        if (++acq_log % 300 == 0)
-            LOGI("passthrough: AcquireCameraFrame rc=%d eye=%d", rc, eye);
-        if (rc == 0 && pfn_ts_releaseFrame)
-            pfn_ts_releaseFrame(0);
+    // Get the latest frame from the ImageReader
+    AImage *image = nullptr;
+    media_status_t rc = AImageReader_acquireLatestImage(img_reader, &image);
+    if (rc != AMEDIA_OK || !image)
+    {
+        static int null_count = 0;
+        if (++null_count % 300 == 0)
+            LOGE("passthrough: acquireLatestImage rc=%d", rc);
+        return;
     }
 
-    // Also try the SDK's SeeThrough DoRender.
-    if (pfn_getSeethroughInstance && pfn_doRender) {
-        void *inst = pfn_getSeethroughInstance();
-        if (inst) {
-            if (pfn_setForcedToShow) pfn_setForcedToShow(inst, true);
-            if (pfn_setOpacity) pfn_setOpacity(inst, 1.0f);
+    // Extract Y plane (luminance = grayscale passthrough)
+    int32_t src_w = 0, src_h = 0;
+    AImage_getWidth(image, &src_w);
+    AImage_getHeight(image, &src_h);
 
-            static int log_count = 0;
-            if (++log_count % 300 == 0) {
-                int state = Pvr_GetSeeThroughState();
-                LOGI("passthrough: DoRender eye=%d state=%d inst=%p", eye, state, inst);
-            }
+    uint8_t *y_data = nullptr;
+    int y_len = 0, y_row_stride = 0, y_pix_stride = 0;
+    AImage_getPlaneData(image, 0, &y_data, &y_len);
+    AImage_getPlaneRowStride(image, 0, &y_row_stride);
+    AImage_getPlanePixelStride(image, 0, &y_pix_stride);
 
-            glDisable(GL_DEPTH_TEST);
-            glDepthMask(GL_FALSE);
-            pfn_doRender(inst, eye);
-            glDepthMask(GL_TRUE);
-        }
-    }
+    static int frame_count = 0;
+    if (++frame_count % 300 == 0)
+        LOGI("passthrough: frame %d %dx%d y_stride=%d y_pix=%d bytes=[%d,%d,%d,%d]",
+             frame_count, src_w, src_h, y_row_stride, y_pix_stride,
+             y_data[0], y_data[1], y_data[2], y_data[3]);
 
-    // Also try Pvr_GetCameraData_Ext to see if frames are arriving now.
-    static int data_log = 0;
-    if (++data_log % 300 == 0) {
-        unsigned char *frame = Pvr_GetCameraData_Ext();
-        if (frame)
-            LOGI("passthrough: GetCameraData_Ext=%p bytes=[%d,%d,%d,%d]",
-                 (void*)frame, frame[0], frame[1], frame[2], frame[3]);
-        else
-            LOGI("passthrough: GetCameraData_Ext=null");
-    }
+    // For side-by-side stereo: left eye gets left half, right eye gets right half
+    int half_w = src_w / 2;
+    int eye_offset = eye * half_w * (y_row_stride > 0 ? 1 : 1);
+    const uint8_t *eye_data = y_data + eye * half_w;
+
+    upload_frame(half_w, src_h, eye_data, y_row_stride);
+
+    AImage_delete(image);
+
+    // Render
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_CULL_FACE);
+
+    glUseProgram(program);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, y_tex);
+    glUniform1i(sampler_loc, 0);
+
+    glBindVertexArray(vao);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindVertexArray(0);
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glUseProgram(0);
+
+    glDepthMask(GL_TRUE);
 }
 
 pico_passthrough::~pico_passthrough()
 {
+    stop();
     if (program) glDeleteProgram(program);
     if (vao) glDeleteVertexArrays(1, &vao);
     if (vbo) glDeleteBuffers(1, &vbo);
-    for (int e = 0; e < 2; e++)
-        if (eye_tex[e]) glDeleteTextures(1, &eye_tex[e]);
+    if (y_tex) glDeleteTextures(1, &y_tex);
 }
