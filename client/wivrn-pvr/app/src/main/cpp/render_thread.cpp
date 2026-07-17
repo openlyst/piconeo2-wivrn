@@ -3833,15 +3833,14 @@ void *renderThread(void *) {
                                                GL_TEXTURE_2D, gLobbyEye[eye][lobbyEyeIdx], 0);
                         glDisable(GL_SCISSOR_TEST);
                         glViewport(0, 0, kLobbySz, kLobbySz);
-                        // Only clear depth — the passthrough background (drawn
-                        // inside drawLobbyScene) fills the colour buffer. When
-                        // showBlack (stream starting, decoder not ready) we
-                        // still want a black frame, so clear colour in that case.
-                        if (showBlack) {
-                            glClearColor(0, 0, 0, 1);
-                            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-                        } else {
-                            glClear(GL_DEPTH_BUFFER_BIT);
+                        // Always clear colour to black first. If the passthrough
+                        // camera has a frame, drawLobbyScene overwrites it. If
+                        // not (camera warming up / error), we get a clean black
+                        // frame instead of smearing the previous frame's content
+                        // (the warp reprojects stale colour → glitchy clone artifact).
+                        glClearColor(0, 0, 0, 1);
+                        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                        if (!showBlack) {
                             drawLobbyScene(proj, view, eyeShift, eye);
                             drawBatteryWarn(eye);   // low-battery popup, layered over lobby content
                         }
