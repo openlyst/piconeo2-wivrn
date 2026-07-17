@@ -64,9 +64,6 @@ class pico_lobby
 	// Offset from panel center to the grab point in world space, captured
 	// at grab start. While grabbing, panel_pos = hit_point - grab_offset.
 	float grab_offset[3] = {0, 0, 0};
-	// Yaw offset between controller-to-panel direction and panel yaw at
-	// grab start, so the panel keeps its orientation while being dragged.
-	float grab_yaw_offset = 0;
 
 	struct ray_hit
 	{
@@ -86,8 +83,8 @@ class pico_lobby
 	bool debug_trigger_down = false;
 	int debug_frame_count = 0;
 
-	static constexpr float panel_w = 2.0f;
-	static constexpr float panel_h = 1.286f;
+	static constexpr float panel_w = 1.2f;
+	static constexpr float panel_h = 0.77f;
 
 	void draw_quad(const float head_orient[4], const float head_pos[3],
 	               const XrFovf & fov, float ipd, int eye);

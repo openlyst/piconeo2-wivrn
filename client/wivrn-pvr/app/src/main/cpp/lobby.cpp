@@ -366,10 +366,10 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 
 	if (eye == 0)
 	{
-		// Keep the panel planted in space, but make it billboard toward the head so
-		// the UI texture doesn't stretch from an oblique viewing angle.
-		// Skip while grabbing (the user is repositioning it) and in overlay mode.
-		if (!overlay && !grabbing)
+		// Always billboard toward the head so the panel faces the user,
+		// even while being grabbed. Skip in overlay mode (recenter_facing
+		// already set the correct yaw).
+		if (!overlay)
 		{
 			float dx = head_pos[0] - panel_pos[0];
 			float dz = head_pos[2] - panel_pos[2];
@@ -621,7 +621,7 @@ void pico_lobby::set_resolution(int w, int h)
 
 void pico_lobby::recenter(const float head_pos[3], float head_yaw)
 {
-	constexpr float kPanelDist = 2.0f;
+	constexpr float kPanelDist = 1.5f;
 	float cy = std::cosf(head_yaw), sy = std::sinf(head_yaw);
 	panel_pos[0] = (head_pos ? head_pos[0] : 0.0f) - sy * kPanelDist;
 	panel_pos[1] = head_pos ? head_pos[1] : 0.0f;
@@ -632,7 +632,7 @@ void pico_lobby::recenter(const float head_pos[3], float head_yaw)
 
 void pico_lobby::recenter_facing(const float head_pos[3], float fwd_x, float fwd_z)
 {
-	constexpr float kPanelDist = 2.0f;
+	constexpr float kPanelDist = 1.5f;
 	float n = sqrtf(fwd_x * fwd_x + fwd_z * fwd_z);
 	if (n < 1e-5f) { fwd_x = 0; fwd_z = -1; n = 1; }
 	fwd_x /= n; fwd_z /= n;
@@ -723,13 +723,8 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 			grab_offset[0] = hit_points[h][0] - panel_pos[0];
 			grab_offset[1] = hit_points[h][1] - panel_pos[1];
 			grab_offset[2] = hit_points[h][2] - panel_pos[2];
-			// Capture yaw offset so the panel keeps its orientation
-			float dx = hit_points[h][0] - panel_pos[0];
-			float dz = hit_points[h][2] - panel_pos[2];
-			float ctrl_to_panel_yaw = atan2f(-dx, dz);
-			grab_yaw_offset = panel_yaw - ctrl_to_panel_yaw;
-			LOGI("GRAB_START h=%d offset=(%.2f,%.2f,%.2f) yaw_off=%.2f",
-			     h, grab_offset[0], grab_offset[1], grab_offset[2], grab_yaw_offset);
+			LOGI("GRAB_START h=%d offset=(%.2f,%.2f,%.2f)",
+			     h, grab_offset[0], grab_offset[1], grab_offset[2]);
 		}
 		prev_grip[h] = grip_now;
 	}
@@ -787,16 +782,7 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 					panel_pos[0] = hit[0] - grab_offset[0];
 					panel_pos[1] = hit[1] - grab_offset[1];
 					panel_pos[2] = hit[2] - grab_offset[2];
-
-					// Update yaw to follow the controller's direction around
-					// the panel, keeping the yaw offset constant
-					float dx = hit[0] - panel_pos[0];
-					float dz = hit[2] - panel_pos[2];
-					if (fabsf(dx) > 1e-5f || fabsf(dz) > 1e-5f)
-					{
-						float ctrl_to_panel_yaw = atan2f(-dx, dz);
-						panel_yaw = ctrl_to_panel_yaw + grab_yaw_offset;
-					}
+					// Yaw is handled by billboard logic above — always faces head
 				}
 			}
 		}
