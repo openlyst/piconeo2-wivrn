@@ -3861,9 +3861,15 @@ void *renderThread(void *) {
                                                GL_TEXTURE_2D, gLobbyEye[eye][lobbyEyeIdx], 0);
                         glDisable(GL_SCISSOR_TEST);
                         glViewport(0, 0, kLobbySz, kLobbySz);
-                        glClearColor(0, 0, 0, 1);
-                        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-                        if (!showBlack) {
+                        // Only clear depth — the passthrough background (drawn
+                        // inside drawLobbyScene) fills the colour buffer. When
+                        // showBlack (stream starting, decoder not ready) we
+                        // still want a black frame, so clear colour in that case.
+                        if (showBlack) {
+                            glClearColor(0, 0, 0, 1);
+                            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                        } else {
+                            glClear(GL_DEPTH_BUFFER_BIT);
                             drawLobbyScene(proj, view, eyeShift, eye);
                             drawBatteryWarn(eye);   // low-battery popup, layered over lobby content
                         }
