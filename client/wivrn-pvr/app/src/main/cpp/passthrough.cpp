@@ -353,7 +353,7 @@ void pico_passthrough::draw(int eye)
                      frame_count, w, h, y_stride, y_pix,
                      y_data[0], y_data[100], y_data[500], y_data[1000]);
         }
-        else if (rc == AMEDIA_IMG_NO_BUFFER_AVAILABLE)
+        else if (rc == AMEDIA_IMGREADER_NO_BUFFER_AVAILABLE)
         {
             // No new frame — reuse the last one (pending_image stays).
             acq_empty++;
