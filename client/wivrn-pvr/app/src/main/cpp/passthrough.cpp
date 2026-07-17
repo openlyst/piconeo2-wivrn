@@ -157,7 +157,7 @@ void pico_passthrough::start()
     // and start the preview loop.
     Pvr_GetCameraData_Ext();
     PVR_SetCameraImageRect(kCamW, kCamH);
-    PVR_StartCameraPreview(0);
+    PVR_StartCameraPreview(1);   // 1 = start, 0 = stop
     camera_on = true;
     LOGI("passthrough camera started (%dx%d)", kCamW, kCamH);
 }
@@ -165,9 +165,7 @@ void pico_passthrough::start()
 void pico_passthrough::stop()
 {
     if (!camera_on) return;
-    // There's no explicit PVR_StopCameraPreview export; the camera frame loop
-    // simply stops producing frames when nobody polls Pvr_GetCameraData_Ext.
-    // The camera device stays open (initialized) for a fast restart.
+    PVR_StartCameraPreview(0);   // 0 = stop
     camera_on = false;
     LOGI("passthrough camera stopped");
 }
