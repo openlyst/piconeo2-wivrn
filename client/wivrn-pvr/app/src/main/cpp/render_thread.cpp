@@ -2136,12 +2136,14 @@ void *renderThread(void *) {
                 if (gDecoderReady) { alvr_destroy_decoder(); gDecoderReady = false; }
                 gStreaming = false;
                 alvr_pause();
+                if (gPassthrough) gPassthrough->stop();
                 gSlept = true;
                 if (g_stream && g_stream->session)
                     g_stream->session->send_control(from_headset::user_presence_changed{.present = false});
             } else if (!wantSleep && gSlept) {
                 LOGI("proximity: headset donned -> resuming stream");
                 alvr_resume();
+                if (gPassthrough) gPassthrough->start();
                 gSlept = false;
                 if (g_stream && g_stream->session)
                     g_stream->session->send_control(from_headset::user_presence_changed{.present = true});
