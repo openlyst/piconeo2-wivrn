@@ -41,6 +41,7 @@
 #include "settings_panel.h"  // unified lobby SETTINGS window (sidebar + scroll)
 #include "app_state.h"   // shared lobby/render knobs: IPD, input edges, toggles, diag
 #include "lobby.h"       // ported pico_oxr WiVRn lobby UI panel
+#include "passthrough.h" // passthrough camera background for the lobby
 #include "lobby_panels.h"// diagnostics overlay builders
 #include "input.h"       // controller + head-pose shared state
 #include "foveation.h"   // readFoveationParams() from the settings JSON
