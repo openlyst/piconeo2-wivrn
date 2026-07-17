@@ -334,42 +334,6 @@ static void buildGazeMarker() {
     LOGI("gaze marker built verts=%d", gGazeVertCount);
 }
 
-// Floor grid for the lobby so it reads as a space, not a black void. Lines on the
-// y=0 plane (the calibrated floor, since we use a Floor/Stage tracking origin), in
-// a dim blue-grey. WORLD-locked (drawn with the head-tracked view) for spatial
-// reference. Reuses gProg (pos.xyz + rgb), drawn as GL_LINES.
-static GLuint gGridVao = 0, gGridVbo = 0;
-static int    gGridVertCount = 0;
-static void buildGridFloor() {
-    std::vector<float> v;
-    const float ext = 5.0f, step = 0.5f;
-    // WiVRn dark theme: dark grey grid, blue accent axes.
-    bool amber = gThemeAmber.load();
-    const float c0 = amber ? 0.34f : 0.14f, c1 = amber ? 0.22f : 0.14f, c2 = amber ? 0.08f : 0.14f;
-    const float a0 = amber ? 0.60f : 0.30f, a1 = amber ? 0.44f : 0.36f, a2 = amber ? 0.18f : 0.42f;
-    for (float i = -ext; i <= ext + 1e-3f; i += step) {
-        bool axis = (i > -1e-3f && i < 1e-3f);
-        float r = axis ? a0 : c0, g = axis ? a1 : c1, b = axis ? a2 : c2;
-        v.insert(v.end(), { -ext,0,i, r,g,b }); v.insert(v.end(), {  ext,0,i, r,g,b });
-        v.insert(v.end(), {  i,0,-ext, r,g,b }); v.insert(v.end(), {  i,0, ext, r,g,b });
-    }
-    gGridVertCount = (int)(v.size() / 6);
-    if (!gGridVao) {   // first build: create GL objects. Later calls just recolour.
-        glGenVertexArrays(1, &gGridVao);
-        glBindVertexArray(gGridVao);
-        glGenBuffers(1, &gGridVbo);
-        glBindBuffer(GL_ARRAY_BUFFER, gGridVbo);
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
-        glBindVertexArray(0);
-    }
-    glBindBuffer(GL_ARRAY_BUFFER, gGridVbo);
-    glBufferData(GL_ARRAY_BUFFER, v.size()*sizeof(float), v.data(), GL_DYNAMIC_DRAW);
-    LOGI("grid floor built verts=%d amber=%d", gGridVertCount, (int)amber);
-}
-
 // ---------------------------------------------------------------------------
 // Controller wireframe models, pulled live from the Neo 2 system assets. The
 // meshes live world-readable on /system as plain Wavefront OBJ (centimetres,
