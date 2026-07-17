@@ -218,12 +218,9 @@ void pico_passthrough::upload_eye(int eye, int w, int h, const uint8_t *data, in
     else
     {
         glBindTexture(GL_TEXTURE_2D, tex);
-        GLint cur_w = 0, cur_h = 0;
-        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &cur_w);
-        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &cur_h);
-        if (w != cur_w || h != cur_h)
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0,
-                         GL_RED, GL_UNSIGNED_BYTE, nullptr);
+        // Re-alloc if size changed (shouldn't normally happen)
+        // Just always glTexSubImage2D — if the tex was never allocated
+        // it was done in the tex==0 branch above.
     }
 
     if (row_stride != w)
