@@ -120,6 +120,7 @@ add_library(p2alvr SHARED
     menu_model.cpp
     settings_panel.cpp
     lobby.cpp
+    passthrough.cpp
     input.cpp
     foveation.cpp
     jni.cpp
