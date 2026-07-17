@@ -154,13 +154,22 @@ void pico_passthrough::start()
     PVR_SetCameraImageRect(kCamW, kCamH);
     PVR_StartCameraPreview(1);
     Pvr_BoundarySetSeeThroughVisible(true);
-    Pvr_BoundarySeeThroughSetVisible(true);
-    // Force the SeeThrough distance thresholds huge so the system always
-    // thinks the user is "close to boundary" and activates the camera overlay.
-    // Without this, SeeThrough only activates near a configured guardian
-    // boundary, and we have no boundary configured.
+    Pvr_BoundarySeeThroughSetVisible_(true);
     fDstcToShowSeeThrough = 1000000.0f;
     fDstcToShowSeeThroughComp = 1000000.0f;
+
+    // Force the SDK's SeeThrough renderer to always show, bypassing the
+    // distance-to-boundary gate. Without a guardian boundary configured,
+    // the SeeThrough state stays 0 and the camera layer never renders.
+    void *inst = PVR_getSeethroughInstance();
+    if (inst) {
+        PVR_GsSeeThroughExt_SetForcedToShow(inst, true);
+        PVR_GsSeeThroughExt_SetOpacity(inst, 1.0f);
+        LOGI("passthrough: forced SeeThrough show on instance %p", inst);
+    } else {
+        LOGE("passthrough: getSeethroughInstance returned null");
+    }
+
     camera_on = true;
     LOGI("passthrough camera started (%dx%d)", kCamW, kCamH);
 }
@@ -168,8 +177,11 @@ void pico_passthrough::start()
 void pico_passthrough::stop()
 {
     if (!camera_on) return;
+    void *inst = PVR_getSeethroughInstance();
+    if (inst)
+        PVR_GsSeeThroughExt_SetForcedToShow(inst, false);
     Pvr_BoundarySetSeeThroughVisible(false);
-    Pvr_BoundarySeeThroughSetVisible(false);
+    Pvr_BoundarySeeThroughSetVisible_(false);
     PVR_StartCameraPreview(0);
     camera_on = false;
     LOGI("passthrough camera stopped");
@@ -180,42 +192,22 @@ void pico_passthrough::draw(int eye)
     if (!gl_ready || !camera_on) return;
     if (eye < 0 || eye > 1) return;
 
-    bool valid = false;
-    unsigned int w = 0, h = 0, count = 0;
-    long long ts = 0;
-    unsigned char *frame = Pvr_BoundaryGetSeeThroughData(eye, &valid, &w, &h, &count, &ts);
+    // Use the SDK's own SeeThrough renderer. It has its own shader,
+    // geometry, and texture pipeline. SetForcedToShow(true) bypasses
+    // the distance gate so it renders even without a guardian boundary.
+    void *inst = PVR_getSeethroughInstance();
+    if (!inst) return;
 
     static int log_count = 0;
     if (++log_count % 300 == 0) {
         int state = Pvr_GetSeeThroughState();
-        LOGI("passthrough: eye=%d state=%d frame=%p valid=%d %dx%d count=%d ts=%lld",
-             eye, state, (void*)frame, (int)valid, (int)w, (int)h, (int)count, (long long)ts);
+        LOGI("passthrough: DoRender eye=%d state=%d inst=%p", eye, state, inst);
     }
-
-    if (!frame || !valid || w == 0 || h == 0) {
-        int other = eye ^ 1;
-        frame = Pvr_BoundaryGetSeeThroughData(other, &valid, &w, &h, &count, &ts);
-        if (!frame || !valid || w == 0 || h == 0)
-            return;
-    }
-
-    upload_frame(eye, frame, (int)w, (int)h);
 
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
-    glDisable(GL_CULL_FACE);
 
-    glUseProgram(program);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, eye_tex[eye]);
-    glUniform1i(sampler_loc, 0);
-
-    glBindVertexArray(vao);
-    glDrawArrays(GL_TRIANGLES, 0, 6);
-    glBindVertexArray(0);
-
-    glBindTexture(GL_TEXTURE_2D, 0);
-    glUseProgram(0);
+    PVR_GsSeeThroughExt_DoRender(inst, eye);
 
     glDepthMask(GL_TRUE);
 }

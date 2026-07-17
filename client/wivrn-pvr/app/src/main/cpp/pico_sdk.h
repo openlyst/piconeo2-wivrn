@@ -94,13 +94,21 @@ extern "C" {
                                                   unsigned int *width, unsigned int *height,
                                                   unsigned int *count, long long *timestamp);
     void  Pvr_BoundarySetSeeThroughVisible(bool visible);
-    void  Pvr_BoundarySeeThroughSetVisible(bool visible);
+    void  Pvr_BoundarySeeThroughSetVisible_(bool visible);
     int   Pvr_GetSeeThroughState();
     // Distance thresholds that gate SeeThrough activation. Setting
     // fDstcToShowSeeThrough very large forces always-on (the system thinks
     // the user is always "close to boundary").
     extern float fDstcToShowSeeThrough;
     extern float fDstcToShowSeeThroughComp;
+    // GsSeeThroughExt singleton + key methods. The SDK's own SeeThrough
+    // renderer has a "forced to show" flag that bypasses the distance-based
+    // activation gate. DoRender renders the camera layer using the SDK's
+    // own shader + texture pipeline.
+    void *PVR_getSeethroughInstance();
+    void  PVR_GsSeeThroughExt_SetForcedToShow(void *inst, bool show);
+    void  PVR_GsSeeThroughExt_DoRender(void *inst, int eye);
+    void  PVR_GsSeeThroughExt_SetOpacity(void *inst, float opacity);
     void *GetRenderEventFunc();
     bool  Pvr_SetSinglePassDepthBufferWidthHeight(int width, int height);
     void  Pvr_GetFOV(float *outA, float *outB);
