@@ -719,7 +719,12 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 			grab_hand = h;
 			grab_u = hit_uv[h][0];
 			grab_v = hit_uv[h][1];
-			LOGI("GRAB_START h=%d uv=(%.2f,%.2f)", h, grab_u, grab_v);
+			// Distance from controller to the grab point
+			float dx = hit_points[h][0] - controllers[h].position[0] * 0.001f;
+			float dy = hit_points[h][1] - controllers[h].position[1] * 0.001f;
+			float dz = hit_points[h][2] - controllers[h].position[2] * 0.001f;
+			grab_dist = sqrtf(dx*dx + dy*dy + dz*dz);
+			LOGI("GRAB_START h=%d uv=(%.2f,%.2f) dist=%.2f", h, grab_u, grab_v, grab_dist);
 		}
 		prev_grip[h] = grip_now;
 	}
@@ -753,34 +758,22 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 			float ray_dir[3];
 			neo2::rotate_vector(cq, dir, ray_dir);
 
-			// Intersect with the panel's current plane
-			float denom = ray_dir[0]*normal[0] + ray_dir[1]*normal[1] + ray_dir[2]*normal[2];
-			if (fabsf(denom) > 1e-6f)
-			{
-				float to_center[3] = {
-					panel_pos[0] - origin[0],
-					panel_pos[1] - origin[1],
-					panel_pos[2] - origin[2],
-				};
-				float t = (to_center[0]*normal[0] + to_center[1]*normal[1] + to_center[2]*normal[2]) / denom;
-				if (t > 0)
-				{
-					float hit[3] = {
-						origin[0] + ray_dir[0] * t,
-						origin[1] + ray_dir[1] * t,
-						origin[2] + ray_dir[2] * t,
-					};
-					// Convert grab UV to world-space offset from panel
-					// center using the current panel axes. This keeps
-					// the grab point consistent as billboard rotates yaw.
-					float off_x = grab_u * half_w * u_axis[0] + grab_v * half_h * v_axis[0];
-					float off_y = grab_u * half_w * u_axis[1] + grab_v * half_h * v_axis[1];
-					float off_z = grab_u * half_w * u_axis[2] + grab_v * half_h * v_axis[2];
-					panel_pos[0] = hit[0] - off_x;
-					panel_pos[1] = hit[1] - off_y;
-					panel_pos[2] = hit[2] - off_z;
-				}
-			}
+			// Project a point at grab_dist along the controller ray.
+			// This lets the panel move freely in 3D — not stuck on a
+			// plane. The panel follows the controller wherever it points.
+			float hit[3] = {
+				origin[0] + ray_dir[0] * grab_dist,
+				origin[1] + ray_dir[1] * grab_dist,
+				origin[2] + ray_dir[2] * grab_dist,
+			};
+			// Convert grab UV to world-space offset from panel center
+			// using the current panel axes (updated by billboard yaw).
+			float off_x = grab_u * half_w * u_axis[0] + grab_v * half_h * v_axis[0];
+			float off_y = grab_u * half_w * u_axis[1] + grab_v * half_h * v_axis[1];
+			float off_z = grab_u * half_w * u_axis[2] + grab_v * half_h * v_axis[2];
+			panel_pos[0] = hit[0] - off_x;
+			panel_pos[1] = hit[1] - off_y;
+			panel_pos[2] = hit[2] - off_z;
 		}
 	}
 

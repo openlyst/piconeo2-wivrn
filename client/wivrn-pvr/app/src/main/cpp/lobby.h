@@ -56,17 +56,17 @@ class pico_lobby
 	bool prev_head_trigger = false;
 
 	// Grip-to-grab state. When the user holds grip while pointing at the
-	// panel, the panel follows the controller so the grab point stays
-	// under the ray. This mirrors how WiVRn's lobby works.
+	// panel, the panel follows the controller freely in 3D space.
 	bool prev_grip[2] = {false, false};
 	bool grabbing = false;
 	int  grab_hand = -1;
-	// Grab point in panel-local UV (-1..1), captured at grab start.
-	// Each frame we convert this to a world-space offset using the
-	// current panel_yaw, so the grab point stays consistent even as
-	// the billboard rotates the panel to face the head.
+	// Grab point in panel-local UV (-1..1) and distance from controller
+	// to the grab point, both captured at grab start. Each frame we
+	// project a point at that distance along the controller ray and
+	// offset by the panel-local grab UV to get the new panel center.
 	float grab_u = 0;
 	float grab_v = 0;
+	float grab_dist = 0;
 
 	struct ray_hit
 	{
