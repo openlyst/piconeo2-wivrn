@@ -27,7 +27,7 @@ std::atomic<float>  gWivrnBitrateMbps{50.0f};
 std::atomic<float>  gWivrnResolutionScale{1.0f};
 std::atomic<bool>   gWivrnHandTracking{false};
 std::atomic<bool>   gWivrnEyeTracking{false};
-std::atomic<bool>   gWivrnPassthrough{false};
+std::atomic<bool>   gWivrnPassthrough{true};
 std::atomic<bool>   gWivrnMicrophone{false};
 std::atomic<float>  gWivrnCtrlVibration{1.0f};
 std::atomic<bool>   gWivrnRecenterReq{false};
@@ -88,6 +88,7 @@ void saveAllConfig() {
     fprintf(f, "%d\n", gWivrnMicrophone.load() ? 1 : 0);
     fprintf(f, "%.2f\n", gWivrnCtrlVibration.load());
     fprintf(f, "%d\n", gWivrnEyeTracking.load() ? 1 : 0);
+    fprintf(f, "%d\n", gWivrnPassthrough.load() ? 1 : 0);
     fclose(f);
 }
 
@@ -172,6 +173,7 @@ void loadAllConfig() {
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) gWivrnMicrophone.store(iv != 0);
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%f", &fv) == 1) gWivrnCtrlVibration.store(clampf(fv, 0.0f, 1.0f));
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) gWivrnEyeTracking.store(iv != 0);
+    if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) gWivrnPassthrough.store(iv != 0);
     fclose(f);
     LOGI("config: loaded %s", path);
     }

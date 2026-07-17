@@ -2,6 +2,7 @@
 #include "app_state.h"
 #include "eq_panel.h"
 #include "menu_model.h"
+#include "passthrough.h"
 #include "log.h"        // nowNs()
 #include "streaming/streaming_client.h"
 #include <cstdio>
@@ -258,7 +259,18 @@ static void buildCoreModel(MenuModel &m) {
         MenuItem eyeT = wivrnToggle("EYE TRACKING", gWivrnEyeTracking);
         eyeT.onChange = []{ gEyeTrackReapply.store(true); saveAllConfig(); };
         sys.items.push_back(eyeT);
-        sys.items.push_back(wivrnToggle("PASSTHROUGH", gWivrnPassthrough));
+
+        MenuItem pt = wivrnToggle("PASSTHROUGH", gWivrnPassthrough);
+        pt.onChange = []{
+            extern pico_passthrough * gPassthrough;
+            if (gWivrnPassthrough.load()) {
+                if (gPassthrough && !gPassthrough->is_camera_on()) gPassthrough->start();
+            } else {
+                if (gPassthrough && gPassthrough->is_camera_on()) gPassthrough->stop();
+            }
+            saveAllConfig();
+        };
+        sys.items.push_back(pt);
 
         MenuItem rec; rec.kind = MK_BUTTON; rec.label = "RECENTER";
         rec.onClick = []{ gWivrnRecenterReq.store(true); };
