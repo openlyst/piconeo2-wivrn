@@ -150,15 +150,17 @@ void pico_passthrough::start()
 {
     if (camera_on) return;
 
-    // Init the camera via GetCameraData_Ext (triggers GuardianSystem::InitializeCamera),
-    // then start the preview and enable the SeeThrough layer. The SeeThrough
-    // system has its own frame delivery path that actually receives frames
-    // from the camera hardware — the raw GetCameraData_Ext path returns zero
-    // buffers because the camera_callback never fires through it.
     Pvr_GetCameraData_Ext();
     PVR_SetCameraImageRect(kCamW, kCamH);
     PVR_StartCameraPreview(1);
     Pvr_BoundarySetSeeThroughVisible(true);
+    Pvr_BoundarySeeThroughSetVisible(true);
+    // Force the SeeThrough distance thresholds huge so the system always
+    // thinks the user is "close to boundary" and activates the camera overlay.
+    // Without this, SeeThrough only activates near a configured guardian
+    // boundary, and we have no boundary configured.
+    fDstcToShowSeeThrough = 1000000.0f;
+    fDstcToShowSeeThroughComp = 1000000.0f;
     camera_on = true;
     LOGI("passthrough camera started (%dx%d)", kCamW, kCamH);
 }
@@ -167,6 +169,7 @@ void pico_passthrough::stop()
 {
     if (!camera_on) return;
     Pvr_BoundarySetSeeThroughVisible(false);
+    Pvr_BoundarySeeThroughSetVisible(false);
     PVR_StartCameraPreview(0);
     camera_on = false;
     LOGI("passthrough camera stopped");
@@ -177,25 +180,23 @@ void pico_passthrough::draw(int eye)
     if (!gl_ready || !camera_on) return;
     if (eye < 0 || eye > 1) return;
 
-    // Pvr_BoundaryGetSeeThroughData goes through the SeeThrough system which
-    // has working frame delivery. Returns: data ptr, valid flag, w, h, count, timestamp.
     bool valid = false;
     unsigned int w = 0, h = 0, count = 0;
     long long ts = 0;
     unsigned char *frame = Pvr_BoundaryGetSeeThroughData(eye, &valid, &w, &h, &count, &ts);
 
+    static int log_count = 0;
+    if (++log_count % 300 == 0) {
+        int state = Pvr_GetSeeThroughState();
+        LOGI("passthrough: eye=%d state=%d frame=%p valid=%d %dx%d count=%d ts=%lld",
+             eye, state, (void*)frame, (int)valid, (int)w, (int)h, (int)count, (long long)ts);
+    }
+
     if (!frame || !valid || w == 0 || h == 0) {
-        // Fall back to the other eye
         int other = eye ^ 1;
         frame = Pvr_BoundaryGetSeeThroughData(other, &valid, &w, &h, &count, &ts);
         if (!frame || !valid || w == 0 || h == 0)
             return;
-    }
-
-    static int frame_count = 0;
-    if (++frame_count % 300 == 0) {
-        LOGI("passthrough: see-through frame %d eye=%d %dx%d bytes=[%d,%d,%d,%d]",
-             frame_count, eye, (int)w, (int)h, frame[0], frame[1], frame[2], frame[3]);
     }
 
     upload_frame(eye, frame, (int)w, (int)h);

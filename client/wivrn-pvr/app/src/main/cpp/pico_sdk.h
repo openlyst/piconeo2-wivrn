@@ -94,7 +94,13 @@ extern "C" {
                                                   unsigned int *width, unsigned int *height,
                                                   unsigned int *count, long long *timestamp);
     void  Pvr_BoundarySetSeeThroughVisible(bool visible);
+    void  Pvr_BoundarySeeThroughSetVisible(bool visible);
     int   Pvr_GetSeeThroughState();
+    // Distance thresholds that gate SeeThrough activation. Setting
+    // fDstcToShowSeeThrough very large forces always-on (the system thinks
+    // the user is always "close to boundary").
+    extern float fDstcToShowSeeThrough;
+    extern float fDstcToShowSeeThroughComp;
     void *GetRenderEventFunc();
     bool  Pvr_SetSinglePassDepthBufferWidthHeight(int width, int height);
     void  Pvr_GetFOV(float *outA, float *outB);
