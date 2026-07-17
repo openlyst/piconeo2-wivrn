@@ -42,6 +42,7 @@
 #include "app_state.h"   // shared lobby/render knobs: IPD, input edges, toggles, diag
 #include "lobby.h"       // ported pico_oxr WiVRn lobby UI panel
 #include "passthrough.h" // passthrough camera background for the lobby
+#include "controller_model.h" // textured controller mesh renderer
 #include "lobby_panels.h"// diagnostics overlay builders
 #include "input.h"       // controller + head-pose shared state
 #include "foveation.h"   // readFoveationParams() from the settings JSON
@@ -335,78 +336,11 @@ static void buildGazeMarker() {
 }
 
 // ---------------------------------------------------------------------------
-// Controller wireframe models, pulled live from the Neo 2 system assets. The
-// meshes live world-readable on /system as plain Wavefront OBJ (centimetres,
-// centred at origin, long axis = local Z, same frame as the tracked pose). We
-// read v + f, emit each face's edges as line segments, scale to metres, and draw
-// them as themed wireframe attached to the live controller pose each frame.
-// 0 = left (controller2s.obj / "ppController_NEO2_Left"), 1 = right (r.obj).
+// Controller models are now rendered as textured triangles via
+// controller_model.h/.cpp (loaded from the same /system OBJ files, but
+// with UV coordinates and button-state PNG textures). The old wireframe
+// line-segment renderer has been replaced.
 // ---------------------------------------------------------------------------
-static GLuint gCtrlVao[2] = {0,0}, gCtrlVbo[2] = {0,0};
-static int    gCtrlVertCount[2] = {0,0};
-static std::vector<float> gCtrlPos[2];   // line-endpoint positions (xyz), in metres
-// The system OBJ filenames don't match the hand they look correct on in our
-// frame: r.obj is the mesh that reads right on the LEFT hand's pose, and
-// controller2s.obj reads right on the RIGHT hand. Mapped by what's correct
-// on-device, not by the filename.
-static const char *kCtrlObjPath[2] = {
-    "/system/pre_resource/data/misc/user/controller/r.obj",            // 0 = left hand
-    "/system/pre_resource/data/misc/user/controller/controller2s.obj", // 1 = right hand
-};
-static void loadCtrlObjLines(const char *path, std::vector<float> &out) {
-    out.clear();
-    FILE *f = fopen(path, "r");
-    if (!f) { LOGE("ctrl obj missing: %s", path); return; }
-    std::vector<float> vx, vy, vz;
-    char line[256];
-    while (fgets(line, sizeof(line), f)) {
-        if (line[0]=='v' && line[1]==' ') {
-            float x,y,z;
-            if (sscanf(line+2, "%f %f %f", &x,&y,&z)==3) { vx.push_back(x); vy.push_back(y); vz.push_back(z); }
-        } else if (line[0]=='f' && line[1]==' ') {
-            int idx[8]; int n=0;
-            char *tok = strtok(line+2, " \t\r\n");
-            while (tok && n<8) {
-                int vi = atoi(tok);          // leading number = vertex index (1-based; neg = relative)
-                if (vi != 0) idx[n++] = (vi > 0) ? vi-1 : (int)vx.size()+vi;
-                tok = strtok(nullptr, " \t\r\n");
-            }
-            auto edge = [&](int a, int b){
-                if (a<0||b<0||a>=(int)vx.size()||b>=(int)vx.size()) return;
-                out.insert(out.end(), { vx[a],vy[a],vz[a] });
-                out.insert(out.end(), { vx[b],vy[b],vz[b] });
-            };
-            for (int i=0;i<n;i++) edge(idx[i], idx[(i+1)%n]);
-        }
-    }
-    fclose(f);
-    for (auto &c : out) c *= 0.01f;          // centimetres -> metres
-    LOGI("ctrl obj %s -> %d line verts", path, (int)(out.size()/3));
-}
-static void buildControllerMeshes() {
-    bool amber = gThemeAmber.load();
-    const float cr = amber?0.98f:0.35f, cg = amber?0.80f:0.65f, cb = amber?0.45f:0.95f;  // WiVRn blue accent
-    for (int h=0; h<2; h++) {
-        if (gCtrlPos[h].empty()) loadCtrlObjLines(kCtrlObjPath[h], gCtrlPos[h]);
-        std::vector<float> v; v.reserve(gCtrlPos[h].size()*2);
-        for (size_t i=0; i+3<=gCtrlPos[h].size(); i+=3)
-            v.insert(v.end(), { gCtrlPos[h][i], gCtrlPos[h][i+1], gCtrlPos[h][i+2], cr,cg,cb });
-        gCtrlVertCount[h] = (int)(v.size()/6);
-        if (!gCtrlVao[h]) {
-            glGenVertexArrays(1,&gCtrlVao[h]);
-            glBindVertexArray(gCtrlVao[h]);
-            glGenBuffers(1,&gCtrlVbo[h]);
-            glBindBuffer(GL_ARRAY_BUFFER,gCtrlVbo[h]);
-            glEnableVertexAttribArray(0);
-            glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,6*sizeof(float),(void*)0);
-            glEnableVertexAttribArray(1);
-            glVertexAttribPointer(1,3,GL_FLOAT,GL_FALSE,6*sizeof(float),(void*)(3*sizeof(float)));
-            glBindVertexArray(0);
-        }
-        glBindBuffer(GL_ARRAY_BUFFER, gCtrlVbo[h]);
-        glBufferData(GL_ARRAY_BUFFER, v.size()*sizeof(float), v.data(), GL_STATIC_DRAW);
-    }
-}
 
 // 3D HUD text + lobby UI kit (font, appendTextLine/Quad, ui* widgets) now live
 // in ui_kit.h/.cpp. The dynamic VBOs they fill are still owned here.
@@ -1921,7 +1855,7 @@ void *renderThread(void *) {
     buildGazeMarker();       // eye-gaze debug disc (shown only on Neo 2 EYE)
     buildTextBuffers();      // dynamic VBO for the lobby IP/status HUD text + slider
     buildReticle();          // head-gaze crosshair (shown in lobby, no controllers)
-    buildControllerMeshes(); // Neo 2 controller wireframes (from /system OBJ)
+    initControllerModels();  // Neo 2 controller textured meshes (from /system OBJ + PNG)
     // Passthrough camera background replaces the old dark-void + grid-floor
     // environment. The lobby UI panels composite on top of the live camera feed.
     if (gPassthrough) {
@@ -3092,6 +3026,13 @@ void *renderThread(void *) {
                         }
                         gLobby->flush_pending_texture();
                         gLobby->set_resolution(ew, eh);
+                        // Build proj+view matching the overlay's fov/head pose
+                        // so controller models composite correctly on top of the
+                        // video + lobby UI.
+                        float half_fov_rad = half_fov;
+                        Mat4 oProj = mat4Perspective(half_fov_rad * 2.0f, 1.0f, 0.05f, 250.0f);
+                        Mat4 oHeadRot = quatToMat4(qx, qy, qz, qw);
+                        Mat4 oInvRot  = mat4Transpose3x3(oHeadRot);
                         for (int e = 0; e < 2; e++) {
                             glBindFramebuffer(GL_FRAMEBUFFER, gStreamFbo);
                             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
@@ -3099,6 +3040,23 @@ void *renderThread(void *) {
                             glDisable(GL_SCISSOR_TEST);
                             gLobby->draw(e, head_orient, head_pos, cs, lobby_fov,
                                          softIpdM(), gOkHeld.load(), true, false);
+                            // Draw controller models on top of the lobby overlay
+                            float ex = (e == 0 ? -softIpdM()*0.5f : softIpdM()*0.5f);
+                            Mat4 oEyeShift = mat4Translate(-ex, 0, 0);
+                            Mat4 oView = mat4Mul(oEyeShift, mat4Mul(oInvRot, mat4Translate(-px, -py, -pz)));
+                            Mat4 oPV = mat4Mul(oProj, oView);
+                            for (int h = 0; h < 2; h++) {
+                                if (!cs[h].connected) continue;
+                                float cpos[3] = {cs[h].position[0]*0.001f, cs[h].position[1]*0.001f, cs[h].position[2]*0.001f};
+                                Quat cq = quatNorm({ -cs[h].orientation[0], -cs[h].orientation[1], cs[h].orientation[2], cs[h].orientation[3] });
+                                float cquat[4] = {cq.x, cq.y, cq.z, cq.w};
+                                bool trig = cs[h].trigger > 0;
+                                bool touch = cs[h].touch[0] || cs[h].touch[1];
+                                bool app = cs[h].button_a || cs[h].button_b;
+                                drawControllerModel(h, cquat, cpos, oPV.m,
+                                                    trig, cs[h].grip, touch, app, cs[h].home,
+                                                    false, false, true);
+                            }
                         }
                         glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     }
@@ -3724,19 +3682,22 @@ void *renderThread(void *) {
                 glDrawArrays(GL_LINES, 0, 2);
                 glBindVertexArray(0);
             }
-            // Controller models: wireframe meshes attached to each live controller
-            // pose (room frame, like the laser). Mesh is pre-scaled to metres and
-            // centred at origin; model = T(pos) * R(quat).
-            for (int h = 0; h < 2; h++) {
-                if (!ctrlConn[h] || gCtrlVertCount[h] <= 0) continue;
-                Mat4 M = quatToMat4(ctrlQuat[h][0], ctrlQuat[h][1], ctrlQuat[h][2], ctrlQuat[h][3]);
-                M.m[12] = ctrlPos[h][0]; M.m[13] = ctrlPos[h][1]; M.m[14] = ctrlPos[h][2];
-                Mat4 cMvp = mat4Mul(sproj, mat4Mul(sview, M));
-                glUseProgram(gProg);
-                glBindVertexArray(gCtrlVao[h]);
-                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, cMvp.m);
-                glDrawArrays(GL_LINES, 0, gCtrlVertCount[h]);
-                glBindVertexArray(0);
+            // Controller models: textured meshes attached to each live controller
+            // pose. Texture swaps based on button state (idle/trigger/touchpad/etc).
+            {
+                Mat4 pv = mat4Mul(sproj, sview);
+                CtrlState cc[2];
+                { std::lock_guard<std::mutex> lk(gCtrlMutex); cc[0]=gCtrl[0]; cc[1]=gCtrl[1]; }
+                for (int h = 0; h < 2; h++) {
+                    if (!ctrlConn[h]) continue;
+                    bool trig = (cc[h].keyCount > 2 && cc[h].keys[2]) || (cc[h].keyCount > 8 && cc[h].keys[8]);
+                    bool grip = (cc[h].keyCount > 3 && cc[h].keys[3] != 0);
+                    bool touch = (cc[h].keyCount > 0 && cc[h].keys[0]) || (cc[h].keyCount > 1 && cc[h].keys[1]);
+                    bool app = (cc[h].keyCount > 6 && cc[h].keys[6] != 0) || (cc[h].keyCount > 7 && cc[h].keys[7] != 0);
+                    bool home = (cc[h].keyCount > 11 && cc[h].keys[11] != 0);
+                    drawControllerModel(h, ctrlQuat[h], ctrlPos[h], pv.m,
+                                        trig, grip, touch, app, home, false, false, true);
+                }
             }
             // Eye-gaze debug marker: the green disc at the live RAW Tobii gaze point.
             // Gated by the persisted EYE DEBUG toggle (in the settings panel).
@@ -3846,7 +3807,7 @@ void *renderThread(void *) {
             if (gLobbyEyeReady && rtInited) {
                 {
                     eglMakeCurrent(dpy, pbuf, pbuf, ctx);   // stay offscreen; warp owns the window
-                    if (gGridThemeDirty.exchange(false)) { buildControllerMeshes(); }   // recolour controllers (grid floor removed — passthrough replaces it)
+                    if (gGridThemeDirty.exchange(false)) { initControllerModels(true); }   // reload controller models on theme change
                     for (int eye = 0; eye < 2; eye++) {
                         float ex = (eye == 0 ? -softIpdM()*0.5f : softIpdM()*0.5f);
                         Mat4 eyeShift = mat4Translate(-ex, 0, 0);

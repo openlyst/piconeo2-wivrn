@@ -112,6 +112,7 @@ target_link_libraries(wivrn-common PUBLIC OpenSSL::Crypto)
 add_library(p2alvr SHARED
     render_thread.cpp
     gl_util.cpp
+    controller_model.cpp
     eye_tracking.cpp
     device_info.cpp
     ui_kit.cpp
