@@ -366,9 +366,8 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 
 	if (eye == 0)
 	{
-		// Always billboard toward the head so the panel faces the user,
-		// even while being grabbed. Skip in overlay mode (recenter_facing
-		// already set the correct yaw).
+		// Billboard toward the head. update_interaction's grab logic
+		// also recomputes yaw internally after moving the panel.
 		if (!overlay)
 		{
 			float dx = head_pos[0] - panel_pos[0];
@@ -377,15 +376,6 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 				panel_yaw = atan2f(-dx, dz);
 		}
 		update_interaction(head_orient, head_pos, controllers, head_trigger);
-		// After the grab may have moved the panel, recompute yaw so it
-		// faces the head from its new position.
-		if (!overlay)
-		{
-			float dx = head_pos[0] - panel_pos[0];
-			float dz = head_pos[2] - panel_pos[2];
-			if (fabsf(dx) > 1e-5f || fabsf(dz) > 1e-5f)
-				panel_yaw = atan2f(-dx, dz);
-		}
 	}
 
 	glUseProgram(program);
@@ -768,18 +758,38 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 			neo2::rotate_vector(cq, dir, ray_dir);
 
 			// Project a point at grab_dist along the controller ray.
-			// This lets the panel move freely in 3D — not stuck on a
-			// plane. The panel follows the controller wherever it points.
 			float hit[3] = {
 				origin[0] + ray_dir[0] * grab_dist,
 				origin[1] + ray_dir[1] * grab_dist,
 				origin[2] + ray_dir[2] * grab_dist,
 			};
-			// Convert grab UV to world-space offset from panel center
-			// using the current panel axes (updated by billboard yaw).
-			float off_x = grab_u * half_w * u_axis[0] + grab_v * half_h * v_axis[0];
-			float off_y = grab_u * half_w * u_axis[1] + grab_v * half_h * v_axis[1];
-			float off_z = grab_u * half_w * u_axis[2] + grab_v * half_h * v_axis[2];
+
+			// Temporarily set panel_pos to the hit point so we can
+			// compute the billboard yaw from the new position, then
+			// use that yaw to compute the panel-local offset.
+			float old_pos[3] = {panel_pos[0], panel_pos[1], panel_pos[2]};
+			panel_pos[0] = hit[0];
+			panel_pos[1] = hit[1];
+			panel_pos[2] = hit[2];
+
+			// Compute new yaw facing the head from this position
+			float dx = head_pos[0] - panel_pos[0];
+			float dz = head_pos[2] - panel_pos[2];
+			float new_yaw = panel_yaw;
+			if (fabsf(dx) > 1e-5f || fabsf(dz) > 1e-5f)
+				new_yaw = atan2f(-dx, dz);
+			panel_yaw = new_yaw;
+
+			// Recompute panel axes with the new yaw
+			float ncy = cosf(new_yaw), nsy = sinf(new_yaw);
+			float nu_axis[3] = {ncy, 0, nsy};
+			float nv_axis[3] = {0, 1, 0};
+
+			// Now offset from the hit point by the grab UV in the
+			// new panel-local space to get the final panel center.
+			float off_x = grab_u * half_w * nu_axis[0] + grab_v * half_h * nv_axis[0];
+			float off_y = grab_u * half_w * nu_axis[1] + grab_v * half_h * nv_axis[1];
+			float off_z = grab_u * half_w * nu_axis[2] + grab_v * half_h * nv_axis[2];
 			panel_pos[0] = hit[0] - off_x;
 			panel_pos[1] = hit[1] - off_y;
 			panel_pos[2] = hit[2] - off_z;
