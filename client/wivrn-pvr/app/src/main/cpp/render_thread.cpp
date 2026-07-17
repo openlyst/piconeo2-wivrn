@@ -101,6 +101,7 @@ ANativeWindow *gPendingWindow = nullptr;   // latest window (or null)
 std::atomic<bool> gWindowDirty{false};     // a change is pending (see render_thread.h)
 
 pico_lobby * gLobby = new pico_lobby();
+pico_passthrough * gPassthrough = new pico_passthrough();
 
 // Shared "position + per-vertex colour" shader: the grid, HUD text, and eye-gaze
 // marker all reuse this same program (gProg) + uMVP.
