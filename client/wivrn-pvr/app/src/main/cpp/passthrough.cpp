@@ -172,22 +172,17 @@ void pico_passthrough::draw(int eye)
     if (!gl_ready || !camera_on) return;
     if (eye < 0 || eye > 1) return;
 
-    bool valid = false;
-    unsigned int w = 0, h = 0, count = 0;
-    long long ts = 0;
-    unsigned char *frame = Pvr_BoundaryGetSeeThroughData(eye, &valid, &w, &h, &count, &ts);
+    // Pvr_GetCameraData_Ext returns a pointer to the latest camera frame
+    // (RGBA, kCamW x kCamH as set by PVR_SetCameraImageRect). Returns null
+    // if no frame is available yet. Same frame for both eyes (single camera).
+    unsigned char *frame = Pvr_GetCameraData_Ext();
+    if (!frame)
+        return;
 
-    // If the requested eye has no frame, fall back to the other eye (single-
-    // camera headsets deliver the same frame on both indices or only on 0).
-    if (!frame || !valid || w == 0 || h == 0)
-    {
-        int other = eye ^ 1;
-        frame = Pvr_BoundaryGetSeeThroughData(other, &valid, &w, &h, &count, &ts);
-        if (!frame || !valid || w == 0 || h == 0)
-            return;
-    }
-
-    upload_frame(eye, frame, (int)w, (int)h);
+    // Use the same texture for both eyes — the Neo 2 has a single tracking
+    // camera, so both eyes get the same frame.
+    int tex_eye = 0;
+    upload_frame(tex_eye, frame, kCamW, kCamH);
 
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
@@ -195,7 +190,7 @@ void pico_passthrough::draw(int eye)
 
     glUseProgram(program);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, eye_tex[eye]);
+    glBindTexture(GL_TEXTURE_2D, eye_tex[tex_eye]);
     glUniform1i(sampler_loc, 0);
 
     glBindVertexArray(vao);
