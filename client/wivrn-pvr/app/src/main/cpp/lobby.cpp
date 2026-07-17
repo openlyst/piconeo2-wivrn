@@ -659,17 +659,16 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 	bool any_ctrl = controllers[0].connected || controllers[1].connected;
 
 	// --- Grip-to-grab logic ---
-	// Detect grip rising edge while ray hits the panel. While held, the
-	// panel follows the controller so the grab point stays under the ray.
-	// This is similar to WiVRn's squeeze-to-recenter: the panel position
-	// tracks the controller, maintaining the relative offset captured at
-	// grab start. Release drops the panel in place.
+	// When grip is pressed while the ray hits the panel, capture the grab
+	// point in panel-local UV. Each frame while held, intersect the
+	// controller ray with the panel plane and reposition the panel so the
+	// grab UV stays under the ray. The offset is in panel-local space so
+	// it stays correct even as billboard rotates the yaw to face the head.
 
-	// First pass: compute ray hits for both hands so we can pick the
-	// grab hand (the one that pressed grip while hitting the panel).
+	// First pass: compute ray hits for both hands
 	float hit_points[2][3] = {{0}};
 	bool  ray_hits[2] = {false, false};
-	float hit_u[2] = {0}, hit_v[2] = {0};
+	float hit_uv[2][2] = {{0}};
 
 	for (int h = 0; h < 2; h++)
 	{
@@ -694,12 +693,11 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 		float u, v;
 		bool hit = ray_plane_intersect(origin, ray_dir, panel_pos, normal, u_axis, v_axis, half_w, half_h, u, v);
 		ray_hits[h] = hit;
-		hit_u[h] = u;
-		hit_v[h] = v;
+		hit_uv[h][0] = u;
+		hit_uv[h][1] = v;
 
 		if (hit)
 		{
-			// Compute world-space hit point
 			float denom = ray_dir[0]*normal[0] + ray_dir[1]*normal[1] + ray_dir[2]*normal[2];
 			float to_center[3] = {panel_pos[0]-origin[0], panel_pos[1]-origin[1], panel_pos[2]-origin[2]};
 			float t_val = (denom != 0) ? (to_center[0]*normal[0] + to_center[1]*normal[1] + to_center[2]*normal[2]) / denom : 0;
@@ -719,17 +717,14 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 		{
 			grabbing = true;
 			grab_hand = h;
-			// Capture offset from panel center to grab point
-			grab_offset[0] = hit_points[h][0] - panel_pos[0];
-			grab_offset[1] = hit_points[h][1] - panel_pos[1];
-			grab_offset[2] = hit_points[h][2] - panel_pos[2];
-			LOGI("GRAB_START h=%d offset=(%.2f,%.2f,%.2f)",
-			     h, grab_offset[0], grab_offset[1], grab_offset[2]);
+			grab_u = hit_uv[h][0];
+			grab_v = hit_uv[h][1];
+			LOGI("GRAB_START h=%d uv=(%.2f,%.2f)", h, grab_u, grab_v);
 		}
 		prev_grip[h] = grip_now;
 	}
 
-	// While grabbing, update panel position to follow the controller ray
+	// While grabbing, move panel so the grab UV stays under the controller ray
 	if (grabbing)
 	{
 		int h = grab_hand;
@@ -737,15 +732,12 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 
 		if (!grip_held)
 		{
-			// Release
 			grabbing = false;
 			grab_hand = -1;
 			LOGI("GRAB_END panel=(%.2f,%.2f,%.2f) yaw=%.2f", panel_pos[0], panel_pos[1], panel_pos[2], panel_yaw);
 		}
 		else
 		{
-			// Recompute the ray hit on the panel's current plane (the
-			// plane normal stays fixed during grab since yaw is frozen).
 			float origin[3] = {
 				controllers[h].position[0] * 0.001f,
 				controllers[h].position[1] * 0.001f,
@@ -761,7 +753,7 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 			float ray_dir[3];
 			neo2::rotate_vector(cq, dir, ray_dir);
 
-			// Intersect with the panel's plane (infinite, not just the quad)
+			// Intersect with the panel's current plane
 			float denom = ray_dir[0]*normal[0] + ray_dir[1]*normal[1] + ray_dir[2]*normal[2];
 			if (fabsf(denom) > 1e-6f)
 			{
@@ -778,11 +770,15 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 						origin[1] + ray_dir[1] * t,
 						origin[2] + ray_dir[2] * t,
 					};
-					// Move panel so the grab point stays under the ray
-					panel_pos[0] = hit[0] - grab_offset[0];
-					panel_pos[1] = hit[1] - grab_offset[1];
-					panel_pos[2] = hit[2] - grab_offset[2];
-					// Yaw is handled by billboard logic above — always faces head
+					// Convert grab UV to world-space offset from panel
+					// center using the current panel axes. This keeps
+					// the grab point consistent as billboard rotates yaw.
+					float off_x = grab_u * half_w * u_axis[0] + grab_v * half_h * v_axis[0];
+					float off_y = grab_u * half_w * u_axis[1] + grab_v * half_h * v_axis[1];
+					float off_z = grab_u * half_w * u_axis[2] + grab_v * half_h * v_axis[2];
+					panel_pos[0] = hit[0] - off_x;
+					panel_pos[1] = hit[1] - off_y;
+					panel_pos[2] = hit[2] - off_z;
 				}
 			}
 		}
