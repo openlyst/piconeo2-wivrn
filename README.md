@@ -23,6 +23,10 @@ Native WiVRn client for the Pico Neo 2 and Pico Neo 2 Eye. Stream PC VR games to
 - In-app settings panel with EQ, brightness, IPD, FOV, and codec/bitrate controls
 - Low-latency hardware compositor pipeline with async reprojection
 
+## WiVRn Version
+
+This client is compatible with WiVRn server version **26.6.2**.
+
 ## Prerequisites
 
 ### Get the Pico SDK
