@@ -1,8 +1,12 @@
 # Beta 1.0
 
-- Fix UI panel texture shimmering and scaling artifacts during head movement (mipmaps + anisotropic filtering)
-- Remove dead code across 6 files (unused headers, abandoned SurfaceTexture path, never-written pupil dilation variables)
-- Fix double connection bug when launching via intent or rapidly clicking server entries
+- Port back to PVR.
+- Adds passthrow support.
+- UI can now be moved freely.
+- Removed broken rescale support.
+- Update tot wivrn server 26.6.2.
+- Fixed UI stuttering on low power mode.
+- Fix the client would crash clicking on pair.
 
 # RC6
 
