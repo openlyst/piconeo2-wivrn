@@ -10,8 +10,8 @@ Native WiVRn client for the Pico Neo 2 family. Stream PC VR games to your headse
 | Headset | Status |
 |---------|--------|
 | Pico Neo 2 | Working |
-| Pico Neo 2 Eye | Working (eye tracking untested) |
-| Pico Neo 2 G2 | Working |
+| Pico Neo 2 Eye | Untested |
+| Pico Neo 2 G2 | Untested |
 | Pico Neo Lite | Working |
 
 ## Features
