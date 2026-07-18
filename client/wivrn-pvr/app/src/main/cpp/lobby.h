@@ -3,7 +3,6 @@
 #include <GLES3/gl3.h>
 #include <GLES2/gl2ext.h>
 #include <openxr/openxr.h>
-#include <jni.h>
 #include <vector>
 #include <mutex>
 #include <atomic>
@@ -39,11 +38,6 @@ class pico_lobby
 	bool initialized = false;
 
 	std::mutex tex_mutex;
-	std::atomic<bool> frame_available{false};
-	jobject surface_texture = nullptr;
-	jmethodID update_tex_image_method = nullptr;
-	float tex_matrix[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
-	bool tex_matrix_valid = false;
 
 	std::vector<uint8_t> pending_tex_data;
 	int pending_tex_w = 0;
@@ -132,9 +126,6 @@ public:
 	void update_texture_argb(int width, int height, const uint32_t * pixels);
 	void flush_pending_texture();
 	GLuint get_external_texture();
-	void set_surface_texture(jobject st, jmethodID update_method);
-	void update_tex_image(JNIEnv* env);
-	void on_frame_available();
 };
 
 void push_lobby_touch_to_java(int hand, float x, float y, bool down, bool pressed, float thumbstickY);

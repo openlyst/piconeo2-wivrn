@@ -20,11 +20,6 @@
 #include <vector>
 #include <cstdio>
 #include <time.h>
-#include <ifaddrs.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <net/if.h>
-#include <sys/system_properties.h>
 
 #include "alvr_client_core.h"
 #include "alvr_ext.h"    // fork-only ALVR C API additions

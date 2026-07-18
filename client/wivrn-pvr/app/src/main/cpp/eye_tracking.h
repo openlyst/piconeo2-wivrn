@@ -53,8 +53,6 @@ void applyServerEyeTracking(bool streaming);
 extern std::atomic<float> gGazeQuat[4];
 extern std::atomic<float> gEyeOpenness[2];
 extern std::atomic<bool>  gEyeOpennessValid;
-extern std::atomic<float> gPupilDilation[2];
-extern std::atomic<bool>  gPupilDilationValid;
 extern std::atomic<float> gGazePitch;
 extern std::atomic<float> gGazeYaw;
 

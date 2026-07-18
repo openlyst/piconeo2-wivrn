@@ -199,26 +199,6 @@ pico_lobby::~pico_lobby()
 	if (ui_texture) glDeleteTextures(1, &ui_texture);
 }
 
-static void generate_placeholder_texture(GLuint tex, int w, int h)
-{
-	std::vector<uint8_t> data(w * h * 4);
-	for (int y = 0; y < h; y++)
-	{
-		for (int x = 0; x < w; x++)
-		{
-			int idx = (y * w + x) * 4;
-			// DEBUG bright red
-			data[idx] = 255;
-			data[idx + 1] = 0;
-			data[idx + 2] = 0;
-			data[idx + 3] = 255;
-		}
-	}
-	glBindTexture(GL_TEXTURE_2D, tex);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data.data());
-	glBindTexture(GL_TEXTURE_2D, 0);
-}
-
 void pico_lobby::init(int w, int h)
 {
 	eye_width.store(w);
@@ -490,30 +470,6 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 GLuint pico_lobby::get_external_texture()
 {
 	return ui_texture;
-}
-
-void pico_lobby::set_surface_texture(jobject st, jmethodID update_method)
-{
-	surface_texture = st;
-	update_tex_image_method = update_method;
-}
-
-void pico_lobby::on_frame_available()
-{
-	frame_available.store(true, std::memory_order_relaxed);
-}
-
-void pico_lobby::update_tex_image(JNIEnv* env)
-{
-	if (!frame_available.load(std::memory_order_relaxed) || !surface_texture || !update_tex_image_method)
-		return;
-
-	env->CallVoidMethod(surface_texture, update_tex_image_method);
-	frame_available.store(false, std::memory_order_relaxed);
-
-	static int update_count = 0;
-	if (++update_count % 100 == 0)
-		LOGI("update_tex_image called #%d", update_count);
 }
 
 void pico_lobby::update_texture(int width, int height, const void * pixels)
