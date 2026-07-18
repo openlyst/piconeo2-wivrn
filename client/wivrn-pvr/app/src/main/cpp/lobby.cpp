@@ -4,6 +4,10 @@
 #include <cmath>
 #include <vector>
 
+#ifndef GL_TEXTURE_MAX_ANISOTROPIC_EXT
+#define GL_TEXTURE_MAX_ANISOTROPIC_EXT 0x84FE
+#endif
+
 #define LOG_TAG "WiVRn-OXR"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
@@ -301,10 +305,16 @@ void pico_lobby::init(int w, int h)
 
 	glGenTextures(1, &ui_texture);
 	glBindTexture(GL_TEXTURE_2D, ui_texture);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	// Anisotropic filtering kills the oblique-angle shimmer that makes
+	// the panel look like it's boiling when you turn your head.
+	GLint maxAniso = 1;
+	glGetIntegerv(GL_TEXTURE_MAX_ANISOTROPIC_EXT, &maxAniso);
+	if (maxAniso > 1)
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPIC_EXT, (float)maxAniso);
 	glBindTexture(GL_TEXTURE_2D, 0);
 
 	float quad[] = {
@@ -542,6 +552,7 @@ void pico_lobby::flush_pending_texture()
 
 	glBindTexture(GL_TEXTURE_2D, ui_texture);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, pending_tex_w, pending_tex_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pending_tex_data.data());
+	glGenerateMipmap(GL_TEXTURE_2D);
 	glBindTexture(GL_TEXTURE_2D, 0);
 
 	tex_pending = false;
