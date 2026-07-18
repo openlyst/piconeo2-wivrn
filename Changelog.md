@@ -1,3 +1,13 @@
+# Beta 1.0
+
+- Port back to PVR.
+- Adds passthrow support.
+- UI can now be moved freely.
+- Removed broken rescale support.
+- Update tot wivrn server 26.6.2.
+- Fixed UI stuttering on low power mode.
+- Fix the client would crash clicking on pair.
+
 # RC6
 
  - Add language support
