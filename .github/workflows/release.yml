@@ -115,9 +115,9 @@ jobs:
       - name: Build release notes
         id: notes
         run: |
-          # Extract the changelog section for this version (everything from
-          # the first heading until the next heading).
-          awk '/^# /{p=NR} NR==1{found=1} found && NR>p && /^# /{exit} found{print}' Changelog.md > release_notes.md
+          # Extract only the changelog section for this version: from the
+          # first "# " heading up to (but not including) the next "# " heading.
+          awk '/^# /{if(found){exit} found=1; next} found{print}' Changelog.md > release_notes.md
           echo "---" >> release_notes.md
           echo "" >> release_notes.md
           echo "**Commit:** ${{ steps.sha.outputs.sha7 }}" >> release_notes.md
