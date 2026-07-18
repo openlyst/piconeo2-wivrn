@@ -1,6 +1,6 @@
 # Pico Neo 2 WiVRn
 
-Native WiVRn client for the Pico Neo 2 and Pico Neo 2 Eye. Stream PC VR games to your headset over Wi-Fi or USB with low latency.
+Native WiVRn client for the Pico Neo 2 family. Stream PC VR games to your headset over Wi-Fi or USB with low latency.
 
 > [!NOTE]
 > This project is in **Beta**. It works but expect some rough edges.
@@ -10,7 +10,9 @@ Native WiVRn client for the Pico Neo 2 and Pico Neo 2 Eye. Stream PC VR games to
 | Headset | Status |
 |---------|--------|
 | Pico Neo 2 | Working |
-| Pico Neo 2 Eye | Working (eye tracking supported) |
+| Pico Neo 2 Eye | Working (eye tracking untested) |
+| Pico Neo 2 G2 | Working |
+| Pico Neo Lite | Working |
 
 ## Features
 
@@ -19,7 +21,7 @@ Native WiVRn client for the Pico Neo 2 and Pico Neo 2 Eye. Stream PC VR games to
 - Head-gaze laser interaction for the lobby UI (no controllers needed)
 - Audio streaming
 - Overlay application support
-- Eye tracking (Pico Neo 2 Eye only)
+- Eye tracking (Pico Neo 2 Eye only, untested)
 
 ## WiVRn Version
 
