@@ -1,3 +1,9 @@
+# Beta 1.0
+
+- Fix UI panel texture shimmering and scaling artifacts during head movement (mipmaps + anisotropic filtering)
+- Remove dead code across 6 files (unused headers, abandoned SurfaceTexture path, never-written pupil dilation variables)
+- Fix double connection bug when launching via intent or rapidly clicking server entries
+
 # RC6
 
  - Add language support
