@@ -10,8 +10,6 @@
 std::atomic<float> gGazeQuat[4] = {{0.0f}, {0.0f}, {0.0f}, {1.0f}};
 std::atomic<float> gEyeOpenness[2] = {{1.0f}, {1.0f}};
 std::atomic<bool>  gEyeOpennessValid{false};
-std::atomic<float> gPupilDilation[2] = {{0.0f}, {0.0f}};
-std::atomic<bool>  gPupilDilationValid{false};
 std::atomic<float> gGazePitch{0.0f};
 std::atomic<float> gGazeYaw{0.0f};
 
@@ -28,7 +26,6 @@ void pollEyeGaze()
 	{
 		gGazeValid.store(false);
 		gEyeOpennessValid.store(false);
-		gPupilDilationValid.store(false);
 		return;
 	}
 

@@ -813,19 +813,6 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 		face.weights[12] = 1.0f - openL;
 		face.weights[13] = 1.0f - openR;
 
-		// Pupil dilation encoded in unused blendshape slots.
-		// The WiVRn protocol can't be modified (server type hash check),
-		// so we piggyback on the fb_face2 weights array.  Slots 6 and 7
-		// (XR_FACE_EXPRESSION2_CHEEK_SUCK_L/R_FB) are never populated by
-		// the Pico SDK or any face tracker we use.  The SDK reports pupil
-		// diameter in millimeters (typically 2-8mm) and we send the raw
-		// value directly.
-		if (gPupilDilationValid.load())
-		{
-			face.weights[6] = gPupilDilation[0].load();  // left pupil mm
-			face.weights[7] = gPupilDilation[1].load();  // right pupil mm
-		}
-
 		// Eye look directions from gaze pitch/yaw (indices 14-21).
 		// Max look angle ~30 degrees; scale to 0..1 blendshape weight.
 		if (gGazeValid.load())
