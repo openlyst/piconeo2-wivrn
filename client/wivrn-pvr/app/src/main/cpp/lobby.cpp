@@ -326,12 +326,15 @@ void pico_lobby::init(int w, int h)
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 20, (void *)12);
 	glBindVertexArray(0);
 
-	// Fixed world location so the panel does not follow the HMD. App/Menu recenter
-	// can move it in front of the user when desired.
+	// World-locked panel position. Stays fixed in space until explicitly
+	// recentered (app/menu button or manual lobby toggle). No billboard
+	// rotation — the panel doesn't follow the head, which prevents the
+	// motion sickness caused by UI that rotates with head movement.
 	panel_pos[0] = 0.0f;
 	panel_pos[1] = 1.6f;
 	panel_pos[2] = -0.8f;
 	panel_yaw = 0.0f;
+	panel_pitch = 0.0f;
 
 	initialized = true;
 	LOGI("Lobby initialized (%dx%d) panel=(%.2f,%.2f,%.2f) yaw=%.2f", w, h,
@@ -375,24 +378,10 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 
 	if (eye == 0)
 	{
-		// Billboard toward the head. update_interaction's grab logic
-		// also recomputes yaw internally after moving the panel.
-		if (!overlay)
-		{
-			float dx = head_pos[0] - panel_pos[0];
-			float dz = head_pos[2] - panel_pos[2];
-			float dy = head_pos[1] - panel_pos[1];
-			float horiz = sqrtf(dx*dx + dz*dz);
-			if (horiz > 1e-5f)
-			{
-				panel_yaw = atan2f(-dx, dz);
-				// Tilt toward head: if panel is above head, tilt top
-				// forward; if below, tilt top back. Clamp to +-35deg.
-				panel_pitch = atan2f(dy, horiz);
-				if (panel_pitch > 0.61f) panel_pitch = 0.61f;
-				if (panel_pitch < -0.61f) panel_pitch = -0.61f;
-			}
-		}
+		// Panel is world-locked: once placed (via recenter/recenter_facing
+		// or the initial position), it stays fixed in space. No per-frame
+		// billboard rotation — following the head causes motion sickness.
+		panel_pitch = 0.0f;
 		update_interaction(head_orient, head_pos, controllers, head_trigger);
 	}
 
@@ -783,38 +772,22 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 				origin[2] + ray_dir[2] * grab_dist,
 			};
 
-			// Temporarily set panel_pos to the hit point so we can
-			// compute the billboard yaw from the new position, then
-			// use that yaw to compute the panel-local offset.
-			float old_pos[3] = {panel_pos[0], panel_pos[1], panel_pos[2]};
-			panel_pos[0] = hit[0];
-			panel_pos[1] = hit[1];
-			panel_pos[2] = hit[2];
-
-			// Compute new yaw and pitch facing the head from this position
-			float dx = head_pos[0] - panel_pos[0];
-			float dz = head_pos[2] - panel_pos[2];
-			float dy = head_pos[1] - panel_pos[1];
-			float horiz = sqrtf(dx*dx + dz*dz);
+			// Keep the panel's current yaw when grabbed — don't billboard
+			// toward the head. Just translate the panel so the grabbed
+			// point follows the controller ray. This avoids the nauseating
+			// rotation-while-dragging behavior.
 			float new_yaw = panel_yaw;
-			float new_pitch = 0;
-			if (horiz > 1e-5f)
-			{
-				new_yaw = atan2f(-dx, dz);
-				new_pitch = atan2f(dy, horiz);
-				if (new_pitch > 0.61f) new_pitch = 0.61f;
-				if (new_pitch < -0.61f) new_pitch = -0.61f;
-			}
+			float new_pitch = 0.0f;
 			panel_yaw = new_yaw;
 			panel_pitch = new_pitch;
 
-			// Recompute panel axes with the new yaw
+			// Recompute panel axes with the current yaw
 			float ncy = cosf(new_yaw), nsy = sinf(new_yaw);
 			float nu_axis[3] = {ncy, 0, nsy};
 			float nv_axis[3] = {0, 1, 0};
 
-			// Now offset from the hit point by the grab UV in the
-			// new panel-local space to get the final panel center.
+			// Offset from the hit point by the grab UV in panel-local
+			// space to get the final panel center.
 			float off_x = grab_u * half_w * nu_axis[0] + grab_v * half_h * nv_axis[0];
 			float off_y = grab_u * half_w * nu_axis[1] + grab_v * half_h * nv_axis[1];
 			float off_z = grab_u * half_w * nu_axis[2] + grab_v * half_h * nv_axis[2];
