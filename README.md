@@ -21,7 +21,6 @@ Native WiVRn client for the Pico Neo 2 family. Stream PC VR games to your headse
 - Head-gaze laser interaction for the lobby UI (no controllers needed)
 - Audio streaming
 - Overlay application support
-- Eye tracking (Pico Neo 2 Eye only, untested)
 
 ## WiVRn Version
 
