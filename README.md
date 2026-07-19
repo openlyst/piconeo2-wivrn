@@ -93,7 +93,7 @@ Or grab a pre-built signed APK from the [GitHub releases](https://github.com/ope
 
 Got questions or want to contribute? Join the Discord: [https://discord.gg/RQ9nSpmtfU](https://discord.gg/RQ9nSpmtfU)
 
-Listed on [NeoRevived](https://openlyst.github.io/neorevived/#/entry/streaming/gitlab.HttpAnimations.piconeo2-wivrn) | the Pico Neo 2 revival hub.
+Listed on [NeoRevived](https://openlyst.github.io/neorevived/#/entry/streaming/gitlab.HttpAnimations.piconeo2-wivrn).
 
 ## Acknowledgments
 
