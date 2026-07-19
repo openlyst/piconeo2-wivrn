@@ -8,7 +8,7 @@ import android.widget.FrameLayout;
 /**
  * Minimal stand-in for Unity's UnityPlayer. The Pico SDK reaches into the
  * activity's `mUnityPlayer` field and pulls the render Surface out of it via
- * getChildAt(0).getHolder().getSurface() -- i.e. it expects a ViewGroup whose
+ * getChildAt(0).getHolder().getSurface(), i.e. it expects a ViewGroup whose
  * first child is the SurfaceView. We reproduce exactly that shape so the SDK's
  * TimeWarp/compositor and Guardian can obtain our Surface.
  */
