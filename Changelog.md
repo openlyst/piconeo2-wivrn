@@ -1,3 +1,12 @@
+# [Beta 1.0.1 (Unreleased)]()
+
+- Fix head reprojection "spring" jitter during head motion (parallax-amplified, visible on close objects)
+- Fix stationary jitter from sensor noise being extrapolated into the render pose
+- Fix head movement feeling unnatural from systematic under-prediction
+- Reduce head velocity filter lag from 100ms to 30ms
+- Stabilize latency-correction feedback loop with deadband and slower gain
+- Eliminate tracking sampling aliasing between dual 300Hz loops
+
 # [Beta 1.0](https://github.com/openlyst/piconeo2-wivrn/releases/download/Beta-1.0/wivrn-pvr-Beta-1.0.apk)
 
 - Port back to PVR.

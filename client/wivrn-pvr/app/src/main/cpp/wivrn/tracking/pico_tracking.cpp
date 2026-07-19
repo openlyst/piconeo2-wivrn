@@ -313,18 +313,48 @@ void pico_native_tracker::step_head_filter(const float pos[3], const neo2::quat 
 				avx = delta.x * k; avy = delta.y * k; avz = delta.z * k;
 			}
 
-			// EMA smoothing (dt-normalized, rate-stable). tau=0.1s for head:
-			// filters differentiation noise from the 300Hz position sampling
-			// without adding noticeable lag. The WiVRn server's 2nd-order
-			// polynomial interpolator amplifies velocity noise into positional
-			// overshoot, so smoothing here directly reduces motion sickness.
-			const float a = 1.0f - expf(-(float)dt / 0.1f);
+			// EMA smoothing (dt-normalized, rate-stable). tau=0.03s for head.
+			// The previous 0.1s tau lagged real head velocity by ~100ms during
+			// accel/decel, which made the server's predicted render pose swing
+			// behind then ahead of the actual head -> the PVR warp's rotational
+			// reprojection delta oscillated -> a visible "spring"/jitter on
+			// close objects (parallax-amplified), especially with one eye closed.
+			// 0.03s is fast enough to track head motion within a vsync while
+			// still filtering differentiation noise from the 300Hz sampling.
+			const float a = 1.0f - expf(-(float)dt / 0.03f);
 			head_lin_vel[0] += (lvx - head_lin_vel[0]) * a;
 			head_lin_vel[1] += (lvy - head_lin_vel[1]) * a;
 			head_lin_vel[2] += (lvz - head_lin_vel[2]) * a;
 			head_ang_vel[0] += (avx - head_ang_vel[0]) * a;
 			head_ang_vel[1] += (avy - head_ang_vel[1]) * a;
 			head_ang_vel[2] += (avz - head_ang_vel[2]) * a;
+
+			// Velocity deadband: when the head is essentially stationary, clamp
+			// velocity to zero so the server doesn't extrapolate sensor noise
+			// into the render pose (which shows up as sub-mm/sub-degree jitter
+			// even when you're holding still). The thresholds are well below
+			// any deliberate head motion (~0.1 m/s, ~0.1 rad/s) but above the
+			// differentiation noise floor of the 300Hz position sampling.
+			float lin_mag = std::sqrt(head_lin_vel[0]*head_lin_vel[0]
+			                        + head_lin_vel[1]*head_lin_vel[1]
+			                        + head_lin_vel[2]*head_lin_vel[2]);
+			float ang_mag = std::sqrt(head_ang_vel[0]*head_ang_vel[0]
+			                        + head_ang_vel[1]*head_ang_vel[1]
+			                        + head_ang_vel[2]*head_ang_vel[2]);
+			constexpr float k_lin_deadband = 0.015f;   // 15 mm/s
+			constexpr float k_ang_deadband = 0.01f;    // ~0.57 deg/s
+			if (lin_mag < k_lin_deadband)
+			{
+				head_lin_vel[0] = 0;
+				head_lin_vel[1] = 0;
+				head_lin_vel[2] = 0;
+			}
+			if (ang_mag < k_ang_deadband)
+			{
+				head_ang_vel[0] = 0;
+				head_ang_vel[1] = 0;
+				head_ang_vel[2] = 0;
+			}
 		}
 	}
 	head_prev_pos[0] = pos[0];
@@ -432,15 +462,17 @@ void pico_native_tracker::run()
 			}
 		}
 
-		// Read head pose from gHeadData, which is published by the render
-		// thread's tracking loop (which properly initializes the PVR SDK).
+		// Read head pose directly from the PVR SDK sensor instead of through
+		// gHeadData. The double-hop through gHeadData (published by the render
+		// thread's 300Hz tracking loop) caused sampling aliasing: two
+		// unsynchronized 300Hz loops meant the tracker sometimes read the same
+		// pose twice (zero velocity) then a double-delta (2x velocity),
+		// oscillating the velocity filter and causing reprojection jitter.
 		{
 			float qx, qy, qz, qw, px, py, pz;
-			{
-				std::lock_guard<std::mutex> lk(gHeadMutex);
-				qx = gHeadData[0]; qy = gHeadData[1]; qz = gHeadData[2]; qw = gHeadData[3];
-				px = gHeadData[4]; py = gHeadData[5]; pz = gHeadData[6];
-			}
+			float vfov, hfov; int viewNumber;
+			Pvr_GetMainSensorState(&qx, &qy, &qz, &qw, &px, &py, &pz,
+			                       &vfov, &hfov, &viewNumber);
 			{
 				std::lock_guard lock(state_mutex);
 				head_orient[0] = qx; head_orient[1] = qy; head_orient[2] = qz; head_orient[3] = qw;
@@ -454,7 +486,31 @@ void pico_native_tracker::run()
 
 				hw_velocity_valid = false;
 				neo2::quat hq = neo2::normalize_quat({qx, qy, qz, qw});
-				step_head_filter(h_pos, hq, ts);
+
+				// Only step the velocity filter when the pose has actually
+				// changed, or when enough time (10ms) has passed to decay
+				// stale velocity. The PVR SDK may update its sensor at a
+				// lower rate than our 300Hz loop; repeatedly reading the
+				// same pose and computing 0/dt=0 drags the EMA toward zero,
+				// then the next real sample spikes it. Skipping unchanged
+				// samples keeps the last valid velocity until a genuine new
+				// sample arrives (or the 10ms decay timeout fires).
+				if (head_filter_init)
+				{
+					float qdot = std::abs(hq.x*head_prev_orient.x + hq.y*head_prev_orient.y
+					                    + hq.z*head_prev_orient.z + hq.w*head_prev_orient.w);
+					float dpos = std::abs(px - head_prev_pos[0])
+					           + std::abs(py - head_prev_pos[1])
+					           + std::abs(pz - head_prev_pos[2]);
+					int64_t dt_since_filter = (int64_t)(ts - head_prev_ts);
+					bool pose_changed = (qdot < 0.999999f || dpos > 1e-6f);
+					if (pose_changed || dt_since_filter > 10000000LL)
+						step_head_filter(h_pos, hq, ts);
+				}
+				else
+				{
+					step_head_filter(h_pos, hq, ts);
+				}
 			}
 		}
 
@@ -546,15 +602,38 @@ void pico_native_tracker::run()
 				if (measured > 0)
 				{
 					int64_t base = base_prediction_ns.load();
-					constexpr int64_t photon_safety_ns = 3'000000LL;
+					// Photon safety margin: the measured latency (encode_begin
+					// to submit) doesn't include the warp's own present latency
+					// (submit to photon = ~half a vsync at 72Hz ~= 7ms). Without
+					// this margin we systematically under-predict, making the
+					// server render at a pose behind where the head actually is
+					// at photon time -> the world feels like it lags behind head
+					// motion. 10ms covers the warp present + jitter margin.
+					constexpr int64_t photon_safety_ns = 10'000000LL;
 					int64_t target = measured + photon_safety_ns;
 					int64_t correction = target - base;
 					if (correction < 0) correction = 0;
 					if (correction > 50000000LL) correction = 50000000LL;
 					int64_t prev = latency_correction_ns.load();
-					int64_t smoothed = (prev + correction) / 2;
-					latency_correction_ns.store(smoothed);
-					prediction_ns.store(base + smoothed);
+					// Deadband: ignore corrections that differ from the current
+					// value by less than 1.5ms. Network/decode jitter moves the
+					// measured-latency average by sub-ms amounts, and chasing
+					// that noise wobbled prediction_ns -> the server extrapolated
+					// by a different amount each sample -> the warp's reprojection
+					// delta oscillated (the "spring"). 1.5ms is below one vsync
+					// at 72Hz (~13.9ms) so it's invisible either way.
+					int64_t delta = correction - prev;
+					int64_t smoothed = prev;
+					if (delta > 1500000LL || delta < -1500000LL)
+					{
+						// Slow EMA (gain 0.15) so a step change in pipeline
+						// latency converges over ~7 samples (~700ms) instead of
+						// the old 0.5-gain that wobbled on every noisy sample.
+						smoothed = prev + delta - (delta * 85 / 100);
+						// (equivalent to prev + delta*0.15 without float math)
+						latency_correction_ns.store(smoothed);
+						prediction_ns.store(base + smoothed);
+					}
 					spdlog::info("Prediction adjusted: base={}ms measured={}ms target={}ms correction={}ms total={}ms",
 						base / 1000000, measured / 1000000,
 						target / 1000000, smoothed / 1000000,
