@@ -26,7 +26,7 @@ std::atomic<int>    gWivrnFoveation{0};
 std::atomic<float>  gWivrnBitrateMbps{50.0f};
 std::atomic<float>  gWivrnResolutionScale{1.0f};
 std::atomic<bool>   gWivrnHandTracking{false};
-std::atomic<bool>   gWivrnEyeTracking{false};
+std::atomic<bool>   gWivrnEyeTracking{true};
 std::atomic<bool>   gWivrnPassthrough{true};
 std::atomic<bool>   gWivrnMicrophone{false};
 std::atomic<float>  gWivrnCtrlVibration{1.0f};

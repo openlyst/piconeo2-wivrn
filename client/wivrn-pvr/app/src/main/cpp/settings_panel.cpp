@@ -256,10 +256,6 @@ static void buildCoreModel(MenuModel &m) {
     // SYSTEM ----------------------------------------------------------------
     MenuCategory sys; sys.name = "SYSTEM";
     {
-        MenuItem eyeT = wivrnToggle("EYE TRACKING", gWivrnEyeTracking);
-        eyeT.onChange = []{ gEyeTrackReapply.store(true); saveAllConfig(); };
-        sys.items.push_back(eyeT);
-
         MenuItem pt = wivrnToggle("PASSTHROUGH", gWivrnPassthrough);
         pt.onChange = []{
             extern pico_passthrough * gPassthrough;
