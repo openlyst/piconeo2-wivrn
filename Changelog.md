@@ -7,10 +7,10 @@
 # [Beta 1.0](https://github.com/openlyst/piconeo2-wivrn/releases/download/Beta-1.0/wivrn-pvr-Beta-1.0.apk)
 
 - Port back to PVR.
-- Adds passthrow support.
+- Adds passthrough support.
 - UI can now be moved freely.
 - Removed broken rescale support.
-- Update tot wivrn server 26.6.2.
+- Update to wivrn server 26.6.2.
 - Fixed UI stuttering on low power mode.
 - Fix the client would crash clicking on pair.
 
@@ -68,14 +68,14 @@
  - Fix foveation causing apps to render upside down (sorry aus)
  - Doubles tracking frequency to 300Hz
  - Remove AV1
- - Adds the abilty to change software IPD
+ - Adds the ability to change software IPD
  - Fixed sliders in settings
  - Streams at native 2048x2160 resolution
  - Resolution slider is now based on res's not %'s
  - Adds WiVRn icon
  - Fix close button not working in the lobby for pairing 
  - Servers are now remembered after pairing with autoconnect support
- - Adds support for boundrys
+ - Adds support for boundaries
  - Adds support for microphone input
  - Harden pairing/connecting over usb
  
@@ -90,15 +90,15 @@
 - Port to openxr
 - Fix tracking
 - Fix height
-- Abilty to recnerter
+- Ability to recenter
 - Audio support
-- Remove lobby floour
+- Remove lobby floor
 
 ### Known bugs
 - Holding down buttons can get stuck
 - Stream 1 has a stutter however way less then the PVR version
 - Pointer in lobby doesnt work you have to pair from the PC
-- Beat saber might be flipped upside down depding on your pc
+- Beat saber might be flipped upside down depending on your pc
 
 # RC1 (PVR)
 - Initial release
