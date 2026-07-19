@@ -41,14 +41,3 @@ openxr_poc/.cxx/
 openxr_poc/local.properties
 openxr_poc/gradle.properties
 openxr_poc/app/src/main/jniLibs/arm64-v8a/libopenxr_loader.so
-
-# pico_oxr OpenXR client
-client/pico_oxr/.gradle/
-client/pico_oxr/build/
-client/pico_oxr/app/build/
-client/pico_oxr/.cxx/
-client/pico_oxr/local.properties
-client/pico_oxr/gradle.properties
-client/pico_oxr/app/src/main/jniLibs/arm64-v8a/libopenxr_loader.so
-client/pico_oxr/gradle/wrapper/gradle-wrapper.jar
-client/pico_oxr/app/src/main/cpp/third_party/
