@@ -52,7 +52,7 @@ jobs:
       - name: Parse version from changelog
         id: version
         run: |
-          # Read the first heading in Changelog.md — that's the latest version.
+          # Read the first heading in Changelog.md, that's the latest version.
           head_line=$(head -1 Changelog.md)
           # Strip leading "# " and any markdown link syntax.
           raw=$(echo "$head_line" | sed 's/^# *//' | sed 's/\[//g' | sed 's/\].*//')
