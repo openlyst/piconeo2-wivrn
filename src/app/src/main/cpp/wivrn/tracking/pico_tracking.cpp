@@ -32,8 +32,16 @@ constexpr float k_rot_swing = 1.0f;
 constexpr float k_predict = 1.0f;
 
 // Head has no hardware velocity on this SDK; it's differentiated position.
-// Full-strength causes positional overshoot. 0.4 matches the legacy ALVR fork.
-constexpr float k_head_lin_predict = 0.4f;
+// Linear and angular reach must match: sending full-strength rotation
+// extrapolation with dialed-back position extrapolation (the old 0.4/1.0
+// split) desyncs the eyes' predicted swing around the neck from the
+// predicted orientation, so nearby geometry swims during head turns even
+// though the frame rate itself is smooth. That swim is a much stronger
+// sickness trigger than the reach itself, so both axes use the same factor.
+// Now that the velocity filter (step_head_filter) tracks real motion within
+// ~80ms instead of ~660ms, this can run closer to full strength without the
+// old overshoot-after-stop behaviour.
+constexpr float k_head_predict = 0.7f;
 
 neo2::quat apply_controller_orientation(const float raw_orient[4], int hand)
 {
@@ -326,9 +334,15 @@ void pico_native_tracker::step_head_filter(const float pos[3], const neo2::quat 
 				avx = delta.x * k; avy = delta.y * k; avz = delta.z * k;
 			}
 
-			// EMA smoothing, tau=0.66s. The server's polynomial interpolator
-			// amplifies velocity noise into positional overshoot.
-			const float a = 1.0f - expf(-(float)dt / 0.66f);
+			// EMA smoothing, tau=0.08s. Was 0.66s, which left the filtered
+			// velocity lagging real head motion by well over half a second: after
+			// you stopped turning your head, the server kept extrapolating with a
+			// stale non-zero velocity for a while, so the rendered world kept
+			// drifting after the vestibular system said "stopped". That mismatch
+			// is a textbook motion-sickness trigger. 0.08s tracks real motion
+			// closely while still knocking down per-sample jitter, matching the
+			// controller filter's responsiveness (tau=0.05s, see step_ctrl_filter).
+			const float a = 1.0f - expf(-(float)dt / 0.08f);
 			head_lin_vel[0] += (lvx - head_lin_vel[0]) * a;
 			head_lin_vel[1] += (lvy - head_lin_vel[1]) * a;
 			head_lin_vel[2] += (lvz - head_lin_vel[2]) * a;
@@ -660,13 +674,13 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 	                from_headset::tracking::flags::linear_velocity_valid |
 	                from_headset::tracking::flags::angular_velocity_valid;
 	head_tp.linear_velocity = {
-		head_lin_vel[0] * k_head_lin_predict,
-		head_lin_vel[1] * k_head_lin_predict,
-		head_lin_vel[2] * k_head_lin_predict};
+		head_lin_vel[0] * k_head_predict,
+		head_lin_vel[1] * k_head_predict,
+		head_lin_vel[2] * k_head_predict};
 	head_tp.angular_velocity = {
-		head_ang_vel[0] * k_predict,
-		head_ang_vel[1] * k_predict,
-		head_ang_vel[2] * k_predict};
+		head_ang_vel[0] * k_head_predict,
+		head_ang_vel[1] * k_head_predict,
+		head_ang_vel[2] * k_head_predict};
 	pkt.device_poses.push_back(head_tp);
 
 	for (int h = 0; h < 2; h++)
