@@ -1,7 +1,7 @@
 #include "eye_tracking.h"
 #include "pico_sdk.h"   // Pvr_GetEyeTrackingData / Pvr_Get/SetTrackingMode
 #include "log.h"
-#include "app_state.h"          // gEyeDebugOn (lobby EYE DEBUG toggle)
+#include "app_state.h"          // gEyeDebugOn (lobby EYE DEBUG toggle) + gWivrnEyeTracking
 #include <cmath>
 #include <cstring>
 #include <atomic>
@@ -27,10 +27,11 @@ static std::atomic<bool> gEyeIrOn{false};   // EYE bit currently set (server str
 // the IR illuminators + the eye service feeding Pvr_GetEyeTrackingData.
 static const int MODE_POSITION = 0x2, MODE_EYE = 0x4;
 
-// WiVRn currently has no server-side eye-tracking settings channel, so keep
-// the IR illuminators off unless the user explicitly enables the lobby debug view.
-static bool parseServerEyeEnabled() {
-    return false;
+// WiVRn has no server-side eye-tracking settings channel like ALVR's
+// face_tracking JSON. The client-side EYE TRACKING toggle (gWivrnEyeTracking,
+// default on) is the sole gate for the IR illuminators during streaming.
+static bool userEyeEnabled() {
+    return gWivrnEyeTracking.load();
 }
 
 void initEyeTrackingMode() {
@@ -60,14 +61,14 @@ void initEyeTrackingMode() {
 // BLOCKS for tens of ms, so this must never run on the render thread -- it's driven
 // only from the worker below.
 static void applyEyeModeNow(bool streaming) {
-    gServerEyeEnabled = (streaming && gEyeSupported.load()) ? parseServerEyeEnabled() : false;
+    gServerEyeEnabled = (streaming && gEyeSupported.load()) ? userEyeEnabled() : false;
     bool debugWants = gEyeDebugOn.load();
     bool wantEye = gEyeSupported.load() && (gServerEyeEnabled || debugWants);
     int mode = MODE_POSITION | (wantEye ? MODE_EYE : 0);
     bool setRc = Pvr_SetTrackingMode(mode);
     gEyeIrOn.store(wantEye);
     if (!wantEye) { gEyeOnline.store(false); gGazeValid.store(false); }   // forget stale gaze when IR is off
-    LOGI("eye: tracking mode -> %s (streaming=%d supported=%d serverEye=%d debug=%d) set=%d",
+    LOGI("eye: tracking mode -> %s (streaming=%d supported=%d userEye=%d debug=%d) set=%d",
          wantEye ? "POSITION|EYE (IR on)" : "POSITION-only (IR off)",
          streaming ? 1 : 0, gEyeSupported.load() ? 1 : 0, gServerEyeEnabled ? 1 : 0,
          debugWants ? 1 : 0, setRc ? 1 : 0);
