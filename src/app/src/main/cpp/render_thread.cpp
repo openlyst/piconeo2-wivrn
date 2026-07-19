@@ -2753,8 +2753,26 @@ void *renderThread(void *) {
                         if (eh <= 0) eh = gStreamH;
                         float half_fov = ((fEyeTextureFov0 > 1.0f ? fEyeTextureFov0 : 101.0f) * 0.5f) * ((float)M_PI / 180.0f);
                         XrFovf lobby_fov = {-half_fov, half_fov, half_fov, -half_fov};
+                        // The lobby is composited into the same texture as the
+                        // stream video, which the warp reprojects from the server
+                        // render pose to the live head pose. Render the lobby at
+                        // the server pose too so the warp's reprojection is correct
+                        // for both layers. Using the live pose here would double-
+                        // apply head movement and make the panel drift opposite
+                        // to the head.
                         float head_orient[4] = {qx, qy, qz, qw};
                         float head_pos[3] = {px, py, pz};
+                        XrPosef srvPoses[2];
+                        if (wivrn_get_server_pose(srvPoses)) {
+                            head_orient[0] = srvPoses[0].orientation.x;
+                            head_orient[1] = srvPoses[0].orientation.y;
+                            head_orient[2] = srvPoses[0].orientation.z;
+                            head_orient[3] = srvPoses[0].orientation.w;
+                            // Midpoint of the two eye positions = head centre.
+                            head_pos[0] = (srvPoses[0].position.x + srvPoses[1].position.x) * 0.5f;
+                            head_pos[1] = (srvPoses[0].position.y + srvPoses[1].position.y) * 0.5f;
+                            head_pos[2] = (srvPoses[0].position.z + srvPoses[1].position.z) * 0.5f;
+                        }
                         controller_sample cs[2];
                         {
                             std::lock_guard<std::mutex> lk(gCtrlMutex);
