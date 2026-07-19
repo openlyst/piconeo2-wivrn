@@ -688,13 +688,13 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 		{
 			grabbing = true;
 			grab_hand = h;
-			grab_u = hit_uv[h][0];
-			grab_v = hit_uv[h][1];
+			grab_u = 0;
+			grab_v = 0;
 			float dx = hit_points[h][0] - controllers[h].position[0] * 0.001f;
 			float dy = hit_points[h][1] - controllers[h].position[1] * 0.001f;
 			float dz = hit_points[h][2] - controllers[h].position[2] * 0.001f;
 			grab_dist = sqrtf(dx*dx + dy*dy + dz*dz);
-			LOGI("GRAB_START h=%d uv=(%.2f,%.2f) dist=%.2f", h, grab_u, grab_v, grab_dist);
+			LOGI("GRAB_START h=%d dist=%.2f", h, grab_dist);
 		}
 		prev_grip[h] = grip_now;
 	}
