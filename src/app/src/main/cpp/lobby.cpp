@@ -884,7 +884,7 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 		prev_trigger[h] = trigger_pressed;
 		}
 
-	// No controllers — use head gaze laser with OK button as trigger
+	// No controllers: use head gaze laser with OK button as trigger
 	head_hit.valid = false;
 	head_touch_x = -1;
 	head_touch_y = -1;
@@ -946,7 +946,7 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 	else
 	{
 		prev_head_trigger = false;
-		// Controllers took over — clear any stale head cursor on the Java side.
+		// Controllers took over: clear any stale head cursor on the Java side.
 		if (prev_head_touch_x >= -1 || prev_head_touch_down || prev_head_touch_pressed) {
 			push_lobby_touch_to_java(-1, -1, -1, false, false, 0.0f);
 			prev_head_touch_x = -2;
