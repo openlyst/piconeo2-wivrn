@@ -1,14 +1,8 @@
 #pragma once
-// Passthrough camera background for the lobby. Replaces the old dark-void +
-// grid-floor environment with a live feed from the Neo 2 tracking cameras.
-//
-// Uses the Android Camera2 NDK API directly because the Pico SDK's camera
-// API is broken on this device (libtrackingclient.pxr.so is missing).
-//
-// Rendering uses a fisheye undistortion mesh extracted from the Pico
-// system's seethroughsetting app (grid_point_coord.txt). The mesh maps
-// each camera texture coordinate to the correct screen position, which
-// corrects both the lens distortion and the FOV scaling in one step.
+// Passthrough camera background for the lobby. Uses Android Camera2 NDK directly
+// because the Pico SDK camera API is broken on this device (libtrackingclient.pxr.so
+// is missing). Rendering uses a fisheye undistortion mesh from the Pico system's
+// seethroughsetting app (grid_point_coord.txt).
 #include <GLES3/gl3.h>
 #include <media/NdkImageReader.h>
 #include <camera/NdkCameraManager.h>

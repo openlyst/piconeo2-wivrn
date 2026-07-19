@@ -1,19 +1,15 @@
 #include "lobby_panels.h"
-#include "app_state.h"   // gVid*/g*MsX10 diag publish, gEyeDebugOn/gDiagHudMode
+#include "app_state.h"   // gVid*/g*MsX10 diag publish
 #include "alvr_ext.h"    // alvr_get_client_stats
-#include "input.h"       // gCtrl/gCtrlMutex (controller battery for the system page)
+#include "input.h"       // gCtrl/gCtrlMutex (controller battery)
 #include "log.h"         // nowNs
 #include <cstdio>
 #include <cstring>
 
-// Build the diagnostics text into `v` in PANEL-LOCAL metres (centred at origin);
-// the caller projects it onto a tilted 3D panel. Categorised, clearly named, and
-// the fast ALVR pipeline numbers are throttled so they don't flicker.
-// ---------------------------------------------------------------------------
-// System telemetry (page 2): CPU/GPU utilisation + on-die temperatures, read
-// straight from sysfs/procfs. All nodes are world-readable on the Neo 2 (SD845);
-// any that fail just read as "--". Sampled at the HUD's ~4Hz rebuild cadence.
-// ---------------------------------------------------------------------------
+// Diagnostics overlay builders. Emit pos.xyz+rgb geometry in panel-local metres.
+// ALVR pipeline numbers are throttled to ~3/sec so they don't flicker.
+// System telemetry (page 2): CPU/GPU utilisation + temperatures from sysfs/procfs.
+// All nodes are world-readable on the Neo 2 (SD845); failures read as "--".
 namespace {
 
 // read a single whole-number value from a sysfs/proc file; returns false on miss.
@@ -25,10 +21,8 @@ bool readLong(const char *path, long *out) {
     *out = v; return true;
 }
 
-// max thermal_zone temp (milli-C) whose `type` contains `needle`. -1 if none.
-// Zone->type mapping is fixed after boot: cache the matching zone indices per needle
-// on first use so repeat calls only read temp nodes (not all 40 type files). Small
-// fixed cache -- the diag HUD queries a handful of distinct needles.
+// max thermal_zone temp (milli-C) whose type contains needle. -1 if none.
+// Zone->type mapping is fixed after boot, so cache matching zone indices per needle.
 float zoneTempC(const char *needle) {
     struct Cache { char needle[16]; int zones[8]; int n; };
     static Cache sCache[6];
@@ -129,7 +123,7 @@ static void buildSysOverlay(std::vector<float> &v) {
 
     const float px  = 0.0019f;
     const float dy  = 0.026f;
-    const float hdrCol[3] = {kUiFill[0], kUiFill[1], kUiFill[2]};   // themed accent
+    const float hdrCol[3] = {kUiFill[0], kUiFill[1], kUiFill[2]};
     const float valCol[3] = {0.95f, 0.96f, 1.00f};
     const float hotCol[3] = {1.00f, 0.55f, 0.35f};   // warm tint for high temps
     char line[96];
@@ -181,7 +175,7 @@ static void buildSysOverlay(std::vector<float> &v) {
     auto batCell = [&](int c, const char *lbl, float p){
         char b[96];
         if (p < 0) snprintf(b, sizeof(b), "%s --", lbl);
-        else       snprintf(b, sizeof(b), "%s %.0f", lbl, p);   // no '%' glyph; bare number in the dense grid
+        else       snprintf(b, sizeof(b), "%s %.0f", lbl, p);   // no '%' glyph in the font
         const float *col = (p >= 0.0f && p < 20.0f) ? hotCol : valCol;
         uiTextL(v, b, colL[c], yTop - 5.0f*dy, px, col[0], col[1], col[2]);
     };
@@ -205,8 +199,7 @@ void buildBatteryWarn(std::vector<float> &v, int pct) {
 
 void buildDiagOverlay(std::vector<float> &v, int page) {
     if (page == 2) { buildSysOverlay(v); return; }
-    // Throttle the per-frame ALVR latency stats to ~3/sec (the decode/queue/render
-    // numbers jitter every frame otherwise).
+    // Throttle ALVR latency stats to ~3/sec (values jitter every frame otherwise).
     static float held[6] = {0,0,0,0,0,0};
     static bool  haveHeld = false;
     static uint64_t lastUpd = 0;
@@ -217,21 +210,18 @@ void buildDiagOverlay(std::vector<float> &v, int page) {
         else haveHeld = false;
         lastUpd = now;
     }
-    // Virtual-Desktop-style compact bar: a flat grey background plane with three
-    // columns (label + value), blue headers, white-ish values. Small & 2D.
-    const float px  = 0.0019f;          // glyph size (metres) - 2x
-    const float dy  = 0.026f;           // line spacing
-    const float hdrCol[3] = {kUiFill[0], kUiFill[1], kUiFill[2]};   // themed accent   // blue/cyan headers
-    const float valCol[3] = {0.95f, 0.96f, 1.00f};   // near-white values
+    const float px  = 0.0019f;          // glyph size (metres)
+    const float dy  = 0.026f;
+    const float hdrCol[3] = {kUiFill[0], kUiFill[1], kUiFill[2]};
+    const float valCol[3] = {0.95f, 0.96f, 1.00f};
     char line[96];
 
-    // Column geometry (panel-local metres). Three label-left columns.
-    const float colL[3] = { -0.24f, -0.07f, 0.10f };   // tight columns, block centred on x=0
+    const float colL[3] = { -0.24f, -0.07f, 0.10f };   // three columns centred on x=0
     const float colW    = 0.16f;
-    const float yTop    = 0.090f;       // first header baseline
+    const float yTop    = 0.090f;
     (void) colW;
 
-    // Background plane (drawn first so text lands on top - painter's order).
+    // Background plane (drawn first so text lands on top).
     appendQuad(v, -0.28f, yTop + 0.030f, 0.28f, yTop - 5.0f*dy - 0.050f,
                kUiBg[0], kUiBg[1], kUiBg[2]);
 
@@ -261,9 +251,8 @@ void buildDiagOverlay(std::vector<float> &v, int page) {
     snprintf(line, sizeof(line), "SUBMIT   %d",  gVidSubmit.load());  colRow(1,2,line);
     snprintf(line, sizeof(line), "DROPPED  %d",  gVidDropped.load()); colRow(1,3,line);
 
-    // --- Column 2: per-stage frame timing (ms). render/encode are our GPU-issue
-    // cost; enqueue is the submit-to-SDK-warp cost (incl vsync backpressure), not
-    // the warp's own compute. ---
+    // --- Column 2: per-stage frame timing (ms). enqueue = submit-to-SDK-warp
+    // cost (incl vsync backpressure), not the warp's own compute. ---
     colHdr(2, "TIME(MS)");
     snprintf(line, sizeof(line), "GAP     %.1f", gGapMsX10.load()/10.0f); colRow(2,0,line);
     snprintf(line, sizeof(line), "ENCODE  %.1f", gEncMsX10.load()/10.0f); colRow(2,1,line);
@@ -271,6 +260,5 @@ void buildDiagOverlay(std::vector<float> &v, int page) {
     // warp-submit fence timeouts/sec (slot not GPU-complete in budget -> tear). 0 = healthy.
     snprintf(line, sizeof(line), "FENCETMO %d",  gFenceTimeouts.load()); colRow(2,3,line);
 
-    // Footer, centred under the columns.
     uiTextC(v, "ALVR DIAGNOSTICS", 0.0f, yTop - 5.0f*dy - 0.010f, px*0.9f, 0.55f, 0.65f, 0.78f);
 }

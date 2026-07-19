@@ -1,8 +1,5 @@
 #pragma once
-// Lobby HUD device strings + their producers: LAN IPv4 (wlan0 preferred), client
-// status, ALVR hostname, and the headset model / eye-hw flag. Owns the strings;
-// the render thread's event loop writes gStatusText/gHostnameText and the lobby
-// reads all of them, via these extern handles.
+// Lobby HUD device strings: LAN IPv4, client status, ALVR hostname, headset model.
 #include <jni.h>
 
 extern char gIpText[24];        // "CHECK WI-FI" until a LAN address is found

@@ -81,8 +81,7 @@ void pico_passthrough::build_shaders()
 
 // Load the fisheye undistortion mesh from grid_point_coord.txt.
 // Format: "u v x_left y_left x_right y_right" per line, 33x21 grid.
-// (u,v) are camera texture coords [0,1]; (x,y) are screen positions in
-// tangent space. We convert to clip space by dividing by tan(fov/2).
+// (u,v) are camera texture coords [0,1]; (x,y) are tangent-space screen positions.
 void pico_passthrough::build_mesh()
 {
     FILE *f = fopen("/system/etc/pvr/boundary/grid_point_coord.txt", "r");
@@ -110,7 +109,6 @@ void pico_passthrough::build_mesh()
         return;
     }
 
-    // Recover grid dimensions from unique u and v values
     std::vector<float> u_vals, v_vals;
     for (auto &p : pts)
     {
@@ -187,14 +185,12 @@ void pico_passthrough::build_mesh()
             GLuint b = y * gw + x + 1;
             GLuint c = (y + 1) * gw + x;
             GLuint d = (y + 1) * gw + x + 1;
-            // Two triangles per quad
             indices.push_back(a); indices.push_back(c); indices.push_back(b);
             indices.push_back(b); indices.push_back(c); indices.push_back(d);
         }
     }
     index_count = indices.size();
 
-    // Upload to GPU
     glGenBuffers(1, &ibo);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLuint),
@@ -241,9 +237,6 @@ void pico_passthrough::upload_eye(int eye, int w, int h, const uint8_t *data, in
     else
     {
         glBindTexture(GL_TEXTURE_2D, tex);
-        // Re-alloc if size changed (shouldn't normally happen)
-        // Just always glTexSubImage2D — if the tex was never allocated
-        // it was done in the tex==0 branch above.
     }
 
     if (row_stride != w)
@@ -491,7 +484,6 @@ void pico_passthrough::draw(int eye)
     if (draw_counts[eye] % 300 == 0)
         LOGI("passthrough: draw eye=%d count=%d", eye, draw_counts[eye]);
 
-    // Render the fisheye mesh for this eye
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
     glDisable(GL_CULL_FACE);

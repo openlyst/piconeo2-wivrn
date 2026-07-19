@@ -4,8 +4,7 @@
 #include <cmath>
 #include <cstdint>
 
-// ---- per-kind row metrics (builder-local metres) --------------------------
-// Each row occupies [yTop, yTop-height]; widgets sit at fixed offsets below yTop.
+// Per-kind row metrics (builder-local metres). Each row occupies [yTop, yTop-height].
 static constexpr float kGap        = 0.02f;
 static constexpr float kHToggle    = 0.075f, kRowToggle  = kHToggle + 0.055f;
 static constexpr float kHButton    = 0.070f, kRowButton  = kHButton + 0.060f;
@@ -25,8 +24,7 @@ static inline UiRect rButton(float yTop) { return { 0.0f, yTop - kHButton*0.5f, 
 static inline UiRect rFader (float yTop) { return { 0.0f, yTop - 0.105f, kFaderW, kFaderH }; }
 static inline UiRect rStepMinus(float yTop) { return { -kStepBtnX, yTop - 0.150f, kStepBtnW, kStepBtnH }; }
 static inline UiRect rStepPlus (float yTop) { return {  kStepBtnX, yTop - 0.150f, kStepBtnW, kStepBtnH }; }
-// The dropdown reserves a title line at the top (kDropLabelH), then the header,
-// then (when open) the option list -- so the header/items sit below the label.
+// Dropdown: title line, then header, then (when open) option list below.
 static inline UiRect rDropHdr (float yTop) { return { 0.0f, yTop - kDropLabelH - kDropHdrH*0.5f, kRowW, kDropHdrH }; }
 static inline UiRect rDropItem(float yTop, int i) { return { 0.0f, yTop - kDropLabelH - kDropHdrH - kDropItemH*(i + 0.5f), kRowW, kDropItemH }; }
 
@@ -146,9 +144,7 @@ MenuHover menuHit(const MenuCategory &c, float cx, float cy) {
     return h;
 }
 
-// ---- apply -----------------------------------------------------------------
-// Keyboard-style hold-to-repeat for steppers + fader drag/commit. State is keyed
-// by (catId,item,part); only one control is ever active at a time.
+// Hold-to-repeat for steppers + fader drag/commit. State keyed by (catId,item,part).
 void menuApply(int catId, MenuCategory &c, const MenuHover &h,
                bool click, bool grab, float cx, float cy) {
     static int sHoldKey = -1; static uint64_t sHoldNext = 0;   // stepper repeat
@@ -156,8 +152,8 @@ void menuApply(int catId, MenuCategory &c, const MenuHover &h,
 
     auto key = [&](int part){ return (catId << 16) | (h.item << 2) | part; };
 
-    // Fader release -> commit/persist. Checked FIRST and unconditionally so a fader
-    // that was being dragged still saves even if the pointer slid off it on release.
+    // Fader release -> commit. Checked first so a drag still saves even if the
+    // pointer slid off the fader on release.
     if (!grab && sFadeKey >= 0) {
         int ci = (sFadeKey >> 2) & 0x3fff;
         if (ci >= 0 && ci < (int)c.items.size() && c.items[ci].onCommit) c.items[ci].onCommit();

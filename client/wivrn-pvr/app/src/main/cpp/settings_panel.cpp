@@ -17,12 +17,9 @@ std::vector<float> gSettingsScroll;
 static inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
 // ===========================================================================
-// AUDIO category: the 16-band EQ as a MK_CUSTOM item. It owns its own native
-// panel-local layout (eq_panel.h coords); the MenuHover.part encodes which sub-
-// region the pointer is over:
-//   0..15    : over band b's track (highlight only -> empty space, scrolls)
-//   100..115 : over band b's KNOB  (arms drag-draw)
-//   200      : RESET button     201 : preset header     300+i : dropdown item i
+// AUDIO category: 16-band EQ as a MK_CUSTOM item. MenuHover.part encodes the
+// sub-region: 0..15 = band track, 100..115 = band knob, 200 = RESET,
+// 201 = preset header, 300+i = dropdown item i.
 // ===========================================================================
 static void eqBuild(std::vector<float> &v, const MenuHover &h) {
     int band = (h.part >= 0 && h.part < 16)     ? h.part
@@ -49,7 +46,7 @@ static void eqHit(float cx, float cy, MenuHover &h) {
         float colW = (kEqX1 - kEqX0) / kEqBands;
         int b = (int)((cx - kEqX0) / colW);
         if (b < 0) b = 0; else if (b >= kEqBands) b = kEqBands-1;
-        // Drag-draw only ARMS on the knob (lever); the rest of the column scrolls.
+        // Drag-draw only arms on the knob; the rest of the column scrolls.
         float lky = eqGainToY(gEqGains[b]);
         bool onKnob = (fabsf(cx - eqColCenterX(b)) <= colW*0.40f && fabsf(cy - lky) <= 0.045f);
         h.item = 0; h.part = onKnob ? (100 + b) : b; h.grab = onKnob;
@@ -99,7 +96,7 @@ static void eqAct(const MenuHover &h, bool click, bool grab, float cx, float cy)
     }
 }
 
-// Toggle that's actually interactive.
+// Toggle that's interactive.
 static inline MenuItem wivrnToggle(const char *label, std::atomic<bool> &val) {
     MenuItem it; it.kind = MK_TOGGLE; it.label = label;
     it.get = [&]{ return val.load() ? 1.0f : 0.0f; };
@@ -156,14 +153,10 @@ static void buildCoreModel(MenuModel &m) {
         res.valueText = [](char *b,int n){ snprintf(b,n,"%.2f X", gWivrnResolutionScale.load()); };
         res.onCommit = []{
             if (g_stream && g_stream->session) {
-                // Base render resolution (the panel's native per-eye size).
-                // The slider scales BOTH the render resolution (local swapchain
-                // + server compositor extent) and the stream/encode resolution
-                // together. Scaling only the stream resolution caused the server
-                // to encode at a different size than the client swapchain, which
-                // made the blit pipeline stretch/shrink the image — appearing
-                // as a FOV change ("scales the screen") instead of a pixel
-                // density change.
+                // Scale both render and stream resolution together; scaling only
+                // the stream caused the server to encode at a different size than
+                // the client swapchain, appearing as a FOV change instead of a
+                // pixel density change.
                 constexpr int base_w = 1664;
                 constexpr int base_h = 1756;
                 float s = gWivrnResolutionScale.load();
@@ -318,11 +311,9 @@ float &settingsScroll() { settingsModel(); settingsClampCat(); return gSettingsS
 
 UiRect settingsTabRect(int i) { return { -0.55f, 0.28f - 0.11f*i, 0.18f, 0.085f }; }
 
-// Structure signature: everything that can move the active category's geometry
-// (item set + each item's kind/dropdown-open state + the EQ preset dropdown).
-// Hover and scroll do NOT change vertex positions, so they're excluded -- which is
-// why the extent below can be cached across frames and re-measured only when this
-// signature changes.
+// Signature of everything that can move the active category's geometry (item set,
+// kinds, dropdown-open states, EQ preset dropdown). Hover/scroll don't change
+// vertex positions, so the extent can be cached and re-measured only on change.
 static unsigned menuStructSig(const MenuCategory &c) {
     unsigned h = 2166136261u;
     auto mix = [&](unsigned x){ h = (h ^ x) * 16777619u; };
@@ -333,14 +324,10 @@ static unsigned menuStructSig(const MenuCategory &c) {
     return h;
 }
 
-// ---- measure (top-align the active content; scan its real vertex extent so it
-// works for both auto-stacked simple items and self-positioning custom panels) --
-//
-// PERF: the extent only depends on the menu STRUCTURE (menuStructSig), not on
-// hover/scroll, so it's cached per (category,structure). We build-to-measure (a
-// throwaway geometry copy, scanned for its Y-extent) only on the rare frame the
-// structure changes (open a category / toggle a dropdown); steady state is a cache
-// hit, so there's no per-frame double-build against buildSettingsPanel's own draw.
+// ---- measure (top-align active content; scan real vertex extent) ------------
+// Extent depends only on menu structure (menuStructSig), so it's cached per
+// (category,structure). Build-to-measure only on structure change; steady state
+// is a cache hit (no per-frame double-build).
 void settingsMeasure(float &offX, float &offY, float &contentH) {
     settingsModel(); settingsClampCat();
     MenuCategory &cat = settingsModel()[gSettingsCat];

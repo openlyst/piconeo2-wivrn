@@ -1,15 +1,13 @@
 #pragma once
-// Cross-cutting shared application state: the lobby/render knobs that the render
-// loop, the lobby panels, and the JNI input handlers all touch. Atomics where
-// the producer (Android UI thread / JNI) and consumer (render thread) differ.
-// Owned here (defined in app_state.cpp); everyone else references via these
-// extern handles.
+// Cross-cutting shared state: lobby/render knobs touched by the render loop,
+// lobby panels, and JNI input handlers. Atomics where producer and consumer
+// threads differ.
 #include <atomic>
 #include <cstdint>
 
 // ---- Software IPD (lobby-adjustable, persisted) ----------------------------
-// World-scale knob: drives the per-eye optical-centre offset for the lobby
-// render, the warp submit pose, AND the ALVR view_params. Stored in millimetres.
+// Per-eye optical-centre offset for lobby render, warp submit pose, and ALVR
+// view_params. Stored in millimetres.
 constexpr float kIpdMin = 58.0f, kIpdMax = 72.0f, kIpdStep = 0.5f;
 extern std::atomic<float>    gSoftIpdMm;
 extern std::atomic<bool>     gIpdDirty;     // value changed, needs persisting
@@ -32,9 +30,7 @@ extern std::atomic<bool>  gThemeAmber;   // lobby UI theme: false=cold blue, tru
 extern std::atomic<float> gBrightnessFrac; // HMD panel brightness 0..1 (VIDEO tab slider)
 extern std::atomic<bool>  gBrightnessSaved; // a brightness value was persisted (vs. panel default)
 
-// ---- wivrn client option placeholders (server/protocol supports them; client
-//      side either not wired yet or controlled by the server). Stored so the
-//      settings panel can render them and grey out the unimplemented ones.
+// ---- wivrn client option placeholders (server-controlled or not yet wired) --
 extern std::atomic<bool>   gWivrnTcpOnly;
 extern std::atomic<int>    gWivrnCodec;        // 0=h264, 1=h265, 2=av1
 extern std::atomic<int>    gWivrnFoveation;    // 0=off, 1=low, 2=medium, 3=high
@@ -48,34 +44,28 @@ extern std::atomic<float>  gWivrnCtrlVibration; // 0..1
 extern std::atomic<bool>   gWivrnRecenterReq;   // one-shot button flag
 
 // ---- Stream FOV (higher-DPI lever) -----------------------------------------
-// The server renders into a FIXED per-eye buffer (1664^2) at whatever FOV the
-// CLIENT commands via alvr view_params. The Neo 2 lens tube masks off the outer
-// ring, so any FOV rendered beyond the visible cone is wasted encode/decode/
-// thermal budget. Shrinking the commanded FOV packs the same pixels into fewer
-// degrees = higher pixels-per-degree (sharper) at IDENTICAL decoder/thermal cost.
-// To avoid magnification/"squish" the warp's texture FOV must shrink in lockstep
-// (Pvr_SetProjectionFov + the SDK fEyeTextureFov0/1 globals) so the narrower eye
-// texture still maps onto the correct lens angle. Full per-eye FOV in DEGREES.
-// 101 = the SDK's native per-eye texture FOV (the headset max) = no change; lower
-// it to trade edge FOV for pixel density. Adjusted via a release-commit slider.
+// The server renders into a fixed 1664^2 per-eye buffer at whatever FOV the
+// client commands. Shrinking the commanded FOV packs the same pixels into fewer
+// degrees = higher PPD at identical decoder/thermal cost. The warp texture FOV
+// must shrink in lockstep (Pvr_SetProjectionFov + fEyeTextureFov0/1) to avoid
+// magnification. 101 = SDK native per-eye FOV (headset max); lower to trade
+// edge FOV for pixel density.
 constexpr float kFovMin = 70.0f, kFovMax = 101.0f;   // full per-eye FOV range, degrees
 extern std::atomic<float> gStreamFovDeg;   // full per-eye FOV, degrees (persisted)
 extern std::atomic<bool>  gFovDirty;       // changed -> re-apply (server view_params + warp mesh)
 void saveStreamFov();
 
 // ---- render-thread side-effect requests ------------------------------------
-// The data-driven menu (menu_model) runs without access to the render thread's GL
-// context, JNIEnv, or locomotion locals, so menu callbacks just raise these flags;
-// the render loop polls + clears them and performs the actual effect.
+// Menu callbacks raise these flags; the render loop polls + clears them and
+// performs the actual effect (menu_model has no GL context/JNIEnv access).
 extern std::atomic<bool> gGridThemeDirty;    // rebuild floor VBO (theme changed)
 extern std::atomic<bool> gEyeTrackReapply;   // re-evaluate the Pico eye-tracking mode
 extern std::atomic<bool> gBrightnessApply;   // push gBrightnessFrac to the HMD panel
 
 // ---- streaming controller grip offset --------------------------------------
-// The applied offset is a baked baseline (the constants below). It positions a
-// FIXED point on the physical controller, expressed in its LOCAL
-// frame (mm): +X = controller's right (mirrored on the right hand), +Y = up toward
-// the buttons, +Z = back toward the wrist.
+// Baked baseline offset positioning a fixed point on the physical controller in
+// its local frame (mm): +X = right (mirrored on right hand), +Y = up toward
+// buttons, +Z = back toward wrist.
 constexpr float kBaseGripSideMm = 0.0f, kBaseGripUpMm = 12.5f, kBaseGripBackMm = 40.0f;
 constexpr float kBasePredict    = 0.4f, kBaseRotSwing = 1.0f;
 constexpr float kBaseYawDeg     = 35.0f, kBaseRotXDeg = 10.0f, kBaseRotYDeg = -34.0f;
@@ -83,24 +73,20 @@ constexpr float kBaseYawDeg     = 35.0f, kBaseRotXDeg = 10.0f, kBaseRotYDeg = -3
 // ---- per-second diagnostics published for the HUD --------------------------
 extern std::atomic<int> gVidDecoded, gVidSubmit, gVidDropped;
 extern std::atomic<int> gGapMsX10, gRenderMsX10, gEncMsX10, gEnqMsX10;
-// Per-second count of warp-submit fence waits that TIMED OUT (the slot wasn't
-// GPU-complete within budget -> the warp may sample a partially-written texture =
-// tear). 0 in healthy streaming; >0 flags a render overrun (e.g. thermal stall).
+// Per-second count of warp-submit fence waits that timed out (slot wasn't
+// GPU-complete within budget -> possible tear). >0 flags a render overrun.
 extern std::atomic<int> gFenceTimeouts;
 
 // ---- low-battery warning ---------------------------------------------------
-// Headset battery %, polled ~1Hz from sysfs by the render loop. On a downward
-// crossing of 15% / 5% the loop stamps gBattWarnStartNs + the crossed percentage;
-// the draw path then shows a 5-second head-locked pop-up (slides up, holds, slides
-// back down) in both the stream and lobby paths, regardless of the diagnostics HUD.
+// On a downward crossing of 15% / 5% the render loop stamps gBattWarnStartNs +
+// the crossed percentage; the draw path shows a 5-second head-locked popup.
 extern std::atomic<uint64_t> gBattWarnStartNs;   // 0 = inactive; else popup start (CLOCK_MONOTONIC ns)
 extern std::atomic<int>      gBattWarnPct;        // percentage to display in the popup
 constexpr uint64_t kBattWarnDurNs = 5000000000ULL;  // popup lifetime (5 s)
 
 // ---- persistence (single $HOME/config.txt) ---------------------------------
 // loadAllConfig() restores every setting at boot; saveAllConfig() rewrites the
-// whole file. The per-setting saveX() wrappers below just call saveAllConfig()
-// so existing onChange call sites stay unchanged.
+// whole file. saveX() wrappers just call saveAllConfig().
 void loadAllConfig();
 void saveAllConfig();
 void saveSoftIpd();

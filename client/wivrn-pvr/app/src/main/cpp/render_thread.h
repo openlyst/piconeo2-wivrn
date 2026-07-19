@@ -1,7 +1,6 @@
 #pragma once
-// Public interface of the render thread: lifetime/JNI globals, the window
-// hand-off, and the proximity-sleep flag. Shared between render_thread.cpp
-// (owner / definitions) and jni.cpp (the JNI entry points that drive it).
+// Public interface of the render thread: lifetime/JNI globals, window hand-off,
+// and proximity-sleep flag. Shared between render_thread.cpp and jni.cpp.
 #include <jni.h>
 #include <pthread.h>
 #include <mutex>
@@ -15,18 +14,15 @@ extern jclass    gVrClass;
 extern pthread_t gThread;
 extern std::atomic<bool> gRunning;   // render-thread lifetime
 
-// Window handed in by the SurfaceView callbacks; the render thread owns one
-// long-lived EGL display+context and (re)creates only the window surface.
+// Window handed in by SurfaceView callbacks; render thread owns one long-lived
+// EGL display+context and (re)creates only the window surface.
 extern std::mutex     gWinMutex;
 extern ANativeWindow *gPendingWindow;   // latest window (or null), guarded by gWinMutex
-// Atomic: the render loop reads this on its fast path WITHOUT taking gWinMutex
-// (it only locks once a change is actually pending), while the Java JNI thread
-// sets it in setWindow under the lock. The unlocked read was a data race on a
-// plain bool; atomic makes it defined. gPendingWindow itself stays mutex-guarded.
+// Atomic so the render loop can read on its fast path without taking gWinMutex.
+// gPendingWindow itself stays mutex-guarded.
 extern std::atomic<bool> gWindowDirty;  // a change is pending
 
-// Proximity power-sleep: set by the Java proximity listener (off-head timeout =
-// true, donned = false); the render loop acts on the edge (pause/resume ALVR).
+// Proximity power-sleep: set by Java proximity listener; render loop acts on edge.
 extern std::atomic<bool> gSleepReq;
 
 class pico_lobby;

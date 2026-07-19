@@ -1,7 +1,7 @@
 #include "eye_tracking.h"
-#include "pico_sdk.h"   // Pvr_GetEyeTrackingData / Pvr_Get/SetTrackingMode
+#include "pico_sdk.h"
 #include "log.h"
-#include "app_state.h"          // gEyeDebugOn (lobby EYE DEBUG toggle)
+#include "app_state.h"          // gEyeDebugOn
 #include <cmath>
 #include <cstring>
 #include <atomic>
@@ -10,9 +10,8 @@
 #include <condition_variable>
 
 std::atomic<bool>  gEyeOnline{false};
-// Per-element nested braces (NOT `= {...}`): array aggregate init of atomics must
-// direct-construct each element via atomic(float); the `=` copy-init form selects
-// atomic's deleted copy ctor on libc++ and fails to compile.
+// Per-element braces (not `= {...}`): copy-init form selects atomic's deleted
+// copy ctor on libc++.
 std::atomic<float> gGazeLocal[3] = { {0.0f}, {0.0f}, {-1.0f} };
 std::atomic<bool>  gGazeValid{false};
 float gEyeOpen[2] = {1,1};
@@ -27,10 +26,7 @@ static std::atomic<bool> gEyeIrOn{false};   // EYE bit currently set (server str
 // the IR illuminators + the eye service feeding Pvr_GetEyeTrackingData.
 static const int MODE_POSITION = 0x2, MODE_EYE = 0x4;
 
-// WiVRn has no server-side eye-tracking settings channel like ALVR's
-// face_tracking JSON. Eye tracking is always enabled when the hardware
-// supports it (gEyeSupported check lives in applyEyeModeNow); there is no
-// user-facing toggle.
+// WiVRn has no server-side eye-tracking settings channel; always on when HW supports it.
 static bool userEyeEnabled() {
     return true;
 }
@@ -38,19 +34,11 @@ static bool userEyeEnabled() {
 void initEyeTrackingMode() {
     int supported = Pvr_GetTrackingMode();
     gEyeSupported.store((supported & MODE_EYE) != 0);
-    // Boot with the illuminators OFF: POSITION-only. We light them up later, only
-    // if a stream connects with the server's eye source enabled. This runs once at
-    // render-thread init (before the first frame), so the synchronous SetTrackingMode
-    // cost is harmless here -- unlike the interactive toggle, which we offload below.
+    // Boot with IR off (POSITION-only); lit up later only if a stream needs gaze.
     bool setRc = Pvr_SetTrackingMode(MODE_POSITION);
-    // The eye-mode worker (eyeModeWorker) is a process-lifetime singleton --
-    // started once via gEyeWorkerStarted and NEVER re-spawned, so on a nativeStop/
-    // nativeStart it (and gEyeIrOn / gEyeOnline / gGazeValid) survive into the next
-    // render-thread session. Force the eye state back to the POSITION-only boot here
-    // so the FRESH tracking thread can't read eye data off a stale gEyeIrOn=true (or
-    // draw a stale gaze marker) before applyServerEyeTracking re-evaluates on the
-    // next STREAMING_STARTED. The persistent worker itself is fine to reuse: it just
-    // blocks on its condvar between sessions and re-applies the mode on the next request.
+    // The eye-mode worker is a process-lifetime singleton that survives
+    // nativeStop/nativeStart. Reset eye state here so a fresh tracking thread
+    // can't read stale eye data before applyServerEyeTracking re-evaluates.
     gEyeIrOn.store(false);
     gEyeOnline.store(false);
     gGazeValid.store(false);
@@ -58,9 +46,7 @@ void initEyeTrackingMode() {
          supported, gEyeSupported.load() ? 1 : 0, setRc ? 1 : 0);
 }
 
-// The actual mode switch. Pvr_SetTrackingMode (re-)arms the eye service / IR and
-// BLOCKS for tens of ms, so this must never run on the render thread -- it's driven
-// only from the worker below.
+// Pvr_SetTrackingMode BLOCKS for tens of ms; must never run on the render thread.
 static void applyEyeModeNow(bool streaming) {
     gServerEyeEnabled = (streaming && gEyeSupported.load()) ? userEyeEnabled() : false;
     bool debugWants = gEyeDebugOn.load();
@@ -75,10 +61,8 @@ static void applyEyeModeNow(bool streaming) {
          debugWants ? 1 : 0, setRc ? 1 : 0);
 }
 
-// Dedicated worker so the blocking Pvr_SetTrackingMode never stalls the render
-// thread (toggling EYE DEBUG mid-frame caused a visible hitch). Requests coalesce:
-// we only keep the LATEST desired `streaming` state, so rapid on/off toggles don't
-// queue up a backlog of blocking calls.
+// Worker thread so the blocking SetTrackingMode never stalls the render thread.
+// Requests coalesce to the latest desired state.
 static std::mutex              gEyeReqMtx;
 static std::condition_variable gEyeReqCv;
 static bool                    gEyeReqPending = false;
@@ -109,21 +93,11 @@ void applyServerEyeTracking(bool streaming) {
     gEyeReqCv.notify_one();
 }
 
-// Read Neo 2 EYE eye tracking and build ALVR eye-gaze poses.
-// out[0]=left, out[1]=right (matching ALVR's [left,right] eye_gazes ordering).
-// Fills *vL/*vR per-eye validity. Returns true if the call was serviced at all.
-// On non-Eye units Pvr_GetEyeTrackingData returns false -> we send no gaze.
-// Position is left at the head origin for now (VRChat eye-OSC uses the gaze
-// DIRECTION; gaze point/openness/pupil are read + logged but not yet forwarded,
-// because the vanilla ALVR C API only consumes the gaze pose).
-// gEyeOnline doubles as our "is this a Neo 2 EYE" check: only an Eye unit makes
-// Pvr_GetEyeTrackingData service successfully, so it latches true exactly when
-// real eye data first arrives. Everything eye-related (forwarding gaze to the
-// server, the lobby debug circle) is gated on it -> non-Eye units never advertise
-// eye tracking and never draw the marker.
+// Read Neo 2 EYE tracking and build OpenXR eye-gaze poses. out[0]=left, out[1]=right.
+// gEyeOnline latches true when real eye data first arrives (only Eye units service
+// Pvr_GetEyeTrackingData), gating all eye-related behaviour.
 bool readEyeGazes(XrPosef out[2], bool *vL, bool *vR, int frame, Quat headQ) {
     *vL = *vR = false;
-    // IR is off (server isn't consuming gaze AND debug viz is off) -> skip the SDK call.
     if (!gEyeIrOn.load()) return false;
     int ls=0, rs=0, cs=0;
     float lp[3]={0}, rp[3]={0}, cp[3]={0};
@@ -137,18 +111,11 @@ bool readEyeGazes(XrPosef out[2], bool *vL, bool *vR, int frame, Quat headQ) {
         &lg[0],&lg[1],&lg[2], &rg[0],&rg[1],&rg[2],
         &fg[0],&fg[1],&fg[2], &fgs);
     if (!ok) return false;
-    // NOTE: do NOT negate Z. The SDK negates gaze-vector Z to convert to Unity's
-    // (+Z forward) frame; ALVR/OpenXR eye_gazes want -Z forward, which is exactly
-    // the NATIVE RAW convention: the raw combined/foveated vectors read ~(0,0,-1)
-    // looking forward = OpenXR forward.
-    // On the Neo 2 EYE the PER-EYE gaze vectors (lv/rv) are NOT
-    // populated -- they read 0 or garbage. Only the COMBINED gaze vector (cv, status
-    // cs) carries the real direction (the foveated dir fg matches it). So we drive
-    // BOTH ALVR eyes from the combined gaze. Blinks: status L/R drop to 4 and cv->0;
-    // gate on a sane unit-length combined vector so we don't snap the gaze on blink.
-    // Capture openness for blink BEFORE the gaze-validity gate (a blink makes the
-    // gaze invalid but is exactly when openness->0 matters). Any positive status
-    // means a real Eye unit is responding (status=4 even mid-blink).
+    // NOTE: do NOT negate Z. The SDK negates Z for Unity (+Z forward); OpenXR
+    // wants -Z forward = the native raw convention.
+    // Per-eye gaze vectors (lv/rv) are unpopulated on Neo 2 EYE; only the COMBINED
+    // gaze (cv) carries real direction. Capture openness before the gaze-validity
+    // gate (a blink invalidates gaze but is when openness->0 matters).
     if (ls > 0 || rs > 0 || cs > 0) {
         gEyeOpen[0] = lo; gEyeOpen[1] = ro; gEyeHaveOpen = true;
     }
@@ -168,15 +135,9 @@ bool readEyeGazes(XrPosef out[2], bool *vL, bool *vR, int frame, Quat headQ) {
         gEyeOnline.store(true);
         LOGI("EYE TRACKING ONLINE: status L=%d R=%d C=%d", ls, rs, cs);
     }
-    // Drive both eyes from the combined gaze (per-eye unavailable on this HW).
-    // Decompose the gaze direction into DECOUPLED spherical pitch/yaw that exactly
-    // invert the server's eye-OSC conversion (face.rs: orientation.to_euler(XYZ) ->
-    // pitch=X, yaw=Y). A shortest-arc forward->gaze quaternion cross-couples
-    // pitch & yaw when the server decomposes it into XYZ Euler (accurate on the lobby
-    // green-dot plane, which uses cv directly, but skewed in game, with no flat gain
-    // able to fix the coupling). Build q = Rx(pitch)*Ry(yaw) instead: that round-trips
-    // through to_euler(XYZ) as exactly (pitch, yaw, 0).
-    // Forward is -Z; for q=Rx(P)*Ry(Y): dir = (-sinY, cosY*sinP, -cosY*cosP).
+    // Drive both eyes from the combined gaze. Decompose into decoupled spherical
+    // pitch/yaw (q = Rx(pitch)*Ry(yaw)) so it round-trips through the server's
+    // to_euler(XYZ) as exactly (pitch, yaw, 0) without cross-coupling.
     float gx = cv[0], gy = cv[1], gz = cv[2];
     float gn = sqrtf(gx*gx + gy*gy + gz*gz);
     if (gn > 1e-6f) { gx /= gn; gy /= gn; gz /= gn; }
@@ -187,10 +148,8 @@ bool readEyeGazes(XrPosef out[2], bool *vL, bool *vR, int frame, Quat headQ) {
     Quat qP = { sinf(pitch * 0.5f), 0.0f, 0.0f, cosf(pitch * 0.5f) };
     Quat qY = { 0.0f, sinf(yaw * 0.5f), 0.0f, cosf(yaw * 0.5f) };
     Quat q = quatNorm(quatMul(qP, qY));   // head-LOCAL gaze (for the debug marker via cv)
-    // ALVR eye_gazes are poses in the GLOBAL tracking space (same frame as the head
-    // pose), NOT head-relative. Sending head-local gaze makes it world-locked -> turn
-    // 180 and the eyes aim behind you. Compose with the head orientation so the gaze
-    // is global: q_global = headQ * q_local.
+    // ALVR eye_gazes are in global tracking space, not head-relative. Compose with
+    // head orientation so the gaze is world-aligned.
     q = quatNorm(quatMul(headQ, q));
     out[0] = {}; out[1] = {};
     out[0].orientation = { q.x, q.y, q.z, q.w };

@@ -1,8 +1,6 @@
 #pragma once
-// 16-band audio EQ (lobby-adjustable, persisted). Tunes the streamed ALVR audio
-// via the DSP in our client_core fork (eq.rs). Owns all EQ state + persistence +
-// the panel geometry; the render-loop interaction code reads these by the same
-// names (extern handles). Panel-local metres, +x right / +y up.
+// 16-band audio EQ (lobby-adjustable, persisted). Owns all EQ state + persistence
+// + panel geometry. Panel-local metres, +x right / +y up.
 #include <vector>
 #include <cstdint>
 
