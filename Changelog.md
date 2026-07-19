@@ -1,8 +1,6 @@
 # [Beta 1.1 (Unreleased)]()
 
-- Eye tracking now works by default on Neo 2 EYE (IR illuminators on at stream start)
-- Add EYE TRACKING on/off toggle in settings (SYSTEM tab, defaults on)
-- Toggling eye tracking re-notifies the server so it stops/starts consuming gaze
+- Eye tracking now always enabled on Neo 2 EYE (IR illuminators on at stream start, no toggle)
 
 # [Beta 1.0](https://github.com/openlyst/piconeo2-wivrn/releases/download/Beta-1.0/wivrn-pvr-Beta-1.0.apk)
 

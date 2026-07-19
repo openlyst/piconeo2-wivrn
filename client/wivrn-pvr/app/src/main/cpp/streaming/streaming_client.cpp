@@ -1070,12 +1070,11 @@ void streaming_client::send_headset_info()
 	info.fov[1] = eye_fov[1];
 
 	info.hand_tracking = false;
-	bool eyeOn = gEyeSupported.load() && gWivrnEyeTracking.load();
-	info.eye_gaze = eyeOn;
+	info.eye_gaze = gEyeSupported.load();
 	info.palm_pose = false;
 	info.user_presence = true;
 	info.passthrough = false;
-	info.face_tracking = eyeOn ? (from_headset::face_type)2 : (from_headset::face_type)0;
+	info.face_tracking = gEyeSupported.load() ? (from_headset::face_type)2 : (from_headset::face_type)0;
 	info.num_generic_trackers = 0;
 
 	// Request 10-bit encoding for better quality (eliminates banding

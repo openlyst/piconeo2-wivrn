@@ -1,7 +1,7 @@
 #include "eye_tracking.h"
 #include "pico_sdk.h"   // Pvr_GetEyeTrackingData / Pvr_Get/SetTrackingMode
 #include "log.h"
-#include "app_state.h"          // gEyeDebugOn (lobby EYE DEBUG toggle) + gWivrnEyeTracking
+#include "app_state.h"          // gEyeDebugOn (lobby EYE DEBUG toggle)
 #include <cmath>
 #include <cstring>
 #include <atomic>
@@ -28,10 +28,11 @@ static std::atomic<bool> gEyeIrOn{false};   // EYE bit currently set (server str
 static const int MODE_POSITION = 0x2, MODE_EYE = 0x4;
 
 // WiVRn has no server-side eye-tracking settings channel like ALVR's
-// face_tracking JSON. The client-side EYE TRACKING toggle (gWivrnEyeTracking,
-// default on) is the sole gate for the IR illuminators during streaming.
+// face_tracking JSON. Eye tracking is always enabled when the hardware
+// supports it (gEyeSupported check lives in applyEyeModeNow); there is no
+// user-facing toggle.
 static bool userEyeEnabled() {
-    return gWivrnEyeTracking.load();
+    return true;
 }
 
 void initEyeTrackingMode() {
