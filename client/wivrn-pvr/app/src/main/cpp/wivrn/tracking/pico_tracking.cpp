@@ -313,12 +313,15 @@ void pico_native_tracker::step_head_filter(const float pos[3], const neo2::quat 
 				avx = delta.x * k; avy = delta.y * k; avz = delta.z * k;
 			}
 
-			// EMA smoothing (dt-normalized, rate-stable). tau=0.1s for head:
-			// filters differentiation noise from the 300Hz position sampling
-			// without adding noticeable lag. The WiVRn server's 2nd-order
-			// polynomial interpolator amplifies velocity noise into positional
-			// overshoot, so smoothing here directly reduces motion sickness.
-			const float a = 1.0f - expf(-(float)dt / 0.1f);
+			// EMA smoothing (dt-normalized, rate-stable). tau=0.03s for head.
+			// The previous 0.1s tau lagged real head velocity by ~100ms during
+			// accel/decel, which made the server's predicted render pose swing
+			// behind then ahead of the actual head -> the PVR warp's rotational
+			// reprojection delta oscillated -> a visible "spring"/jitter on
+			// close objects (parallax-amplified), especially with one eye closed.
+			// 0.03s is fast enough to track head motion within a vsync while
+			// still filtering differentiation noise from the 300Hz sampling.
+			const float a = 1.0f - expf(-(float)dt / 0.03f);
 			head_lin_vel[0] += (lvx - head_lin_vel[0]) * a;
 			head_lin_vel[1] += (lvy - head_lin_vel[1]) * a;
 			head_lin_vel[2] += (lvz - head_lin_vel[2]) * a;
@@ -552,9 +555,25 @@ void pico_native_tracker::run()
 					if (correction < 0) correction = 0;
 					if (correction > 50000000LL) correction = 50000000LL;
 					int64_t prev = latency_correction_ns.load();
-					int64_t smoothed = (prev + correction) / 2;
-					latency_correction_ns.store(smoothed);
-					prediction_ns.store(base + smoothed);
+					// Deadband: ignore corrections that differ from the current
+					// value by less than 1.5ms. Network/decode jitter moves the
+					// measured-latency average by sub-ms amounts, and chasing
+					// that noise wobbled prediction_ns -> the server extrapolated
+					// by a different amount each sample -> the warp's reprojection
+					// delta oscillated (the "spring"). 1.5ms is below one vsync
+					// at 72Hz (~13.9ms) so it's invisible either way.
+					int64_t delta = correction - prev;
+					int64_t smoothed = prev;
+					if (delta > 1500000LL || delta < -1500000LL)
+					{
+						// Slow EMA (gain 0.15) so a step change in pipeline
+						// latency converges over ~7 samples (~700ms) instead of
+						// the old 0.5-gain that wobbled on every noisy sample.
+						smoothed = prev + delta - (delta * 85 / 100);
+						// (equivalent to prev + delta*0.15 without float math)
+						latency_correction_ns.store(smoothed);
+						prediction_ns.store(base + smoothed);
+					}
 					spdlog::info("Prediction adjusted: base={}ms measured={}ms target={}ms correction={}ms total={}ms",
 						base / 1000000, measured / 1000000,
 						target / 1000000, smoothed / 1000000,
