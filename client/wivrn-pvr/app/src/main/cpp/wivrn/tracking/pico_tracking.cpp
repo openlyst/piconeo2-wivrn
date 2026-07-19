@@ -435,15 +435,17 @@ void pico_native_tracker::run()
 			}
 		}
 
-		// Read head pose from gHeadData, which is published by the render
-		// thread's tracking loop (which properly initializes the PVR SDK).
+		// Read head pose directly from the PVR SDK sensor instead of through
+		// gHeadData. The double-hop through gHeadData (published by the render
+		// thread's 300Hz tracking loop) caused sampling aliasing: two
+		// unsynchronized 300Hz loops meant the tracker sometimes read the same
+		// pose twice (zero velocity) then a double-delta (2x velocity),
+		// oscillating the velocity filter and causing reprojection jitter.
 		{
 			float qx, qy, qz, qw, px, py, pz;
-			{
-				std::lock_guard<std::mutex> lk(gHeadMutex);
-				qx = gHeadData[0]; qy = gHeadData[1]; qz = gHeadData[2]; qw = gHeadData[3];
-				px = gHeadData[4]; py = gHeadData[5]; pz = gHeadData[6];
-			}
+			float vfov, hfov; int viewNumber;
+			Pvr_GetMainSensorState(&qx, &qy, &qz, &qw, &px, &py, &pz,
+			                       &vfov, &hfov, &viewNumber);
 			{
 				std::lock_guard lock(state_mutex);
 				head_orient[0] = qx; head_orient[1] = qy; head_orient[2] = qz; head_orient[3] = qw;
@@ -457,7 +459,31 @@ void pico_native_tracker::run()
 
 				hw_velocity_valid = false;
 				neo2::quat hq = neo2::normalize_quat({qx, qy, qz, qw});
-				step_head_filter(h_pos, hq, ts);
+
+				// Only step the velocity filter when the pose has actually
+				// changed, or when enough time (10ms) has passed to decay
+				// stale velocity. The PVR SDK may update its sensor at a
+				// lower rate than our 300Hz loop; repeatedly reading the
+				// same pose and computing 0/dt=0 drags the EMA toward zero,
+				// then the next real sample spikes it. Skipping unchanged
+				// samples keeps the last valid velocity until a genuine new
+				// sample arrives (or the 10ms decay timeout fires).
+				if (head_filter_init)
+				{
+					float qdot = std::abs(hq.x*head_prev_orient.x + hq.y*head_prev_orient.y
+					                    + hq.z*head_prev_orient.z + hq.w*head_prev_orient.w);
+					float dpos = std::abs(px - head_prev_pos[0])
+					           + std::abs(py - head_prev_pos[1])
+					           + std::abs(pz - head_prev_pos[2]);
+					int64_t dt_since_filter = (int64_t)(ts - head_prev_ts);
+					bool pose_changed = (qdot < 0.999999f || dpos > 1e-6f);
+					if (pose_changed || dt_since_filter > 10000000LL)
+						step_head_filter(h_pos, hq, ts);
+				}
+				else
+				{
+					step_head_filter(h_pos, hq, ts);
+				}
 			}
 		}
 
@@ -549,7 +575,14 @@ void pico_native_tracker::run()
 				if (measured > 0)
 				{
 					int64_t base = base_prediction_ns.load();
-					constexpr int64_t photon_safety_ns = 3'000000LL;
+					// Photon safety margin: the measured latency (encode_begin
+					// to submit) doesn't include the warp's own present latency
+					// (submit to photon = ~half a vsync at 72Hz ~= 7ms). Without
+					// this margin we systematically under-predict, making the
+					// server render at a pose behind where the head actually is
+					// at photon time -> the world feels like it lags behind head
+					// motion. 10ms covers the warp present + jitter margin.
+					constexpr int64_t photon_safety_ns = 10'000000LL;
 					int64_t target = measured + photon_safety_ns;
 					int64_t correction = target - base;
 					if (correction < 0) correction = 0;
