@@ -39,7 +39,7 @@ jobs:
           packages: 'ndk;26.3.11579264 cmake;3.22.1'
 
       - name: Decode signing keystore
-        working-directory: client/wivrn-pvr
+        working-directory: src
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > wivrn-release.keystore
           cat > ../keystore.properties <<'PROPS'
@@ -92,13 +92,13 @@ jobs:
           echo "version=${{ steps.version.outputs.version }}" >> "$GITHUB_OUTPUT"
 
       - name: Build release APK
-        working-directory: client/wivrn-pvr
+        working-directory: src
         run: ./gradlew :app:assembleRelease --no-daemon
 
       - name: Rename APK
         run: |
           mkdir -p artifacts
-          cp client/wivrn-pvr/app/build/outputs/apk/release/app-release.apk \
+          cp src/app/build/outputs/apk/release/app-release.apk \
              artifacts/wivrn-pvr-${{ steps.final.outputs.tag }}.apk
 
       - name: Upload APK artifact
@@ -140,6 +140,6 @@ jobs:
 
       - name: Clean up signing secrets
         if: always()
-        working-directory: client/wivrn-pvr
+        working-directory: src
         run: |
           rm -f wivrn-release.keystore ../keystore.properties
