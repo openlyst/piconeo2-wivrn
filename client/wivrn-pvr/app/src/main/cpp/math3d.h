@@ -55,11 +55,10 @@ inline Mat4 mat4Transpose3x3(const Mat4 &a) {  // inverse of a pure rotation
     return r;
 }
 
-// Quaternion helpers for rotational TimeWarp. Hamilton convention (x,y,z,w),
-// matching quatToMat4 above and the ALVR/Pico pose frame.
+// Quaternion helpers for rotational TimeWarp. Hamilton convention (x,y,z,w).
 struct Quat { float x, y, z, w; };
 inline Quat quatConj(Quat q) { return { -q.x, -q.y, -q.z, q.w }; }
-inline Quat quatMul(Quat a, Quat b) {   // a * b
+inline Quat quatMul(Quat a, Quat b) {
     return {
         a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
         a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,

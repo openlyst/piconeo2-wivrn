@@ -15,10 +15,9 @@ bool gIsEyeHw = false;
 
 void toUpperAscii(char *s) { for (; *s; ++s) if (*s >= 'a' && *s <= 'z') *s -= 32; }
 
-// Read the AUTHORITATIVE Pico hardware model. Build.MODEL is "Pico Neo 2" on BOTH
-// the Neo 2 and the Neo 2 EYE, so it can't distinguish them; the vendor property
-// pxr.vendorhw.product.model reports "Pico Neo 2 Eye" and pxr.vendorhw.eye=1 is
-// the definitive eye-hardware flag. Uppercased to match the 5x7 bitmap font.
+// Build.MODEL is "Pico Neo 2" on both Neo 2 and Neo 2 EYE, so use the vendor
+// property pxr.vendorhw.product.model to distinguish them. pxr.vendorhw.eye=1
+// is the definitive eye-hardware flag. Uppercased for the 5x7 bitmap font.
 void readHeadsetModel(JNIEnv *env) {
     (void) env;
     char buf[PROP_VALUE_MAX] = {0};

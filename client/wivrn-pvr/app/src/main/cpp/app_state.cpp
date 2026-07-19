@@ -46,16 +46,10 @@ std::atomic<int> gFenceTimeouts{0};   // warp-submit fence-wait timeouts/sec
 std::atomic<uint64_t> gBattWarnStartNs{0};
 std::atomic<int>      gBattWarnPct{0};
 
-// ---------------------------------------------------------------------------
-// Unified persistence: one $HOME/config.txt, each setting on its own line as
-// raw values (no keys/labels -- positional, not meant to be hand-edited).
-// saveAllConfig() rewrites the whole file from the live atomics; every public
-// saveX() is a thin wrapper around it. loadAllConfig() reads the lines back in
-// the same fixed order at boot, clamping like the old per-file loaders did.
-// Line order:
-//   1 softIpd  2 eyeDebug  3 diagHud  4 theme  5 brightness(-1 = unset)
-//   6 eqActive  7 eqCustom1[16]  8 eqCustom2[16]
-// ---------------------------------------------------------------------------
+// Unified persistence: one $HOME/config.txt, positional raw values (not meant
+// to be hand-edited). saveAllConfig() rewrites the whole file; saveX() wrappers
+// just call it. Line order: softIpd, eyeDebug, diagHud, theme, brightness(-1=unset),
+// eqPreset, eqCustom1[16], eqCustom2[16], then appended fields (backward compatible).
 static inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
 static bool configPath(char *out, size_t n) {
@@ -78,10 +72,9 @@ void saveAllConfig() {
     fprintf(f, "%d\n",   gEqPresetIdx);
     for (int i = 0; i < kEqBands; i++) fprintf(f, "%.2f%c", gEqCustoms[0][i], i == kEqBands - 1 ? '\n' : ' ');
     for (int i = 0; i < kEqBands; i++) fprintf(f, "%.2f%c", gEqCustoms[1][i], i == kEqBands - 1 ? '\n' : ' ');
-    // Stream FOV: appended LAST so an older config.txt without it just leaves the
-    // default on load (backward compatible, no positional migration).
+    // Appended last for backward compat (old files without them keep defaults).
     fprintf(f, "%.2f\n", gStreamFovDeg.load());
-    // WiVRn settings (appended after FOV, backward compatible).
+    // WiVRn settings (appended, backward compatible).
     fprintf(f, "%d\n", gWivrnTcpOnly.load() ? 1 : 0);
     fprintf(f, "%.2f\n", gWivrnResolutionScale.load());
     fprintf(f, "%.0f\n", gWivrnBitrateMbps.load());
@@ -92,12 +85,9 @@ void saveAllConfig() {
     fclose(f);
 }
 
-// One-time migration: read the OLD per-setting files into the live atomics, then
-// delete every legacy file -- both the ones we migrate and the dead leftovers from
-// removed features (power toggles, the decoder buffer A/B toggle, eye_calib). The
-// caller writes the unified config.txt afterward. Returns true if any migratable
-// setting file existed. Runs only when config.txt is absent (i.e. once, after the
-// upgrade), so the device transparently converts old format -> new on next launch.
+// One-time migration: read old per-setting files into the live atomics, then
+// delete every legacy file (including dead leftovers from removed features).
+// Runs only when config.txt is absent. Returns true if any migratable file existed.
 static bool migrateLegacyConfig() {
     const char *home = getenv("HOME");
     if (!home) return false;
@@ -121,9 +111,8 @@ static bool migrateLegacyConfig() {
             for (int i = 0; i < kEqBands; i++) { float g; if (fscanf(f, "%f", &g) != 1) break; gEqCustoms[s][i] = clampf(g, -kEqGainMax, kEqGainMax); }
         fclose(f);
     }
-    // Sweep away every legacy file: the migrated ones above plus dead leftovers from
-    // removed features (maxpower/adaptive_power toggles, the decoder buffer A/B
-    // toggle's low_latency/buffer_frames, and the unused eye_calib).
+    // Sweep away every legacy file: migrated ones plus dead leftovers from
+    // removed features (power toggles, decoder buffer A/B, eye_calib).
     static const char *kLegacy[] = {
         "software_ipd.txt", "eye_debug.txt", "diag_hud.txt", "theme.txt", "brightness.txt",
         "eq_profile.txt",
@@ -138,8 +127,7 @@ void loadAllConfig() {
     if (!configPath(path, sizeof(path))) return;
     FILE *f = fopen(path, "r");
     if (!f) {
-        // No unified file yet: migrate the old per-setting files (and sweep dead
-        // leftovers), then bake the result into config.txt for all future launches.
+        // No unified file yet: migrate old per-setting files, then bake into config.txt.
         if (migrateLegacyConfig()) { saveAllConfig(); LOGI("config: migrated legacy files -> %s", path); }
         else                       { LOGI("config: no saved file, using defaults"); }
     } else {
@@ -177,7 +165,7 @@ void loadAllConfig() {
     fclose(f);
     LOGI("config: loaded %s", path);
     }
-    // mirror the active EQ slot into the live gain set (the caller pushes it to the DSP)
+    // mirror the active EQ slot into the live gain set
     if (gEqPresetIdx < 0 || gEqPresetIdx >= kEqNumPresets) gEqPresetIdx = 0;
     for (int i = 0; i < kEqBands; i++) gEqGains[i] = gEqCustoms[gEqPresetIdx][i];
 }

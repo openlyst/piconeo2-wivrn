@@ -50,15 +50,11 @@ class pico_lobby
 	bool prev_trigger[2] = {false, false};
 	bool prev_head_trigger = false;
 
-	// Grip-to-grab state. When the user holds grip while pointing at the
-	// panel, the panel follows the controller freely in 3D space.
+	// Grip-to-grab: hold grip while pointing at the panel to drag it in 3D.
 	bool prev_grip[2] = {false, false};
 	bool grabbing = false;
 	int  grab_hand = -1;
-	// Grab point in panel-local UV (-1..1) and distance from controller
-	// to the grab point, both captured at grab start. Each frame we
-	// project a point at that distance along the controller ray and
-	// offset by the panel-local grab UV to get the new panel center.
+	// Grab UV (-1..1) and distance, captured at grab start.
 	float grab_u = 0;
 	float grab_v = 0;
 	float grab_dist = 0;

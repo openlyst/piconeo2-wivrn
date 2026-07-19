@@ -1,6 +1,6 @@
 #include "eq_panel.h"
-#include "app_state.h"  // saveAllConfig (EQ now lives in the unified config.txt)
-#include "ui_kit.h"     // appendTextLine / appendQuad / uiTextL
+#include "app_state.h"  // saveAllConfig
+#include "ui_kit.h"
 #include "log.h"
 #include <cstdio>
 #include <cstdlib>      // getenv
@@ -33,28 +33,25 @@ void applyEqPreset(int idx) {
     saveEqProfile();
     LOGI("EQ: switched to %s", kEqPresetNames[idx]);
 }
-// EQ state (active slot + the two custom curves) is persisted in the unified
-// $HOME/config.txt; saving just rewrites that whole file via saveAllConfig().
+// EQ state persisted in $HOME/config.txt via saveAllConfig().
 void saveEqProfile() { saveAllConfig(); }
 
-// Build the EQ panel: title + RESET button + 16 faders + readout + preset
-// dropdown, in panel-local metres. Hover flags brighten the targeted control.
+// Build the EQ panel: title + RESET + 16 faders + readout + preset dropdown.
 void buildEqVerts(std::vector<float> &v, int hoverBand, bool resetHover,
                   bool headerHover, int presetHoverItem) {
     const float px = kEqText;   // 1x text
-    appendTextLine(v, "AUDIO EQ", kEqTitleY, px, kUiTitle[0], kUiTitle[1], kUiTitle[2]);   // title
+    appendTextLine(v, "AUDIO EQ", kEqTitleY, px, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
 
     // RESET button (centred, between the faders/readout and the preset dropdown).
     {
         float rr = resetHover ? 0.55f : 0.30f, rg = resetHover ? 0.30f : 0.18f, rb = resetHover ? 0.30f : 0.18f;
         appendQuad(v, kEqResetX0, kEqResetYTop, kEqResetX1, kEqResetYBot, rr, rg, rb);
         float cx = (kEqResetX0 + kEqResetX1) * 0.5f;
-        // appendTextLine centres on x=0, so build the label there and shift it to the
-        // button centre (cx) below.
-        float rpx = px * 0.78f;   // smaller so RESET fits the narrower right-side button
+        // appendTextLine centres on x=0, so build the label there and shift to cx.
+        float rpx = px * 0.78f;   // smaller so RESET fits the button
         std::vector<float> tmp;
         appendTextLine(tmp, "RESET", (kEqResetYTop+kEqResetYBot)*0.5f + 3.5f*rpx, rpx, 1,1,1);
-        for (size_t i = 0; i < tmp.size(); i += 6) tmp[i] += cx;   // shift x to button centre
+        for (size_t i = 0; i < tmp.size(); i += 6) tmp[i] += cx;
         v.insert(v.end(), tmp.begin(), tmp.end());
     }
 
@@ -93,7 +90,7 @@ void buildEqVerts(std::vector<float> &v, int hoverBand, bool resetHover,
         float hr = headerHover ? 0.40f : 0.22f, hg = headerHover ? 0.40f : 0.22f, hb = headerHover ? 0.48f : 0.28f;
         appendQuad(v, kEqPresetX0, kEqPresetYTop, kEqPresetX1, kEqPresetYBot, hr, hg, hb);
         char hbuf[40];
-        const char *pn = kEqPresetNames[gEqPresetIdx];   // 0..5 always valid (0 = CUSTOM)
+        const char *pn = kEqPresetNames[gEqPresetIdx];
         snprintf(hbuf, sizeof(hbuf), "PRESET: %s %s", pn, gEqPresetOpen ? "^" : "~");
         appendTextLine(v, hbuf, (kEqPresetYTop+kEqPresetYBot)*0.5f + 3.5f*px, px, 1, 1, 1);
     }

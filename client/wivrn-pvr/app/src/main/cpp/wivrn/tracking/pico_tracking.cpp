@@ -31,15 +31,8 @@ constexpr float k_rot_swing = 1.0f;
 
 constexpr float k_predict = 1.0f;
 
-// Head linear-velocity prediction scale. Unlike controllers (hardware gyro +
-// short-tau translation), the head has no hardware velocity on this SDK, so
-// its velocity is entirely differentiated position. Full-strength (1.0)
-// differentiated velocity, fed to the server's polynomial extrapolator, turns
-// any residual differentiation noise into visible positional overshoot on
-// every frame (a "spring" on the whole view). Matches the value proven
-// stable in the legacy ALVR fork's head-velocity path. Angular velocity is
-// left unscaled: the local warp already reprojects orientation every vsync,
-// so the server-side angular reach isn't the lever here.
+// Head has no hardware velocity on this SDK; it's differentiated position.
+// Full-strength causes positional overshoot. 0.4 matches the legacy ALVR fork.
 constexpr float k_head_lin_predict = 0.4f;
 
 neo2::quat apply_controller_orientation(const float raw_orient[4], int hand)
@@ -100,9 +93,7 @@ void pico_native_tracker::start()
 	if (running.load())
 		return;
 	running = true;
-	// Preserve height calibration across reconnects. Resetting here forces a
-	// recalibration to 1.5m on the first head pose, which breaks the height if
-	// the user already calibrated (e.g. sitting down). Only an explicit recenter
+	// Preserve height calibration across reconnects; only explicit recenter
 	// should recalibrate.
 	thread = std::thread([this] { run(); });
 	spdlog::info("Native tracker started (height_calibrated={})", height_calibrated);
@@ -299,19 +290,10 @@ void pico_native_tracker::update_controller_from_jni(int hand, int conn, const f
 
 void pico_native_tracker::step_head_filter(const float pos[3], const neo2::quat & orient, uint64_t ts)
 {
-	// The pose reaching this function is relayed through gHeadData by a
-	// SEPARATE 300Hz thread (the render thread's tracking loop) that calls
-	// the PVR SDK on its own, unsynchronized clock. Because the two 300Hz
-	// loops beat against each other, this loop frequently observes the exact
-	// same sensor sample more than once before the producer publishes a new
-	// one. Differencing a bit-identical duplicate yields a spurious
-	// near-zero velocity sample every time that happens, which then has to
-	// be overcome again by the next genuine sample -- that alternation
-	// between "duplicate drags velocity toward zero" and "real sample spikes
-	// it back up" is exactly the oscillation the server's polynomial
-	// extrapolator turns into a visible spring on the whole view. Skip
-	// duplicates entirely (and don't touch head_prev_ts) so dt accumulates
-	// across them and only genuinely new samples feed the filter.
+	// Two 300Hz loops (this one and the render thread's) beat against each
+	// other, so we frequently see the same sample twice. Differencing a
+	// duplicate yields spurious zero velocity; skip it so dt accumulates
+	// across duplicates and only genuinely new samples feed the filter.
 	if (head_filter_init && pos[0] == head_prev_pos[0] && pos[1] == head_prev_pos[1] &&
 	    pos[2] == head_prev_pos[2] && orient.x == head_prev_orient.x &&
 	    orient.y == head_prev_orient.y && orient.z == head_prev_orient.z &&
@@ -344,13 +326,8 @@ void pico_native_tracker::step_head_filter(const float pos[3], const neo2::quat 
 				avx = delta.x * k; avy = delta.y * k; avz = delta.z * k;
 			}
 
-			// EMA smoothing (dt-normalized, rate-stable). tau=0.66s for head,
-			// matching the value proven stable in the legacy ALVR fork's
-			// head-velocity path (same differentiation source: no hardware
-			// head velocity on this SDK). The WiVRn server's 2nd-order
-			// polynomial interpolator amplifies velocity noise into positional
-			// overshoot, so smoothing here directly reduces motion sickness;
-			// a short tau lets differentiation noise straight through.
+			// EMA smoothing, tau=0.66s. The server's polynomial interpolator
+			// amplifies velocity noise into positional overshoot.
 			const float a = 1.0f - expf(-(float)dt / 0.66f);
 			head_lin_vel[0] += (lvx - head_lin_vel[0]) * a;
 			head_lin_vel[1] += (lvy - head_lin_vel[1]) * a;
@@ -409,8 +386,8 @@ void pico_native_tracker::step_ctrl_filter(int hand, const float pos_m[3], const
 				}
 			}
 
-			// EMA smoothing, tau=0.05s for controllers (faster than head's
-			// 0.1s — controllers need less lag for responsive interaction).
+			// EMA smoothing, tau=0.05s (faster than head; controllers need
+			// less lag for responsive interaction).
 			const float a = 1.0f - expf(-(float)dt / 0.05f);
 			ctrl_lin_vel[hand][0] += (lvx - ctrl_lin_vel[hand][0]) * a;
 			ctrl_lin_vel[hand][1] += (lvy - ctrl_lin_vel[hand][1]) * a;
@@ -465,8 +442,8 @@ void pico_native_tracker::run()
 			}
 		}
 
-		// Read head pose from gHeadData, which is published by the render
-		// thread's tracking loop (which properly initializes the PVR SDK).
+		// Read head pose from gHeadData (published by the render thread's
+		// tracking loop, which initializes the PVR SDK).
 		{
 			float qx, qy, qz, qw, px, py, pz;
 			{
@@ -638,15 +615,9 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 	from_headset::tracking pkt{};
 
 	pkt.production_timestamp = headset_ns;
-	// Send the pose at production_timestamp (when it was actually sampled).
-	// The server's polynomial interpolator uses this timestamp as the time
-	// axis for the pose — it will extrapolate from here to the target display
-	// time using the velocity we provide. The official WiVRn client sets
-	// timestamp = t0 + prediction_ns because OpenXR's xrLocateSpace already
-	// extrapolates the pose to that time; we don't have that, so we must NOT
-	// add prediction_ns (that would tell the server the pose is already at
-	// the predicted time, causing it to skip extrapolation and leaving the
-	// full pipeline latency as uncorrected motion delay).
+	// Send the pose at production_timestamp. The official WiVRn client adds
+	// prediction_ns because OpenXR already extrapolates; we don't have that,
+	// so we must NOT add it (the server would skip extrapolation).
 	pkt.timestamp = to_xr_time(headset_ns);
 
 	pkt.view_flags = XR_VIEW_STATE_ORIENTATION_VALID_BIT |
@@ -667,9 +638,8 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 	float h_offset = floor_relative.load() ? 0.0f : height_offset.load();
 	head_pose.position = {h_pos[0], h_pos[1] + h_offset, h_pos[2]};
 
-	// Pico Neo 2 has a square ~101 degree per-eye FOV (same H and V).
-	// The OpenXR runtime may report incorrect/wider FOV values that make
-	// everything look too small. Use the known-correct value from the Pico SDK.
+	// Pico Neo 2 has a square ~101 degree per-eye FOV. The OpenXR runtime
+	// may report wider values; use the known-correct value from the Pico SDK.
 	constexpr float k_fov_half = 101.0f * 0.5f * 0.01745329252f;
 	float ipd = softIpdM();
 	for (int eye = 0; eye < 2; eye++)

@@ -1,17 +1,12 @@
 #pragma once
-// Standardized immediate-mode lobby UI kit + 5x7 bitmap font. Pure geometry
-// emitters: each widget appends pos.xyz+rgb triangles into a vertex vector
-// (panel-local metres, +x right / +y up). No GL, no app state. The caller draws
-// the vector and hit-tests with uiHit() against the SAME UiRect it passed.
+// Immediate-mode lobby UI kit + 5x7 bitmap font. Pure geometry emitters: each
+// widget appends pos.xyz+rgb triangles into a vertex vector (panel-local metres).
 #include <vector>
 
-// ---- text ----------------------------------------------------------------
-// Append one horizontally-centred line of text as filled quads. px = metres per
-// font pixel; yTop = baseline of the top row; colour r,g,b.
+// Append one centred line of text as filled quads. px = metres per font pixel.
 void appendTextLine(std::vector<float> &v, const char *s, float yTop,
                     float px, float r, float g, float b);
-// Append a filled rectangle (two triangles, z=0), top-left (xL,yTop) to
-// bottom-right (xR,yBot).
+// Filled rectangle (two triangles, z=0), top-left (xL,yTop) to bottom-right (xR,yBot).
 void appendQuad(std::vector<float> &v, float xL, float yTop, float xR, float yBot,
                 float r, float g, float b);
 
@@ -33,9 +28,7 @@ extern const float kUiOff[3];
 extern const float kUiWhite[3];
 extern float       kUiTitle[3];    // title/label text (themeable: light blue <-> cream)
 
-// Apply the lobby UI theme: false = cold blue (default), true = amber terminal.
-// Recolours kUiFill (accent) + kUiTitle. White stays white. Call on startup and
-// whenever the theme toggles.
+// Apply the lobby UI theme: false = blue (default), true = amber terminal.
 void applyUiTheme(bool amber);
 
 void uiBox(std::vector<float> &v, const UiRect &r, const float c[3]);

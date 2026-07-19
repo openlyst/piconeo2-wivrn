@@ -1,10 +1,7 @@
 #pragma once
-// Single unified lobby SETTINGS window, now DATA-DRIVEN. The window chrome (panel
-// background, sidebar tabs, header, close button, scroll + clip + scrollbar) lives
-// here; the CONTENT of each category is a list of MenuItems (see menu_model.h) that
-// this panel lays out, draws, and hit-tests generically. Categories are dynamic --
-// the sidebar shows one tab per MenuCategory in the model, so adding a category (or
-// an item) needs no layout math here. Panel-local metres, +x right / +y up.
+// Data-driven lobby SETTINGS window. Window chrome (panel, sidebar tabs, header,
+// close, scroll/clip/scrollbar) lives here; each category's content is a list of
+// MenuItems laid out generically. Panel-local metres, +x right / +y up.
 #include <vector>
 #include "ui_kit.h"
 #include "menu_model.h"
@@ -13,9 +10,8 @@
 extern bool gSettingsOpen;   // panel shown
 extern int  gSettingsCat;    // active category = index into settingsModel()
 
-// The menu model (core categories + any extras). Built once on first use; item
-// values are read live, so it never needs rebuilding. Use this for the category
-// count, names, and content.
+// The menu model (core categories + extras). Built once on first use; item
+// values are read live, so it never needs rebuilding.
 MenuModel &settingsModel();
 int  settingsNumCats();                  // settingsModel().size()
 void settingsClampCat();                 // keep gSettingsCat in range
@@ -40,10 +36,10 @@ constexpr float kSbX = 0.585f, kSbW = 0.012f;
 UiRect settingsTabRect(int i);
 
 // ---- measure / build ------------------------------------------------------
-// Measure the active category, clamp its scroll, and return the offset that maps
-// builder-local content coords into panel-local + the total content height.
+// Measure the active category, clamp scroll, return the builder-local -> panel
+// offset and total content height.
 void settingsMeasure(float &offX, float &offY, float &contentH);
 // Emit the whole panel (bg + sidebar + header + close + scroll-clipped content +
-// scrollbar). `content` highlights the hovered item; tabHover/closeHover the chrome.
+// scrollbar).
 void buildSettingsPanel(std::vector<float> &v, float offX, float offY, float contentH,
                         const MenuHover &content, int tabHover, bool closeHover);

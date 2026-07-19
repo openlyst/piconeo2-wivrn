@@ -5,12 +5,9 @@
 #include <cstring>
 #include <cstdlib>   // atof
 
-// Parse a float that follows a JSON key, e.g. "center_size_x":0.66 -> 0.66.
-// Lightweight (no JSON lib): finds "<key>": and atof's what follows.
-// Single forward pass -- search from *cursor (the keys are serialized in struct
-// order, so each is found just past the previous one), advancing *cursor on a hit.
-// If a key isn't ahead of the cursor (server reordered/omitted it), fall back to a
-// full scan from `json` so correctness never depends on the ordering.
+// Lightweight JSON float extractor: finds "<key>": and atof's what follows.
+// Forward pass from *cursor (keys are in struct order); falls back to full scan
+// from json if a key isn't ahead of the cursor (server reordered/omitted it).
 static float jsonFloatFwd(const char *json, const char **cursor, const char *key, float dflt) {
     char pat[64];
     int n = snprintf(pat, sizeof(pat), "\"%s\":", key);
@@ -21,10 +18,8 @@ static float jsonFloatFwd(const char *json, const char **cursor, const char *key
     return (float) atof(*cursor);
 }
 
-// Read the server's foveation params from the (StreamingStarted-updated) settings
-// JSON into out[6] = {csx,csy,shx,shy,erx,ery}. `sj` is static (off-stack);
-// parsed in one forward pass (see jsonFloatFwd). Event-time only (config changes),
-// not a per-frame path.
+// Read server foveation params from the settings JSON into out[6] =
+// {csx,csy,shx,shy,erx,ery}. Event-time only (config changes), not per-frame.
 void readFoveationParams(float out[6]) {
     static char sj[65536];
     alvr_get_settings_json_bounded(sj, sizeof(sj));   // bounded; NUL-terminated within cap

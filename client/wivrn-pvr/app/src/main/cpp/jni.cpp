@@ -1,6 +1,5 @@
-// JNI entry points called from MainActivity. Thin: they latch input / publish
-// state into the shared modules and start/stop the render thread; all the work
-// happens on the render thread (render_thread.cpp).
+// JNI entry points called from MainActivity. Thin: latch input / publish state
+// and start/stop the render thread.
 #include <jni.h>
 #include <android/native_window_jni.h>
 #include <pthread.h>
@@ -28,34 +27,30 @@ static bool g_home_pressed = false;
 static constexpr double HOME_RECENTER_THRESHOLD_MS = 500.0;
 
 // Full recenter: tracker height calibration + Pvr sensor reset + lobby panel
-// re-anchor. Called from HMD home press, controller home long-press,
-// and the Java nativeRecenter entry point. The lobby recenter is deferred to
-// the render thread (via lobby_recenter_requested) because it needs the head
-// rotation matrix which is only available there.
+// re-anchor. Lobby recenter is deferred to the render thread (needs head rotation).
 static void do_full_recenter()
 {
     LOGI("full recenter triggered");
 
     if (g_stream)
     {
-        // Capture the current standing height BEFORE the sensor reset zeroes
-        // the position. recenter_height() stores head_pos.y + height_offset
-        // as the new offset so the server still sees the correct eye height
-        // after the reset makes Y=0.
+        // Capture standing height BEFORE the sensor reset zeroes position.
+        // recenter_height() stores head_pos.y + offset so the server still sees
+        // correct eye height after the reset makes Y=0.
         g_stream->tracker.recenter_height();
         g_stream->tracker.recenter_requested.store(true);
         g_stream->tracker.lobby_recenter_requested.store(true);
     }
 
-    // Full sensor reset: reset position + orientation (including tilt for 3DoF),
-    // then recenter the head tracker so the current facing becomes forward.
+    // Full sensor reset: position + orientation (including tilt for 3DoF),
+    // then recenter head tracker so current facing becomes forward.
     Pvr_ResetSensorAll();
     svrRecenterOrientation();
     recenterHeadTrackerAW();
     LOGI("recenter: ResetSensorAll + svrRecenterOrientation + recenterHeadTrackerAW done");
 }
 
-// Called once (onCreate) to start the long-lived render thread.
+// Called once (onCreate) to start the render thread.
 extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thiz,
                                                 jobject activity) {
@@ -67,7 +62,7 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
     g_onLobbyTouchMethod = env->GetMethodID(clazz, "onLobbyTouch", "(FFZZF)V");
     LOGI("nativeStart: onLobbyTouch method=%p", g_onLobbyTouchMethod);
     // VrActivity ships in the Pico system runtime; guard against a firmware that
-    // lacks it so callVrStatic() degrades to a no-op instead of dereferencing null.
+    // lacks it so callVrStatic() degrades to a no-op instead of crashing.
     jclass localVr = env->FindClass("com/psmart/vrlib/VrActivity");
     if (localVr) {
         gVrClass = (jclass) env->NewGlobalRef(localVr);
@@ -84,7 +79,6 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
         g_stream->vm = gVM;
         g_stream->activity = gActivity;
         g_stream->tracker.pvr_sensor_mode.store(true);
-        // Sync config atomics -> streaming client.
         g_stream->bitrate_mbps.store((int)gWivrnBitrateMbps.load());
         g_stream->max_bitrate_mbps.store((int)gWivrnBitrateMbps.load());
         g_stream->microphone_enabled.store(gWivrnMicrophone.load());
@@ -96,7 +90,7 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
     pthread_create(&gThread, nullptr, renderThread, nullptr);
 }
 
-// surfaceCreated/Changed -> hand the (new) window to the render thread.
+// surfaceCreated/Changed -> hand the window to the render thread.
 extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSurfaceChanged(JNIEnv *env, jobject thiz,
                                                          jobject surface) {
@@ -106,7 +100,7 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSurfaceChanged(JNIEnv *env, jo
     setWindow(win);
 }
 
-// surfaceDestroyed -> tell the render thread to drop the surface (pause).
+// surfaceDestroyed -> tell the render thread to drop the surface.
 extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSurfaceDestroyed(JNIEnv *env, jobject thiz) {
     (void) env; (void) thiz;
@@ -115,22 +109,19 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSurfaceDestroyed(JNIEnv *env, 
 }
 
 // Headset key events (forwarded from MainActivity.onKeyDown). The side OK button
-// (Pico custom keycode 1001) is the "select" click: the render loop commits the
-// Software-IPD value the head-gaze crosshair is currently pointing at. ENTER/
-// DPAD_CENTER/BUTTON_A kept as alternates. We only latch an edge here; the actual
-// value comes from the gaze-vs-slider hit computed on the render thread.
+// (Pico keycode 1001) is the "select" click for the Software-IPD slider.
+// ENTER/DPAD_CENTER/BUTTON_A are alternates. We only latch an edge here.
 extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeKeyEvent(JNIEnv *env, jobject thiz,
                                                    jint keyCode, jboolean down) {
     (void) env; (void) thiz;
     bool isOk = (keyCode == 1001 || keyCode == 66 || keyCode == 23 || keyCode == 96);
-    if (isOk) gOkHeld.store(down == JNI_TRUE);   // track held state (gaze EQ drag)
-    if (keyCode == 1001) gSideHeld.store(down == JNI_TRUE);  // side button (5s hold = lobby toggle)
+    if (isOk) gOkHeld.store(down == JNI_TRUE);   // gaze EQ drag
+    if (keyCode == 1001) gSideHeld.store(down == JNI_TRUE);  // 5s hold = lobby toggle
 
     // HMD home button -> full recenter. The Pico system sends repeated key-down
-    // events (keyCode=3) for the held home button and may not deliver a key-up
-    // (the system intercepts it for the shortcut panel). Fire on the initial
-    // press edge only.
+    // events for the held home button and may not deliver a key-up. Fire on the
+    // initial press edge only.
     if (keyCode == 3 /* AKEYCODE_HOME */) {
         if (down == JNI_TRUE && !g_home_pressed) {
             g_home_pressed = true;
@@ -148,8 +139,7 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeKeyEvent(JNIEnv *env, jobject 
 }
 
 // Per-hand controller snapshot pushed from the Java ControllerClient poller.
-// hand 0=left/1=right; sensor = float[7]{qx,qy,qz,qw,px,py,pz}; angVel=float[3];
-// keys = int[] (touchpad x,y then button slots).
+// hand 0=left/1=right; sensor = float[7]{qx,qy,qz,qw,px,py,pz}; keys = int[].
 extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeGetHeadData(
         JNIEnv *env, jobject thiz, jfloatArray out) {
@@ -194,11 +184,8 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeControllerState(
         g_stream->tracker.update_controller_from_jni(hand, conn, sensor, s.angVel, keys12);
     }
 #ifndef NDEBUG
-    // DEV-ONLY controller logging: runs on every ~90Hz per-hand state push, so the
-    // snprintf + logcat is pure overhead during streaming. Compiled out of the
-    // optimized (-DNDEBUG) build; kept for button-slot mapping in local debug builds.
-    // Log full key array whenever a button slot (>=2) changes -> map slots. Runs
-    // in the JNI sink so it works in the lobby (not gated on the streaming loop).
+    // DEV-ONLY: compiled out of the optimized build. Logs the full key array
+    // whenever a button slot (>=2) changes, for mapping slots in debug builds.
     {
         static int  lastK[2][16];
         static bool lkI[2] = { false, false };
@@ -225,10 +212,8 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeControllerState(
 #endif // NDEBUG
 }
 
-// Drain a pending controller rumble for `hand` (0=L/1=R), set by the render
-// thread's ALVR HAPTICS handler. Returns true and fills out[0]=amplitude(0..1),
-// out[1]=durationMs when a pulse is waiting; the Java poller then calls
-// ControllerClient.vibrateCV2ControllerStrength(out[0], (int)out[1], hand).
+// Drain a pending controller rumble for `hand` (0=L/1=R). Returns true and fills
+// out[0]=amplitude(0..1), out[1]=durationMs when a pulse is waiting.
 extern "C" JNIEXPORT jboolean JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeDrainHaptic(
         JNIEnv *env, jobject thiz, jint hand, jfloatArray out) {
@@ -259,8 +244,7 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeDrainHaptic(
     return JNI_TRUE;
 }
 
-// Proximity sleep toggle from the Java proximity listener. true = off-head timeout
-// elapsed -> the render thread pauses the stream; false = donned -> resume.
+// Proximity sleep toggle. true = off-head -> pause stream; false = donned -> resume.
 extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetSleep(JNIEnv *env, jobject thiz, jboolean sleep) {
     (void) env; (void) thiz;
@@ -268,9 +252,7 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetSleep(JNIEnv *env, jobject 
     LOGI("nativeSetSleep(%d)", (int)(sleep == JNI_TRUE));
 }
 
-// Test hook (fired from adb via a broadcast, see MainActivity): arm the low-battery
-// popup at `pct` without waiting for a real battery crossing. Sets exactly the state
-// pollBatteryWarn() would, so the render loop's drawBatteryWarn picks it up.
+// Test hook (fired from adb via a broadcast): arm the low-battery popup at `pct`.
 extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeTestBatteryWarn(JNIEnv *env, jobject thiz, jint pct) {
     (void) env; (void) thiz;
@@ -291,8 +273,7 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStop(JNIEnv *env, jobject thiz
 }
 
 // Update the lobby UI texture from Java-side Bitmap pixels (ARGB ints).
-// The per-pixel ARGB→RGBA conversion is done here in C++ instead of a slow
-// Java loop — 1.26M iterations in interpreted Java was the UI framerate killer.
+// Per-pixel ARGB->RGBA conversion done in C++ instead of a slow Java loop.
 extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeUpdateLobbyTexture(
         JNIEnv *env, jobject thiz, jintArray pixels, jint width, jint height) {
@@ -305,9 +286,8 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeUpdateLobbyTexture(
     gLobby->update_texture_argb(width, height, argb.data());
 }
 
-// Push the latest lobby pointer state back to the Java UI thread. Called from the
-// native render loop whenever the ray/pose state changes, so the cursor tracks the
-// controller/laser every native frame instead of waiting for a Java-side poll.
+// Push lobby pointer state to the Java UI thread so the cursor tracks the
+// controller/laser every native frame.
 void push_lobby_touch_to_java(int hand, float x, float y, bool down, bool pressed, float thumbstickY) {
     (void) hand;
     if (!gVM || !gActivity || !g_onLobbyTouchMethod) return;
@@ -328,9 +308,8 @@ void push_lobby_touch_to_java(int hand, float x, float y, bool down, bool presse
         gVM->DetachCurrentThread();
 }
 
-// Set the ALVR stream FOV (full per-eye degrees). Mirrors the release-commit slider
-// in the old settings_panel.cpp; the render thread picks up gFovDirty and reapplies
-// the warp mesh + view params.
+// Set the ALVR stream FOV (per-eye degrees). Render thread picks up gFovDirty
+// and reapplies the warp mesh + view params.
 extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetFov(
         JNIEnv *env, jobject thiz, jfloat fovDeg) {
