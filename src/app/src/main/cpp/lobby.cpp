@@ -520,11 +520,17 @@ void pico_lobby::draw_quad(const float head_orient[4], const float head_pos[3],
 	Mat4 view = mat4_view(head_orient, eye_pos);
 	Mat4 vp = mat4_mul(proj, view);
 
+	float dx = panel_pos[0] - head_pos[0];
+	float dy = panel_pos[1] - head_pos[1];
+	float dz = panel_pos[2] - head_pos[2];
+	float dist = sqrtf(dx*dx + dy*dy + dz*dz);
+	float s = dist / kPanelDist;
+
 	Mat4 model = mat4_mul(mat4_translate(panel_pos[0], panel_pos[1], panel_pos[2]),
 	                      mat4_mul(mat4_rotate_y(panel_yaw),
 	                      mat4_rotate_x(panel_pitch)));
 
-	Mat4 scale = mat4_scale(panel_w * 0.5f, panel_h * 0.5f, 1.0f);
+	Mat4 scale = mat4_scale(panel_w * 0.5f * s, panel_h * 0.5f * s, 1.0f);
 	model = mat4_mul(model, scale);
 
 	Mat4 mvp = mat4_mul(vp, model);
@@ -597,7 +603,6 @@ void pico_lobby::set_resolution(int w, int h)
 
 void pico_lobby::recenter(const float head_pos[3], float head_yaw)
 {
-	constexpr float kPanelDist = 0.8f;
 	float cy = std::cosf(head_yaw), sy = std::sinf(head_yaw);
 	panel_pos[0] = (head_pos ? head_pos[0] : 0.0f) - sy * kPanelDist;
 	panel_pos[1] = head_pos ? head_pos[1] : 0.0f;
@@ -608,7 +613,6 @@ void pico_lobby::recenter(const float head_pos[3], float head_yaw)
 
 void pico_lobby::recenter_facing(const float head_pos[3], float fwd_x, float fwd_z)
 {
-	constexpr float kPanelDist = 0.8f;
 	float n = sqrtf(fwd_x * fwd_x + fwd_z * fwd_z);
 	if (n < 1e-5f) { fwd_x = 0; fwd_z = -1; n = 1; }
 	fwd_x /= n; fwd_z /= n;
@@ -629,8 +633,13 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 	float normal[3] = {-sy, 0, cy};
 	float u_axis[3] = {cy, 0, sy};
 	float v_axis[3] = {0, 1, 0};
-	float half_w = panel_w * 0.5f;
-	float half_h = panel_h * 0.5f;
+	float dx = panel_pos[0] - head_pos[0];
+	float dy = panel_pos[1] - head_pos[1];
+	float dz = panel_pos[2] - head_pos[2];
+	float dist = sqrtf(dx*dx + dy*dy + dz*dz);
+	float s = dist / kPanelDist;
+	float half_w = panel_w * 0.5f * s;
+	float half_h = panel_h * 0.5f * s;
 
 	bool any_ctrl = controllers[0].connected || controllers[1].connected;
 

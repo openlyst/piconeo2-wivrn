@@ -79,6 +79,7 @@ class pico_lobby
 
 	static constexpr float panel_w = 0.8f;
 	static constexpr float panel_h = 0.51f;
+	static constexpr float kPanelDist = 0.8f;
 
 	void draw_quad(const float head_orient[4], const float head_pos[3],
 	               const XrFovf & fov, float ipd, int eye);
