@@ -4,6 +4,7 @@
 - New: Trade field of view for clarity with the FOV slider in video settings
 - New: In-app low battery warning at 15% and 5%
 - Fix the in-stream lobby panel drifting opposite to head movement
+- Fix lobby panel dragging from the grab point instead of the center
 - Lower the streaming CPU & GPU clock pin to cut heat and power
 - Boost streamed color saturation 15%
 
