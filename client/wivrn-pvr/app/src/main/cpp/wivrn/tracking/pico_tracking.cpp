@@ -31,6 +31,17 @@ constexpr float k_rot_swing = 1.0f;
 
 constexpr float k_predict = 1.0f;
 
+// Head linear-velocity prediction scale. Unlike controllers (hardware gyro +
+// short-tau translation), the head has no hardware velocity on this SDK, so
+// its velocity is entirely differentiated position. Full-strength (1.0)
+// differentiated velocity, fed to the server's polynomial extrapolator, turns
+// any residual differentiation noise into visible positional overshoot on
+// every frame (a "spring" on the whole view). Matches the value proven
+// stable in the legacy ALVR fork's head-velocity path. Angular velocity is
+// left unscaled: the local warp already reprojects orientation every vsync,
+// so the server-side angular reach isn't the lever here.
+constexpr float k_head_lin_predict = 0.4f;
+
 neo2::quat apply_controller_orientation(const float raw_orient[4], int hand)
 {
 	neo2::quat oq = {-raw_orient[0], -raw_orient[1], raw_orient[2], raw_orient[3]};
@@ -288,6 +299,25 @@ void pico_native_tracker::update_controller_from_jni(int hand, int conn, const f
 
 void pico_native_tracker::step_head_filter(const float pos[3], const neo2::quat & orient, uint64_t ts)
 {
+	// The pose reaching this function is relayed through gHeadData by a
+	// SEPARATE 300Hz thread (the render thread's tracking loop) that calls
+	// the PVR SDK on its own, unsynchronized clock. Because the two 300Hz
+	// loops beat against each other, this loop frequently observes the exact
+	// same sensor sample more than once before the producer publishes a new
+	// one. Differencing a bit-identical duplicate yields a spurious
+	// near-zero velocity sample every time that happens, which then has to
+	// be overcome again by the next genuine sample -- that alternation
+	// between "duplicate drags velocity toward zero" and "real sample spikes
+	// it back up" is exactly the oscillation the server's polynomial
+	// extrapolator turns into a visible spring on the whole view. Skip
+	// duplicates entirely (and don't touch head_prev_ts) so dt accumulates
+	// across them and only genuinely new samples feed the filter.
+	if (head_filter_init && pos[0] == head_prev_pos[0] && pos[1] == head_prev_pos[1] &&
+	    pos[2] == head_prev_pos[2] && orient.x == head_prev_orient.x &&
+	    orient.y == head_prev_orient.y && orient.z == head_prev_orient.z &&
+	    orient.w == head_prev_orient.w)
+		return;
+
 	if (head_filter_init)
 	{
 		double dt = (double)(ts - head_prev_ts) * 1e-9;
@@ -314,12 +344,14 @@ void pico_native_tracker::step_head_filter(const float pos[3], const neo2::quat 
 				avx = delta.x * k; avy = delta.y * k; avz = delta.z * k;
 			}
 
-			// EMA smoothing (dt-normalized, rate-stable). tau=0.1s for head:
-			// filters differentiation noise from the 300Hz position sampling
-			// without adding noticeable lag. The WiVRn server's 2nd-order
+			// EMA smoothing (dt-normalized, rate-stable). tau=0.66s for head,
+			// matching the value proven stable in the legacy ALVR fork's
+			// head-velocity path (same differentiation source: no hardware
+			// head velocity on this SDK). The WiVRn server's 2nd-order
 			// polynomial interpolator amplifies velocity noise into positional
-			// overshoot, so smoothing here directly reduces motion sickness.
-			const float a = 1.0f - expf(-(float)dt / 0.1f);
+			// overshoot, so smoothing here directly reduces motion sickness;
+			// a short tau lets differentiation noise straight through.
+			const float a = 1.0f - expf(-(float)dt / 0.66f);
 			head_lin_vel[0] += (lvx - head_lin_vel[0]) * a;
 			head_lin_vel[1] += (lvy - head_lin_vel[1]) * a;
 			head_lin_vel[2] += (lvz - head_lin_vel[2]) * a;
@@ -658,9 +690,9 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 	                from_headset::tracking::flags::linear_velocity_valid |
 	                from_headset::tracking::flags::angular_velocity_valid;
 	head_tp.linear_velocity = {
-		head_lin_vel[0] * k_predict,
-		head_lin_vel[1] * k_predict,
-		head_lin_vel[2] * k_predict};
+		head_lin_vel[0] * k_head_lin_predict,
+		head_lin_vel[1] * k_head_lin_predict,
+		head_lin_vel[2] * k_head_lin_predict};
 	head_tp.angular_velocity = {
 		head_ang_vel[0] * k_predict,
 		head_ang_vel[1] * k_predict,

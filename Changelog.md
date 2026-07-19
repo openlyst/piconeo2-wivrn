@@ -2,6 +2,7 @@
 
 - Reimplements eye tracking
 - Fix stereo IPD mismatch between server
+- Fix springing HMD tracking
 
 # [Beta 1.0](https://github.com/openlyst/piconeo2-wivrn/releases/download/Beta-1.0/wivrn-pvr-Beta-1.0.apk)
 
