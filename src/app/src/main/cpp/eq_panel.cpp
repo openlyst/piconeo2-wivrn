@@ -16,7 +16,7 @@ int      gEqPresetIdx  = 0;
 int      gDominantHand = 1;
 
 const char *kEqPresetNames[kEqNumPresets] = { "CUSTOM 1", "CUSTOM 2" };
-// Band centre frequencies for the readout (Hz) -- MUST match eq.rs CENTER_FREQS.
+// Band centre frequencies for the readout (Hz), MUST match eq.rs CENTER_FREQS.
 static const float kEqFreqs[kEqBands] = {
     31, 47, 71, 107, 161, 242, 364, 548, 825, 1242, 1869, 2813, 4234, 6373, 9593, 14438
 };

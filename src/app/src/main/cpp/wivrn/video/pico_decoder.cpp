@@ -453,7 +453,7 @@ void pico_video_decoder::output_loop()
 		}
 		else
 		{
-			// Non-blocking poll returned nothing — brief yield to avoid
+			// Non-blocking poll returned nothing: brief yield to avoid
 			// burning CPU while still responding quickly to new output.
 			std::this_thread::sleep_for(std::chrono::microseconds(200));
 		}

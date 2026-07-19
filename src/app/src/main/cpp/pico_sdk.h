@@ -1,6 +1,6 @@
 #pragma once
 // Prototypes for the prebuilt Pico (legacy Neo 2) native SDK we link against
-// (libPvr_UnitySDK.so). Most are reverse-engineered ABI contracts -- see the
+// (libPvr_UnitySDK.so). Most are reverse-engineered ABI contracts, see the
 // per-function notes. This header is the single place that documents them.
 
 extern "C" {

@@ -20,7 +20,7 @@ class pico_passthrough
 	GLuint ibo = 0;
 	int    index_count = 0;
 
-	// One texture per eye — the SBS camera frame is split into left/right
+	// One texture per eye: the SBS camera frame is split into left/right
 	// halves and uploaded to separate textures.
 	GLuint eye_tex[2] = {0, 0};
 

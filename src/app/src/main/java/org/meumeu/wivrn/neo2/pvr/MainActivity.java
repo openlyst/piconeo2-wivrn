@@ -125,7 +125,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     // doesn't take, and driving it off lifecycle hooks loops forever), we DEFER the
     // first and ONLY startControllerThread until both controllers have been reported
     // connected CONTINUOUSLY for a settle period. The service reports "connected"
-    // instantly on bind (stale/cached state) -- starting the 6DoF thread that early
+    // instantly on bind (stale/cached state), starting the 6DoF thread that early
     // binds handedness before the controller link has truly re-established (worst on
     // the first launch after an update, when the service was still attached to the
     // just-killed process), which is the swap. Waiting for the link to settle first
@@ -143,7 +143,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     // but the CV service is left on the shortcut's head-fusion/recenter reference, so
     // our hands stay locked to a stale head frame (they swing opposite to head
     // rotation, decoupled from world). Home/back fixes it only because it re-runs our
-    // bind. We replicate that recovery on the surface destroy->recreate edge -- a clean
+    // bind. We replicate that recovery on the surface destroy->recreate edge, a clean
     // signal (unlike onResume, which fires on every focus change and loops). Re-claim
     // settle is short: both controllers are already healthy here (the shortcut kept
     // them connected), so this is NOT the confused cold-start state.
@@ -173,7 +173,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     // Proximity power-sleep: when the headset is taken OFF the head (proximity
     // reads "far") for PROX_SLEEP_MS, pause the stream + release the screen-on lock
-    // so the panel can sleep -- big power saving while it sits idle. Donning it
+    // so the panel can sleep, big power saving while it sits idle. Donning it
     // (proximity "near") cancels the timer / wakes it back up. We MUST drop
     // FLAG_KEEP_SCREEN_ON here: that flag (held for streaming) is exactly what stops
     // the system from auto-sleeping the panel when the headset is doffed.
@@ -438,7 +438,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                     // The service's getPvrMainController() branches on callunityversion:
                     // when it's false (we never set it) AND not-all-controllers-connected,
                     // it FORCES the main controller to index 1 and collapses both virtual
-                    // hands onto one controller -- this is the cold-start handedness swap.
+                    // hands onto one controller, this is the cold-start handedness swap.
                     // Setting a version flips callunityversion=true so the service uses the
                     // real per-controller state to assign handedness. (This is exactly what
                     // the system's CVControllerManager does on a home/back, which is why
@@ -446,7 +446,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                     try { ControllerClient.setUnityVersion(CTRL_UNITY_VERSION); } catch (Throwable t) {
                         Log.e(TAG, "setUnityVersion failed", t);
                     }
-                    // Do NOT start the 6DoF thread here -- wait until both controllers
+                    // Do NOT start the 6DoF thread here, wait until both controllers
                     // are connected so handedness binds correctly (see field comment).
                     Log.i(TAG, "controller service bound (unity version set); deferring 6DoF start until both connected");
                     startControllerPoll();
@@ -566,7 +566,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                         keys[10] = pick(ext, EXT_BATTERY);   // controller battery (0..100, diag HUD)
                         // Backgrounded (Home / app not in foreground): report the
                         // controller as disconnected so the native uplink drops it
-                        // (the render thread skips conn != 1) -- no controller tracking
+                        // (the render thread skips conn != 1), no controller tracking
                         // or button input reaches the server while the user is away.
                         int sendConn = mForeground ? conn : 0;
                         nativeControllerState(h, sendConn, sensor, angVel, keys);
@@ -606,7 +606,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private static final int EXT_GRIP_LEFT  = 60;  // grip on the left controller
     // Thumbstick CLICK. The SDK exposes TWO clicks depending on mode: in the lobby's
     // touchpad/pointer mode it's TouchPadClick=ext[66]; in 6DoF/joystick mode (i.e.
-    // while STREAMING -- the case that matters) ext[66] is dead and the stick press
+    // while STREAMING, the case that matters) ext[66] is dead and the stick press
     // is the "Touch" key State at ext[20] (held while pressed). Use 20 so click works
     // in-stream. (Verified on-device: streaming clicks toggle ext[20], never ext[66].)
     private static final int EXT_JOY_CLICK  = 20;
@@ -749,7 +749,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     // ---- WiVRn lobby view callbacks ----
     public void onServerConnect(String hostname, int port, boolean tcpOnly) {
         if (nativeConnecting) {
-            Log.i(TAG, "lobby: connect requested " + hostname + ":" + port + " tcp=" + tcpOnly + " — ignored, already connecting");
+            Log.i(TAG, "lobby: connect requested " + hostname + ":" + port + " tcp=" + tcpOnly + " ignored, already connecting");
             return;
         }
         Log.i(TAG, "lobby: connect requested " + hostname + ":" + port + " tcp=" + tcpOnly);
