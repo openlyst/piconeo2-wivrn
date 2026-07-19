@@ -678,8 +678,8 @@ static void destroyStreamSwapchain() {
         if (gSwapFence[i]) { glDeleteSync(gSwapFence[i]); gSwapFence[i] = 0; }
     }
     // Also clear the stashed per-slot render poses. gPrevSwapValid=false already
-    // forces the first frame onto the current slot, but a zeroed gSwapVP makes
-    // the invariant robust (a non-unit quat from stale memory would be rejected
+    // forces the first frame onto the current slot, but a zeroed gSwapVP keeps
+    // the invariant safe (a non-unit quat from stale memory would be rejected
     // by the warp's SelectRT).
     memset(gSwapVP, 0, sizeof(gSwapVP));
     memset(gSwapFrameTs, 0, sizeof(gSwapFrameTs));
