@@ -749,7 +749,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     // ---- WiVRn lobby view callbacks ----
     public void onServerConnect(String hostname, int port, boolean tcpOnly) {
         if (nativeConnecting) {
-            Log.i(TAG, "lobby: connect requested " + hostname + ":" + port + " tcp=" + tcpOnly + " — ignored, already connecting");
+            Log.i(TAG, "lobby: connect requested " + hostname + ":" + port + " tcp=" + tcpOnly + " ignored, already connecting");
             return;
         }
         Log.i(TAG, "lobby: connect requested " + hostname + ":" + port + " tcp=" + tcpOnly);
