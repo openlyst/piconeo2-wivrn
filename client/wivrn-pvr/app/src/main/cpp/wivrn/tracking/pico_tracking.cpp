@@ -328,6 +328,33 @@ void pico_native_tracker::step_head_filter(const float pos[3], const neo2::quat 
 			head_ang_vel[0] += (avx - head_ang_vel[0]) * a;
 			head_ang_vel[1] += (avy - head_ang_vel[1]) * a;
 			head_ang_vel[2] += (avz - head_ang_vel[2]) * a;
+
+			// Velocity deadband: when the head is essentially stationary, clamp
+			// velocity to zero so the server doesn't extrapolate sensor noise
+			// into the render pose (which shows up as sub-mm/sub-degree jitter
+			// even when you're holding still). The thresholds are well below
+			// any deliberate head motion (~0.1 m/s, ~0.1 rad/s) but above the
+			// differentiation noise floor of the 300Hz position sampling.
+			float lin_mag = std::sqrt(head_lin_vel[0]*head_lin_vel[0]
+			                        + head_lin_vel[1]*head_lin_vel[1]
+			                        + head_lin_vel[2]*head_lin_vel[2]);
+			float ang_mag = std::sqrt(head_ang_vel[0]*head_ang_vel[0]
+			                        + head_ang_vel[1]*head_ang_vel[1]
+			                        + head_ang_vel[2]*head_ang_vel[2]);
+			constexpr float k_lin_deadband = 0.015f;   // 15 mm/s
+			constexpr float k_ang_deadband = 0.01f;    // ~0.57 deg/s
+			if (lin_mag < k_lin_deadband)
+			{
+				head_lin_vel[0] = 0;
+				head_lin_vel[1] = 0;
+				head_lin_vel[2] = 0;
+			}
+			if (ang_mag < k_ang_deadband)
+			{
+				head_ang_vel[0] = 0;
+				head_ang_vel[1] = 0;
+				head_ang_vel[2] = 0;
+			}
 		}
 	}
 	head_prev_pos[0] = pos[0];
