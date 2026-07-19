@@ -2234,6 +2234,7 @@ void *renderThread(void *) {
         // re-renders at the new eye separation without needing a reconnect.
         if (gStreaming && gSentIpdMm.load() != gSoftIpdMm.load()) {
             sendViewParams();
+            if (g_stream) g_stream->tracker.soft_ipd.store(softIpdM());
             LOGI("Software IPD changed mid-stream -> resent view_params (%.1f mm)", gSoftIpdMm.load());
         }
 
@@ -2354,6 +2355,11 @@ void *renderThread(void *) {
                     sendViewParams();
                     gSwapIdx = 0;
                     gStreaming = true;
+                    // Sync the tracker's soft_ipd from the unified gSoftIpdMm so the
+                    // server (tracking view poses) and the PVR warp (render pose) use
+                    // the same IPD. Without this, the tracker defaults to 64mm while
+                    // the warp uses gSoftIpdMm (65mm), causing a 1mm stereo mismatch.
+                    if (g_stream) g_stream->tracker.soft_ipd.store(softIpdM());
                     // Stream owns the eye buffers now — stop the passthrough
                     // camera so it's not competing for the tracking cameras
                     // while the server feeds video.
