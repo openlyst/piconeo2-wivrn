@@ -1,6 +1,7 @@
 # [Beta 1.1 (Unreleased)]()
 
 - Reimplements eye tracking
+- Add eye-tracked foveated streaming toggle (VIDEO settings)
 - Fix stereo IPD mismatch between server
 - Fix springing HMD tracking
 
