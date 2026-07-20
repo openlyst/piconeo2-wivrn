@@ -3,6 +3,7 @@
 #include "eq_panel.h"
 #include "menu_model.h"
 #include "passthrough.h"
+#include "eye_tracking.h"   // gEyeSupported (disable toggle on non-EYE hw)
 #include "log.h"        // nowNs()
 #include "streaming/streaming_client.h"
 #include <cstdio>
@@ -212,6 +213,7 @@ static void buildCoreModel(MenuModel &m) {
         // point. Only effective on Neo 2 EYE hardware; on other units the
         // toggle is inert (send_eye_foveation_override early-outs).
         MenuItem eyeFov = wivrnToggle("EYE-TRACKED FOVEATION", gWivrnEyeFoveation);
+        eyeFov.disabled = !gEyeSupported.load();
         eyeFov.onChange = []{
             saveAllConfig();
             gEyeFoveationDirty.store(true);
