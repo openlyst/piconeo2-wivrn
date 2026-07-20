@@ -206,6 +206,17 @@ static void buildCoreModel(MenuModel &m) {
         fovq.get = []{ return (float)gWivrnFoveation.load(); };
         fovq.set = [](float v){ gWivrnFoveation.store((int)(v+0.5f)); };
         video.items.push_back(fovq);
+
+        // Eye-tracked foveation center: tells the server to follow the live
+        // EYE_GAZE pose for the foveation center instead of a fixed forward
+        // point. Only effective on Neo 2 EYE hardware; on other units the
+        // toggle is inert (send_eye_foveation_override early-outs).
+        MenuItem eyeFov = wivrnToggle("EYE-TRACKED FOVEATION", gWivrnEyeFoveation);
+        eyeFov.onChange = []{
+            saveAllConfig();
+            gEyeFoveationDirty.store(true);
+        };
+        video.items.push_back(eyeFov);
     }
     m.push_back(video);
 
