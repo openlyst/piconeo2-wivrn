@@ -266,19 +266,90 @@ static void buildCoreModel(MenuModel &m) {
     m.push_back(settings);
 
     // ABOUT (bottom) --------------------------------------------------------
-    MenuCategory about; about.name = "ABOUT";
+    MenuCategory about; about.name = "ABOUT"; about.custom = true;
     {
-        MenuItem info; info.kind = MK_BUTTON; info.label = "WIVRN FOR PICO NEO 2";
-        info.disabled = true;
-        about.items.push_back(info);
+        MenuItem ab; ab.kind = MK_CUSTOM;
+        ab.customH = 1.6f;
+        ab.cBuild = [](std::vector<float> &v, const MenuHover &h) {
+            (void)h;
+            float y = kMenuTopY;
+            float cx = 0.0f;
+            float halfW = (kCtX1 - kCtX0) * 0.5f - 0.02f;
 
-        MenuItem ver; ver.kind = MK_BUTTON; ver.label = "VERSION: POC";
-        ver.disabled = true;
-        about.items.push_back(ver);
+            // Header banner
+            UiRect banner = { cx, y - 0.06f, halfW * 2.0f, 0.12f };
+            uiBox(v, banner, kUiFill);
+            uiTextC(v, "WIVRN FOR PICO NEO 2", cx, y - 0.09f, 0.007f, 1.0f, 1.0f, 1.0f);
+            y -= 0.20f;
 
-        MenuItem url; url.kind = MK_BUTTON; url.label = "GITHUB.COM/WIVRN/WIVRN";
-        url.disabled = true;
-        about.items.push_back(url);
+            // Version line
+            uiTextC(v, "BETA 1.1 - UNRELEASED", cx, y, 0.005f,
+                    kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+            y -= 0.08f;
+
+            // Divider
+            appendQuad(v, -halfW, y, halfW, y - 0.005f,
+                       kUiTrack[0], kUiTrack[1], kUiTrack[2]);
+            y -= 0.04f;
+
+            // Description
+            const char *desc[] = {
+                "STREAM PC VR GAMES TO YOUR",
+                "PICO NEO 2 OVER WIFI OR USB",
+                "WITH LOW LATENCY",
+            };
+            for (const char *line : desc) {
+                uiTextC(v, line, cx, y, 0.0045f,
+                        kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+                y -= 0.06f;
+            }
+            y -= 0.03f;
+
+            // Links section
+            uiTextL(v, "UPSTREAM", -halfW + 0.02f, y, 0.004f,
+                    kUiFill[0], kUiFill[1], kUiFill[2]);
+            y -= 0.06f;
+            uiTextL(v, "GITHUB.COM/WIVRN/WIVRN", -halfW + 0.02f, y, 0.004f,
+                    kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+            y -= 0.08f;
+
+            uiTextL(v, "THIS CLIENT", -halfW + 0.02f, y, 0.004f,
+                    kUiFill[0], kUiFill[1], kUiFill[2]);
+            y -= 0.06f;
+            uiTextL(v, "GITLAB.COM/HTTPANIMATIONS/", -halfW + 0.02f, y, 0.004f,
+                    kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+            y -= 0.05f;
+            uiTextL(v, "PICONEO2-WIVRN", -halfW + 0.02f, y, 0.004f,
+                    kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+            y -= 0.08f;
+
+            // Credits
+            uiTextL(v, "CREDITS", -halfW + 0.02f, y, 0.004f,
+                    kUiFill[0], kUiFill[1], kUiFill[2]);
+            y -= 0.06f;
+            const char *credits[] = {
+                "WIVRN - UPSTREAM PROJECT",
+                "ALVR PICO LEGACY - RENDERING REF",
+                "PICO SDK - DEVICE SDK",
+            };
+            for (const char *line : credits) {
+                uiTextL(v, line, -halfW + 0.02f, y, 0.0038f,
+                        kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+                y -= 0.05f;
+            }
+            y -= 0.03f;
+
+            // License
+            appendQuad(v, -halfW, y, halfW, y - 0.005f,
+                       kUiTrack[0], kUiTrack[1], kUiTrack[2]);
+            y -= 0.04f;
+            uiTextC(v, "LICENSED UNDER GPL V3 OR LATER", cx, y, 0.004f,
+                    kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+            y -= 0.06f;
+            uiTextC(v, "SEE WIVRN REPO FOR DETAILS", cx, y, 0.0035f,
+                    kUiTrack[0], kUiTrack[1], kUiTrack[2]);
+        };
+        about.items.push_back(ab);
     }
     m.push_back(about);
 
