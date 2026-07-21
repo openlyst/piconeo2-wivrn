@@ -49,6 +49,10 @@ void imgui_lobby::init()
 
 	glGenFramebuffers(1, &fbo);
 
+	// Allocate the UI texture storage so the FBO attachment is complete.
+	// The texture itself is owned by pico_lobby; we just need storage.
+	// This is done on first render() when we have the target texture.
+
 	initialized = true;
 	LOGI("imgui_lobby initialized");
 }
@@ -190,10 +194,28 @@ void imgui_lobby::render(GLuint target_texture, int width, int height,
 	if (!initialized)
 		init();
 
+	if (!target_texture)
+		return;
+
 	// Recreate font texture if needed (ImGui marks it dirty after init)
 	ImGuiIO & io = ImGui::GetIO();
 	if (!io.Fonts->IsBuilt())
 		ImGui_ImplOpenGL3_CreateDeviceObjects();
+
+	// Allocate texture storage on first use or size change
+	if (tex_w != width || tex_h != height)
+	{
+		glBindTexture(GL_TEXTURE_2D, target_texture);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0,
+		             GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		tex_w = width;
+		tex_h = height;
+	}
 
 	// Set display size
 	io.DisplaySize = ImVec2((float)width, (float)height);
@@ -225,10 +247,21 @@ void imgui_lobby::render(GLuint target_texture, int width, int height,
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
 	                       GL_TEXTURE_2D, target_texture, 0);
 
+	GLenum fbo_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+	if (fbo_status != GL_FRAMEBUFFER_COMPLETE)
+	{
+		static int log_count = 0;
+		if (log_count++ < 5)
+			LOGI("imgui FBO incomplete: 0x%x tex=%u %dx%d", fbo_status, target_texture, width, height);
+		glBindFramebuffer(GL_FRAMEBUFFER, prev_fbo);
+		return;
+	}
+
 	GLint prev_viewport[4];
 	glGetIntegerv(GL_VIEWPORT, prev_viewport);
 	glViewport(0, 0, width, height);
 
+	// Clear to transparent so the passthrough shows behind the panel
 	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
 
