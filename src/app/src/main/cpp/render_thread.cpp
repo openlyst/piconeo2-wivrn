@@ -2039,10 +2039,14 @@ void *renderThread(void *) {
                 char msg[1024] = {0};
                 alvr_hud_message_bounded(msg, sizeof(msg));   // never overflows; NUL-terminated within cap
                 LOGI("ALVR event HUD_MESSAGE_UPDATED: %s", msg);
-                // Map ALVR's HUD message to a short lobby status.
-                if (strstr(msg, "onnect"))      strcpy(gStatusText, "CONNECTING");
-                else if (strstr(msg, "earch"))  strcpy(gStatusText, "SEARCHING");
-                else if (msg[0] == 0)           strcpy(gStatusText, "DISCONNECTED");
+                // Map ALVR's HUD message to a short lobby status. Prefix-match
+                // the whole word so "Disconnected" doesn't trip "Connect".
+                auto startsWith = [](const char *s, const char *pre) {
+                    while (*pre) { if (*s++ != *pre++) return false; } return true;
+                };
+                if (startsWith(msg, "Connect"))     strcpy(gStatusText, "CONNECTING");
+                else if (startsWith(msg, "Search")) strcpy(gStatusText, "SEARCHING");
+                else if (msg[0] == 0)               strcpy(gStatusText, "DISCONNECTED");
                 // ALVR prints "hostname: XXXX.client", parse it for the lobby HUD.
                 const char *hn = strstr(msg, "hostname:");
                 if (hn) {
