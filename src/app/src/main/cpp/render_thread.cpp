@@ -2946,10 +2946,248 @@ void *renderThread(void *) {
                     // UI directly on top of the video in gSwap (overlay mode: no
                     // color clear, only depth). The video keeps playing underneath.
                     if (gManualLobby.load()) {
-                        // Manual lobby overlay during streaming: the native 3D
-                        // lobby UI (HUD + settings) is drawn by drawLobbyScene
-                        // in the main lobby submit path. During streaming we
-                        // skip the texture-panel overlay for now.
+                        // Compute view/projection from the head pose + stream FOV.
+                        Mat4 hRot = quatToMat4(qx, qy, qz, qw);
+                        Mat4 invRot = mat4Transpose3x3(hRot);
+                        Mat4 viewBase = mat4Mul(invRot, mat4Translate(-px, -py, -pz));
+                        float lobbyFovDeg = (fEyeTextureFov0 > 1.0f) ? fEyeTextureFov0 : 101.0f;
+                        float fovy = lobbyFovDeg * (float)M_PI / 180.0f;
+                        Mat4 sproj = mat4Perspective(fovy, 1.0f, 0.05f, 250.0f);
+
+                        // Anchor the panel in front of the user (same logic as the
+                        // lobby path). hudAnchored is reset when the lobby is toggled.
+                        if (!hudAnchored) {
+                            float fx = -hRot.m[8], fz = -hRot.m[10];
+                            float fn = sqrtf(fx*fx + fz*fz);
+                            if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
+                            const float kHudDist = 2.0f;
+                            float ax = px + fx * kHudDist, ay = py, az = pz + fz * kHudDist;
+                            float cphi = -fz, sphi = -fx;
+                            Mat4 m = mat4Identity();
+                            m.m[0] = cphi; m.m[2] = -sphi;
+                            m.m[8] = sphi; m.m[10] = cphi;
+                            m.m[12] = ax;  m.m[13] = ay; m.m[14] = az;
+                            settingsWorld = m;
+                            hudAnchored = true;
+                        }
+
+                        // Controller state for pointer interaction.
+                        float ptrOx=px, ptrOy=py, ptrOz=pz;
+                        float ptrDx=-hRot.m[8], ptrDy=-hRot.m[9], ptrDz=-hRot.m[10];
+                        bool  ptrFromController = false;
+                        bool  ptrGrab = gOkHeld.load();
+                        float ptrStickY = 0.0f;
+                        bool  recenterDown = false;
+                        {
+                            CtrlState cc[2];
+                            { std::lock_guard<std::mutex> lk(gCtrlMutex); cc[0]=gCtrl[0]; cc[1]=gCtrl[1]; }
+                            for (int hh=0; hh<2; hh++)
+                                if (cc[hh].conn==1 && !staleSkip[hh] && cc[hh].keyCount>5 && cc[hh].keys[5]!=0) recenterDown = true;
+                            auto trig = [](const CtrlState &s){
+                                return (s.keyCount>2 && s.keys[2]!=0) || (s.keyCount>8 && s.keys[8]>40);
+                            };
+                            for (int hh=0; hh<2; hh++)
+                                if (hh != gDominantHand && cc[hh].conn==1 && !staleSkip[hh] && trig(cc[hh])) gDominantHand = hh;
+                            int h = (cc[gDominantHand].conn==1 && !staleSkip[gDominantHand]) ? gDominantHand
+                                  : (cc[0].conn==1 && !staleSkip[0] ? 0 : (cc[1].conn==1 && !staleSkip[1] ? 1 : -1));
+                            if (h >= 0) {
+                                Quat oq = quatNorm({ -cc[h].q[0], -cc[h].q[1], cc[h].q[2], cc[h].q[3] });
+                                float qx2=oq.x, qy2=oq.y, qz2=oq.z, qw2=oq.w;
+                                ptrDx = -2.0f*(qx2*qz2 + qw2*qy2);
+                                ptrDy = -2.0f*(qy2*qz2 - qw2*qx2);
+                                ptrDz = -(1.0f - 2.0f*(qx2*qx2 + qy2*qy2));
+                                float ux = 2.0f*(qx2*qy2 - qw2*qz2);
+                                float uy = 1.0f - 2.0f*(qx2*qx2 + qz2*qz2);
+                                float uz = 2.0f*(qy2*qz2 + qw2*qx2);
+                const float kFrontOff = 0.075f;
+                const float kUpOff    = -0.005f;
+                                ptrOx = cc[h].pos[0]*0.001f + ptrDx*kFrontOff + ux*kUpOff;
+                                ptrOy = cc[h].pos[1]*0.001f + ptrDy*kFrontOff + uy*kUpOff;
+                                ptrOz = cc[h].pos[2]*0.001f + ptrDz*kFrontOff + uz*kUpOff;
+                                ptrGrab = trig(cc[h]);
+                                ptrFromController = true;
+                                if (cc[h].keyCount > 1) ptrStickY = (cc[h].keys[1] - 128) / 127.0f;
+                            }
+                        }
+
+                        // Recenter on app/menu button rising edge.
+                        {
+                            static bool recenterPrev = false;
+                            if (recenterDown && !recenterPrev) {
+                                hudAnchored = false;
+                                if (gLobby) {
+                                    float fx = -hRot.m[8], fz = -hRot.m[10];
+                                    float fn = sqrtf(fx*fx + fz*fz);
+                                    if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
+                                    float yaw = atan2f(-fx, -fz);
+                                    float hp[3] = {px, py, pz};
+                                    gLobby->recenter(hp, yaw);
+                                }
+                            }
+                            recenterPrev = recenterDown;
+                        }
+                        if (gWivrnRecenterReq.exchange(false)) {
+                            hudAnchored = false;
+                            if (gLobby) {
+                                float fx = -hRot.m[8], fz = -hRot.m[10];
+                                float fn = sqrtf(fx*fx + fz*fz);
+                                if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
+                                float yaw = atan2f(-fx, -fz);
+                                float hp[3] = {px, py, pz};
+                                gLobby->recenter(hp, yaw);
+                            }
+                        }
+
+                        // Pointer ray vs panel plane for hit-testing.
+                        bool okClicked = gOkClick.exchange(false);
+                        static bool sPtrGrabPrev = false;
+                        bool grabEdge = ptrGrab && !sPtrGrabPrev;
+                        bool clickEdge = ptrFromController ? grabEdge : okClicked;
+                        float laserOx=ptrOx, laserOy=ptrOy, laserOz=ptrOz;
+                        float laserDx=ptrDx, laserDy=ptrDy, laserDz=ptrDz;
+                        float laserLen = 100.0f;
+
+                        auto rayPanel = [&](const Mat4 &W, float &lx, float &ly, float &t)->bool {
+                            float Rx=W.m[0],Ry=W.m[1],Rz=W.m[2];
+                            float Ux=W.m[4],Uy=W.m[5],Uz=W.m[6];
+                            float Nx=W.m[8],Ny=W.m[9],Nz=W.m[10];
+                            float Qx=W.m[12],Qy=W.m[13],Qz=W.m[14];
+                            float denom = ptrDx*Nx + ptrDy*Ny + ptrDz*Nz;
+                            if (fabsf(denom) <= 1e-5f) return false;
+                            t = ((Qx-ptrOx)*Nx + (Qy-ptrOy)*Ny + (Qz-ptrOz)*Nz) / denom;
+                            if (t <= 0.0f) return false;
+                            float hx=ptrOx+ptrDx*t, hy=ptrOy+ptrDy*t, hz=ptrOz+ptrDz*t;
+                            float rx=hx-Qx, ry=hy-Qy, rz=hz-Qz;
+                            lx = rx*Rx + ry*Ry + rz*Rz;
+                            ly = rx*Ux + ry*Uy + rz*Uz;
+                            if (ptrFromController && t < laserLen) laserLen = t - 0.01f;
+                            return true;
+                        };
+
+                        MenuHover mh;
+                        int  setTabHover   = -1;
+                        bool setCloseHover = false;
+                        bool lobbyHover = false;
+                        static int   sDragMode = 0;
+                        static float sScrollLastLy = 0;
+
+                        Mat4 setHit = settingsWorld;
+                        static std::vector<float> sverts; sverts.clear();
+                        int sliderVertCount = 0;
+                        float setContentH = 0;
+                        {
+                            float setOffX = 0, setOffY = 0;
+                            settingsMeasure(setOffX, setOffY, setContentH);
+                            bool scrollable = setContentH > kSetViewportH + 1e-4f;
+                            MenuModel &model = settingsModel();
+                            MenuCategory &cat = model[gSettingsCat];
+
+                            float lx, ly, t;
+                            bool onPanel = rayPanel(setHit, lx, ly, t);
+                            bool inContent = onPanel && lx >= kCtX0 && lx <= kCtX1 && ly <= kCtTop && ly >= kCtBot;
+                            float cx = lx - setOffX, cy = ly - setOffY;
+
+                            if (onPanel) {
+                                if (uiHit(kSetClose, lx, ly)) { setCloseHover = true; lobbyHover = true; }
+                                for (int i = 0; i < (int)model.size(); i++)
+                                    if (uiHit(settingsTabRect(i), lx, ly)) { setTabHover = i; lobbyHover = true; }
+                            }
+                            if (inContent) mh = menuHit(cat, cx, cy);
+                            if (mh.item >= 0 || setTabHover >= 0 || setCloseHover) lobbyHover = true;
+
+                            if (grabEdge) {
+                                if (inContent && setTabHover < 0 && !setCloseHover)
+                                    sDragMode = mh.grab ? 2 : (scrollable ? 1 : 2);
+                                else
+                                    sDragMode = 2;
+                                sScrollLastLy = ly;
+                            }
+                            if (!ptrGrab) sDragMode = 0;
+
+                            if (sDragMode == 1 && ptrGrab && scrollable) {
+                                gSettingsScroll[gSettingsCat] += (ly - sScrollLastLy);
+                                sScrollLastLy = ly;
+                            }
+
+                            float scrollStickY = ptrStickY;
+                            if (scrollable && fabsf(scrollStickY) > 0.18f)
+                                gSettingsScroll[gSettingsCat] -= scrollStickY * 0.01875f;
+
+                            if (clickEdge && setTabHover >= 0 && setTabHover != gSettingsCat) { gSettingsCat = setTabHover; sDragMode = 0; }
+                            if (sDragMode != 1)
+                                menuApply(gSettingsCat, cat, mh, clickEdge, ptrGrab, cx, cy);
+                            if (!ptrGrab && gEqGrabbing) { gEqGrabbing = false; gEqActiveBand = -1; }
+                            if (gEqDirty && nowNs() - gEqChangeNs > 500000000ULL) { saveEqProfile(); gEqDirty = false; }
+
+                            uint32_t panelSig = 2166136261u;
+                            auto pmix = [&](long x){ for (int b = 0; b < 8; b++) { panelSig = (panelSig ^ (unsigned char)(x & 0xff)) * 16777619u; x >>= 8; } };
+                            pmix(gSettingsCat);
+                            pmix(setTabHover); pmix(setCloseHover ? 1 : 0);
+                            pmix(mh.item); pmix(mh.part); pmix(mh.grab ? 1 : 0);
+                            pmix(lroundf(setOffX * 2000.0f)); pmix(lroundf(setOffY * 2000.0f)); pmix(lroundf(setContentH * 2000.0f));
+                            pmix((long)menuValueSig(cat));
+                            for (const auto &it : cat.items) pmix(it.dropOpen ? 1 : 0);
+                            pmix(gEqActiveBand); pmix(gEqPresetOpen ? 1 : 0); pmix(gEqPresetIdx);
+                            for (int i = 0; i < kEqBands; i++) pmix(lroundf(gEqGains[i] * 2000.0f));
+                            static uint32_t sPanelSig = 0; static bool sPanelHave = false;
+                            static int sSliderVertCount = 0; static GLsizeiptr sSetCap = 0;
+                            if (!sPanelHave || panelSig != sPanelSig) {
+                                buildSettingsPanel(sverts, setOffX, setOffY, setContentH, mh, setTabHover, setCloseHover);
+                                sSliderVertCount = (int)(sverts.size() / 6);
+                                if (sSliderVertCount > 0) uploadDynamicVbo(gSliderVbo, sverts, sSetCap);
+                                sPanelSig = panelSig; sPanelHave = true;
+                            }
+                            sliderVertCount = sSliderVertCount;
+                        }
+                        sPtrGrabPrev = ptrGrab;
+
+                        // Apply menu-requested side effects.
+                        if (gEyeTrackReapply.exchange(false)) applyServerEyeTracking(gStreaming);
+                        if (gBrightnessApply.exchange(false)) applyHmdBrightness(gBrightnessFrac.load(), env);
+                        if (gEyeFoveationDirty.exchange(false) && g_stream)
+                            g_stream->send_eye_foveation_override();
+
+                        // Draw the lobby overlay into gSwap (on top of the video).
+                        // Order after the ALVR render via glWaitSync (already done
+                        // above if diag/battery drew; do it here otherwise).
+                        if (alvrFence) { glWaitSync(alvrFence, 0, GL_TIMEOUT_IGNORED); glDeleteSync(alvrFence); alvrFence = 0; }
+                        glBindFramebuffer(GL_FRAMEBUFFER, gStreamFbo);
+                        glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_SCISSOR_TEST);
+                        for (int e = 0; e < 2; e++) {
+                            float ex = (e == 0 ? -softIpdM()*0.5f : softIpdM()*0.5f);
+                            Mat4 eyeShift = mat4Translate(-ex, 0, 0);
+                            Mat4 view = mat4Mul(eyeShift, viewBase);
+                            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                                   GL_TEXTURE_2D, gSwap[e][gSwapIdx], 0);
+                            glViewport(0, 0, gStreamW, gStreamH);
+
+                            // Controller laser beam.
+                            if (ptrFromController) {
+                                const float L = laserLen;
+                                float exr = laserOx + laserDx*L, eyr = laserOy + laserDy*L, ezr = laserOz + laserDz*L;
+                                float lv[12] = { laserOx,laserOy,laserOz, 0.70f,0.82f,1.00f,
+                                                 exr,eyr,ezr, 0.70f,0.82f,1.00f };
+                                glBindBuffer(GL_ARRAY_BUFFER, gLaserVbo);
+                                glBufferData(GL_ARRAY_BUFFER, sizeof(lv), lv, GL_DYNAMIC_DRAW);
+                                Mat4 lMvp = mat4Mul(sproj, view);
+                                glUseProgram(gProg);
+                                glBindVertexArray(gLaserVao);
+                                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, lMvp.m);
+                                glDrawArrays(GL_LINES, 0, 2);
+                                glBindVertexArray(0);
+                            }
+
+                            // Settings panel.
+                            if (sliderVertCount > 0) {
+                                Mat4 setMvp = mat4Mul(sproj, mat4Mul(view, settingsWorld));
+                                glUseProgram(gProg);
+                                glBindVertexArray(gSliderVao);
+                                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, setMvp.m);
+                                glDrawArrays(GL_TRIANGLES, 0, sliderVertCount);
+                                glBindVertexArray(0);
+                            }
+                        }
+                        glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     }
                     // PIPELINE: fence THIS slot and flush so the GPU starts it, but
                     // do NOT block. The warp samples this slot a frame from now, by
