@@ -8,9 +8,9 @@
 #include <arpa/inet.h>
 #include <net/if.h>
 
-char gIpText[24]       = "CHECK WI-FI";
-char gStatusText[32]   = "DISCONNECTED";
-char gModelText[32]    = "PICO";
+char gIpText[24]       = "Check Wi-Fi";
+char gStatusText[32]   = "Disconnected";
+char gModelText[32]    = "Pico";
 char gHostnameText[24] = "";
 bool gIsEyeHw = false;
 
@@ -18,7 +18,7 @@ void toUpperAscii(char *s) { for (; *s; ++s) if (*s >= 'a' && *s <= 'z') *s -= 3
 
 // Build.MODEL is "Pico Neo 2" on both Neo 2 and Neo 2 EYE, so use the vendor
 // property pxr.vendorhw.product.model to distinguish them. pxr.vendorhw.eye=1
-// is the definitive eye-hardware flag. Uppercased for the 5x7 bitmap font.
+// is the definitive eye-hardware flag.
 void readHeadsetModel(JNIEnv *env) {
     (void) env;
     char buf[PROP_VALUE_MAX] = {0};
@@ -26,9 +26,8 @@ void readHeadsetModel(JNIEnv *env) {
         strncpy(gModelText, buf, sizeof(gModelText)-1);
         gModelText[sizeof(gModelText)-1] = 0;
     } else {
-        snprintf(gModelText, sizeof(gModelText), "PICO NEO 2");
+        snprintf(gModelText, sizeof(gModelText), "Pico Neo 2");
     }
-    toUpperAscii(gModelText);
     char eb[PROP_VALUE_MAX] = {0};
     gIsEyeHw = (__system_property_get("pxr.vendorhw.eye", eb) > 0 && eb[0] == '1');
     LOGI("hw model='%s' isEyeHw=%d", gModelText, gIsEyeHw ? 1 : 0);
@@ -37,7 +36,7 @@ void readHeadsetModel(JNIEnv *env) {
 void refreshDeviceIp() {
     struct ifaddrs *ifa = nullptr;
     if (getifaddrs(&ifa) != 0) return;
-    char best[24] = "CHECK WI-FI"; bool gotWlan = false;
+    char best[24] = "Check Wi-Fi"; bool gotWlan = false;
     for (struct ifaddrs *p = ifa; p; p = p->ifa_next) {
         if (!p->ifa_addr || p->ifa_addr->sa_family != AF_INET) continue;
         if (!(p->ifa_flags & IFF_UP) || (p->ifa_flags & IFF_LOOPBACK)) continue;

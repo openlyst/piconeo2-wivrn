@@ -2237,9 +2237,9 @@ void *renderThread(void *) {
                 auto startsWith = [](const char *s, const char *pre) {
                     while (*pre) { if (*s++ != *pre++) return false; } return true;
                 };
-                if (startsWith(msg, "Connect"))     setStrBounded(gStatusText, "CONNECTING", sizeof(gStatusText));
-                else if (startsWith(msg, "Search")) setStrBounded(gStatusText, "SEARCHING", sizeof(gStatusText));
-                else if (msg[0] == 0)               setStrBounded(gStatusText, "DISCONNECTED", sizeof(gStatusText));
+                if (startsWith(msg, "Connect"))     setStrBounded(gStatusText, "Connecting", sizeof(gStatusText));
+                else if (startsWith(msg, "Search")) setStrBounded(gStatusText, "Searching", sizeof(gStatusText));
+                else if (msg[0] == 0)               setStrBounded(gStatusText, "Disconnected", sizeof(gStatusText));
                 // ALVR prints "hostname: XXXX.client", parse it for the lobby HUD.
                 const char *hn = strstr(msg, "hostname:");
                 if (hn) {
@@ -2249,7 +2249,6 @@ void *renderThread(void *) {
                     while (*hn && *hn != '\n' && *hn != '\r' && i < (int)sizeof(gHostnameText)-1)
                         gHostnameText[i++] = *hn++;
                     gHostnameText[i] = 0;
-                    toUpperAscii(gHostnameText);
                 }
             } else if (ev.tag == ALVR_EVENT_STREAMING_STARTED) {
                 gStreamW = ev.STREAMING_STARTED.view_width;
@@ -2338,7 +2337,7 @@ void *renderThread(void *) {
                         alvr_send_custom_interaction_profile(alvrHandId[0], ids, 16);
                     }
                     LOGI("sent custom interaction profile (both hands, incl. right menu->system)");
-                    setStrBounded(gStatusText, "CONNECTED", sizeof(gStatusText));
+                    setStrBounded(gStatusText, "Connected", sizeof(gStatusText));
                     LOGI("stream renderer ready (%ux%u)", gStreamW, gStreamH);
                     // Settings JSON is now live: light up the EYE illuminators only if
                     // the server's Face Tracking eye source is on.
@@ -2380,7 +2379,7 @@ void *renderThread(void *) {
                 gStreaming = false;
                 gManualLobby.store(false);   // back to the normal disconnected lobby
                 gHaveDecCfg = false;         // stale config; next stream sends a fresh one
-                setStrBounded(gStatusText, "DISCONNECTED", sizeof(gStatusText));
+                setStrBounded(gStatusText, "Disconnected", sizeof(gStatusText));
                 if (gDecoderReady) { alvr_destroy_decoder(); gDecoderReady = false; }
                 destroyStreamSwapchain();   // also resets the pipeline (no stale slot)
                 gFovResyncPending = false;   // drop any pending re-sync for the dead stream
