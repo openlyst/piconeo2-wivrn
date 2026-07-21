@@ -2155,7 +2155,7 @@ void *renderThread(void *) {
                         alvr_send_custom_interaction_profile(alvrHandId[0], ids, 16);
                     }
                     LOGI("sent custom interaction profile (both hands, incl. right menu->system)");
-                    strcpy(gStatusText, "CONNECTED");
+                    setStrBounded(gStatusText, "CONNECTED", sizeof(gStatusText));
                     LOGI("stream renderer ready (%ux%u)", gStreamW, gStreamH);
                     // Settings JSON is now live: light up the EYE illuminators only if
                     // the server's Face Tracking eye source is on.
