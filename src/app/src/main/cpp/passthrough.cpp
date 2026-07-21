@@ -4,6 +4,7 @@
 #include <cmath>
 #include <vector>
 #include <cstdio>
+#include <camera/NdkCameraMetadata.h>
 
 // Vertex shader: positions are already in clip space (pre-computed from
 // the fisheye mesh tangent-space coords divided by tan(fov/2)).
@@ -358,6 +359,17 @@ void pico_passthrough::start()
         ACaptureSessionOutputContainer_free(outputs);
         return;
     }
+
+    // Request the highest available frame rate to minimise judder when the
+    // head is moving. Without this the driver defaults to a low FPS (often
+    // 30) which is well below the display refresh and stutters visibly.
+    int32_t fps_range[2] = { 30, 60 };
+    camera_status_t frc = ACaptureRequest_setEntry_i32(cam_request,
+        ACAMERA_CONTROL_AE_TARGET_FPS_RANGE, 2, fps_range);
+    if (frc != ACAMERA_OK)
+        LOGE("passthrough: set FPS range failed rc=%d", frc);
+    else
+        LOGI("passthrough: AE target FPS range set to [%d,%d]", fps_range[0], fps_range[1]);
 
     ACameraOutputTarget *target = nullptr;
     ACameraOutputTarget_create(img_reader_win, &target);
