@@ -1776,7 +1776,6 @@ void *renderThread(void *) {
     glCullFace(GL_BACK);
     buildGraphics();
     buildLobbyTarget();      // per-eye ring for the SDK warp
-    if (gLobby) gLobby->init(kLobbySz, kLobbySz);
     buildGazeMarker();       // eye-gaze debug disc (Neo 2 EYE only)
     buildTextBuffers();      // dynamic VBOs for lobby HUD text + slider
     buildReticle();          // head-gaze crosshair
@@ -2797,68 +2796,11 @@ void *renderThread(void *) {
                     // When gManualLobby is toggled mid-stream, composite the lobby
                     // UI directly on top of the video in gSwap (overlay mode: no
                     // color clear, only depth). The video keeps playing underneath.
-                    if (gManualLobby.load() && gLobby) {
-                        if (alvrFence) { glWaitSync(alvrFence, 0, GL_TIMEOUT_IGNORED); glDeleteSync(alvrFence); alvrFence = 0; }
-                        int ew = g_stream ? g_stream->eye_width.load() : 0;
-                        int eh = g_stream ? g_stream->eye_height.load() : 0;
-                        if (ew <= 0) ew = gStreamW;
-                        if (eh <= 0) eh = gStreamH;
-                        float half_fov = ((fEyeTextureFov0 > 1.0f ? fEyeTextureFov0 : 101.0f) * 0.5f) * ((float)M_PI / 180.0f);
-                        XrFovf lobby_fov = {-half_fov, half_fov, half_fov, -half_fov};
-                        // The lobby is composited into the same texture as the
-                        // stream video, which the warp reprojects from the server
-                        // render pose to the live head pose. Render the lobby at
-                        // the server pose too so the warp's reprojection is correct
-                        // for both layers. Using the live pose here would double-
-                        // apply head movement and make the panel drift opposite
-                        // to the head.
-                        float head_orient[4] = {qx, qy, qz, qw};
-                        float head_pos[3] = {px, py, pz};
-                        XrPosef srvPoses[2];
-                        if (wivrn_get_server_pose(srvPoses)) {
-                            head_orient[0] = srvPoses[0].orientation.x;
-                            head_orient[1] = srvPoses[0].orientation.y;
-                            head_orient[2] = srvPoses[0].orientation.z;
-                            head_orient[3] = srvPoses[0].orientation.w;
-                            // Midpoint of the two eye positions = head centre.
-                            head_pos[0] = (srvPoses[0].position.x + srvPoses[1].position.x) * 0.5f;
-                            head_pos[1] = (srvPoses[0].position.y + srvPoses[1].position.y) * 0.5f;
-                            head_pos[2] = (srvPoses[0].position.z + srvPoses[1].position.z) * 0.5f;
-                        }
-                        controller_sample cs[2];
-                        {
-                            std::lock_guard<std::mutex> lk(gCtrlMutex);
-                            for (int h = 0; h < 2; h++) {
-                                cs[h].connected = (gCtrl[h].conn == 1);
-                                for (int i = 0; i < 4; i++) cs[h].orientation[i] = gCtrl[h].q[i];
-                                for (int i = 0; i < 3; i++) cs[h].position[i] = gCtrl[h].pos[i];
-                                int trig = 0;
-                                if (gCtrl[h].keyCount > 2) trig = std::max(trig, gCtrl[h].keys[2]);
-                                if (gCtrl[h].keyCount > 8) trig = std::max(trig, gCtrl[h].keys[8]);
-                                cs[h].trigger = trig;
-                                cs[h].button_a = (gCtrl[h].keyCount > 6 && gCtrl[h].keys[6] != 0);
-                                cs[h].button_b = (gCtrl[h].keyCount > 7 && gCtrl[h].keys[7] != 0);
-                                cs[h].menu = (gCtrl[h].keyCount > 5 && gCtrl[h].keys[5] != 0);
-                                cs[h].home = (gCtrl[h].keyCount > 11 && gCtrl[h].keys[11] != 0);
-                                cs[h].grip = (gCtrl[h].keyCount > 3 && gCtrl[h].keys[3] != 0);
-                                cs[h].thumbstick_click = (gCtrl[h].keyCount > 4 && gCtrl[h].keys[4] != 0);
-                                cs[h].touch[0] = (gCtrl[h].keyCount > 0) ? gCtrl[h].keys[0] : 0;
-                                cs[h].touch[1] = (gCtrl[h].keyCount > 1) ? gCtrl[h].keys[1] : 0;
-                                cs[h].battery = 0;
-                                cs[h].has_angular_velocity = false;
-                            }
-                        }
-                        gLobby->flush_pending_texture();
-                        gLobby->set_resolution(ew, eh);
-                        for (int e = 0; e < 2; e++) {
-                            glBindFramebuffer(GL_FRAMEBUFFER, gStreamFbo);
-                            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                                                   GL_TEXTURE_2D, gSwap[e][gSwapIdx], 0);
-                            glDisable(GL_SCISSOR_TEST);
-                            gLobby->draw(e, head_orient, head_pos, cs, lobby_fov,
-                                         softIpdM(), gOkHeld.load(), true, false);
-                        }
-                        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                    if (gManualLobby.load()) {
+                        // Manual lobby overlay during streaming: the native 3D
+                        // lobby UI (HUD + settings) is drawn by drawLobbyScene
+                        // in the main lobby submit path. During streaming we
+                        // skip the texture-panel overlay for now.
                     }
                     // PIPELINE: fence THIS slot and flush so the GPU starts it, but
                     // do NOT block. The warp samples this slot a frame from now, by
@@ -3530,39 +3472,9 @@ void *renderThread(void *) {
                 glDrawArrays(GL_TRIANGLES, 0, gReticleVertCount);
                 glBindVertexArray(0);
             }
-            // Ported WiVRn lobby UI panel (pico_oxr WivrnLobbyView rendered to texture).
-            if (gLobby) {
-                if (eyeIdx == 0)
-                    gLobby->flush_pending_texture();
-                float head_orient[4] = {qx, qy, qz, qw};
-                float head_pos[3] = {px, py, pz};
-                controller_sample cs[2];
-                {
-                    std::lock_guard<std::mutex> lk(gCtrlMutex);
-                    for (int h = 0; h < 2; h++) {
-                        cs[h].connected = (gCtrl[h].conn == 1);
-                        for (int i = 0; i < 4; i++) cs[h].orientation[i] = gCtrl[h].q[i];
-                        for (int i = 0; i < 3; i++) cs[h].position[i] = gCtrl[h].pos[i]; // mm
-                        int trig = 0;
-                        if (gCtrl[h].keyCount > 2) trig = std::max(trig, gCtrl[h].keys[2]);
-                        if (gCtrl[h].keyCount > 8) trig = std::max(trig, gCtrl[h].keys[8]);
-                        cs[h].trigger = trig;
-                        cs[h].button_a = (gCtrl[h].keyCount > 6 && gCtrl[h].keys[6] != 0);
-                        cs[h].button_b = (gCtrl[h].keyCount > 7 && gCtrl[h].keys[7] != 0);
-                        cs[h].menu = (gCtrl[h].keyCount > 5 && gCtrl[h].keys[5] != 0);
-                        cs[h].home = (gCtrl[h].keyCount > 11 && gCtrl[h].keys[11] != 0);
-                        cs[h].grip = (gCtrl[h].keyCount > 3 && gCtrl[h].keys[3] != 0);
-                        cs[h].thumbstick_click = (gCtrl[h].keyCount > 4 && gCtrl[h].keys[4] != 0);
-                        cs[h].touch[0] = (gCtrl[h].keyCount > 0) ? gCtrl[h].keys[0] : 0;
-                        cs[h].touch[1] = (gCtrl[h].keyCount > 1) ? gCtrl[h].keys[1] : 0;
-                        cs[h].battery = 0;
-                        cs[h].has_angular_velocity = false;
-                    }
-                }
-                float half_fov = (lobbyFovDeg * 0.5f) * ((float)M_PI / 180.0f);
-                XrFovf lobby_fov = {-half_fov, half_fov, half_fov, -half_fov};
-                gLobby->draw(eyeIdx, head_orient, head_pos, cs, lobby_fov, softIpdM(), gOkHeld.load(), true, false);
-            }
+            // Native 3D lobby UI (wiVRn-style): HUD text + settings panel +
+            // server list, all rendered as world-locked GL geometry. No texture
+            // upload from Java.
 
             glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);
         };
