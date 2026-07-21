@@ -112,7 +112,7 @@ static inline MenuItem wivrnToggle(const char *label, std::atomic<bool> &val) {
 //   Bottom: ABOUT, LICENSES, EXIT
 static void buildCoreModel(MenuModel &m) {
     // SERVERS (wiVRn-style server list, first tab) --------------------------
-    MenuCategory servers; servers.name = "SERVERS"; servers.custom = true;
+    MenuCategory servers; servers.name = "Servers"; servers.custom = true;
     {
         MenuItem srv; srv.kind = MK_CUSTOM;
         srv.customH = 0.8f;
@@ -136,32 +136,32 @@ static void buildCoreModel(MenuModel &m) {
     m.push_back(servers);
 
     // SETTINGS (only options we actually support) ---------------------------
-    MenuCategory settings; settings.name = "SETTINGS";
+    MenuCategory settings; settings.name = "Settings";
     {
-        MenuItem ipd; ipd.kind = MK_STEPPER; ipd.label = "SOFTWARE IPD";
+        MenuItem ipd; ipd.kind = MK_STEPPER; ipd.label = "Software IPD";
         ipd.vmin = kIpdMin; ipd.vmax = kIpdMax; ipd.vstep = kIpdStep;
         ipd.get = []{ return gSoftIpdMm.load(); };
         ipd.set = [](float v){ gSoftIpdMm.store(v); gIpdChangeNs.store(nowNs()); gIpdDirty.store(true); };
-        ipd.valueText = [](char *b,int n){ snprintf(b,n,"%.1f MM", gSoftIpdMm.load()); };
+        ipd.valueText = [](char *b,int n){ snprintf(b,n,"%.1f mm", gSoftIpdMm.load()); };
         settings.items.push_back(ipd);
 
-        MenuItem br; br.kind = MK_FADER; br.label = "BRIGHTNESS";
+        MenuItem br; br.kind = MK_FADER; br.label = "Brightness";
         br.vmin = 0.0f; br.vmax = 1.0f;
         br.get = []{ return gBrightnessFrac.load(); };
         br.set = [](float f){ gBrightnessFrac.store(f); gBrightnessSaved.store(true); gBrightnessApply.store(true); };
-        br.valueText = [](char *b,int n){ snprintf(b,n,"%d PERCENT",(int)(gBrightnessFrac.load()*100.0f+0.5f)); };
+        br.valueText = [](char *b,int n){ snprintf(b,n,"%d%%",(int)(gBrightnessFrac.load()*100.0f+0.5f)); };
         br.onCommit = []{ saveBrightness(); };
         settings.items.push_back(br);
 
-        MenuItem fov; fov.kind = MK_FADER; fov.label = "FIELD OF VIEW";
+        MenuItem fov; fov.kind = MK_FADER; fov.label = "Field of view";
         fov.vmin = kFovMin; fov.vmax = kFovMax;
         fov.get = []{ return gStreamFovDeg.load(); };
         fov.set = [](float v){ gStreamFovDeg.store(roundf(v)); };
-        fov.valueText = [](char *b,int n){ snprintf(b,n,"%.0f DEG", gStreamFovDeg.load()); };
+        fov.valueText = [](char *b,int n){ snprintf(b,n,"%.0f deg", gStreamFovDeg.load()); };
         fov.onCommit = []{ gFovDirty.store(true); };
         settings.items.push_back(fov);
 
-        MenuItem res; res.kind = MK_FADER; res.label = "RESOLUTION SCALE";
+        MenuItem res; res.kind = MK_FADER; res.label = "Resolution scale";
         res.vmin = 0.5f; res.vmax = 2.0f;
         res.get = []{ return gWivrnResolutionScale.load(); };
         res.set = [](float v){ gWivrnResolutionScale.store(v); };
@@ -193,11 +193,11 @@ static void buildCoreModel(MenuModel &m) {
         };
         settings.items.push_back(res);
 
-        MenuItem bit; bit.kind = MK_FADER; bit.label = "BITRATE";
+        MenuItem bit; bit.kind = MK_FADER; bit.label = "Bitrate";
         bit.vmin = 5.0f; bit.vmax = 200.0f;
         bit.get = []{ return gWivrnBitrateMbps.load(); };
         bit.set = [](float v){ gWivrnBitrateMbps.store(v); };
-        bit.valueText = [](char *b,int n){ snprintf(b,n,"%.0f MBPS", gWivrnBitrateMbps.load()); };
+        bit.valueText = [](char *b,int n){ snprintf(b,n,"%.0f Mbps", gWivrnBitrateMbps.load()); };
         bit.onCommit = []{
             int mbps = (int)gWivrnBitrateMbps.load();
             if (g_stream) {
@@ -208,12 +208,12 @@ static void buildCoreModel(MenuModel &m) {
         };
         settings.items.push_back(bit);
 
-        MenuItem eyeFov = wivrnToggle("EYE-TRACKED FOVEATION", gWivrnEyeFoveation);
+        MenuItem eyeFov = wivrnToggle("Eye-tracked foveation", gWivrnEyeFoveation);
         eyeFov.disabled = !gEyeSupported.load();
         eyeFov.onChange = []{ saveAllConfig(); gEyeFoveationDirty.store(true); };
         settings.items.push_back(eyeFov);
 
-        MenuItem mic = wivrnToggle("MICROPHONE", gWivrnMicrophone);
+        MenuItem mic = wivrnToggle("Microphone", gWivrnMicrophone);
         mic.onChange = []{
             bool on = gWivrnMicrophone.load();
             if (g_stream) {
@@ -226,15 +226,15 @@ static void buildCoreModel(MenuModel &m) {
         };
         settings.items.push_back(mic);
 
-        MenuItem vib; vib.kind = MK_FADER; vib.label = "CONTROLLER VIBRATION";
+        MenuItem vib; vib.kind = MK_FADER; vib.label = "Controller vibration";
         vib.vmin = 0.0f; vib.vmax = 1.0f;
         vib.get = []{ return gWivrnCtrlVibration.load(); };
         vib.set = [](float v){ gWivrnCtrlVibration.store(v); };
-        vib.valueText = [](char *b,int n){ snprintf(b,n,"%d PCT", (int)(gWivrnCtrlVibration.load()*100.0f+0.5f)); };
+        vib.valueText = [](char *b,int n){ snprintf(b,n,"%d%%", (int)(gWivrnCtrlVibration.load()*100.0f+0.5f)); };
         vib.onCommit = []{ saveAllConfig(); };
         settings.items.push_back(vib);
 
-        MenuItem pt = wivrnToggle("PASSTHROUGH", gWivrnPassthrough);
+        MenuItem pt = wivrnToggle("Passthrough", gWivrnPassthrough);
         pt.onChange = []{
             extern pico_passthrough * gPassthrough;
             if (gWivrnPassthrough.load()) {
@@ -246,18 +246,18 @@ static void buildCoreModel(MenuModel &m) {
         };
         settings.items.push_back(pt);
 
-        MenuItem rec; rec.kind = MK_BUTTON; rec.label = "RECENTER";
+        MenuItem rec; rec.kind = MK_BUTTON; rec.label = "Recenter";
         rec.onClick = []{ gWivrnRecenterReq.store(true); };
         settings.items.push_back(rec);
 
-        MenuItem eye; eye.kind = MK_TOGGLE; eye.label = "EYE DEBUG";
+        MenuItem eye; eye.kind = MK_TOGGLE; eye.label = "Eye debug";
         eye.get = []{ return gEyeDebugOn.load()?1.0f:0.0f; };
         eye.set = [](float v){ gEyeDebugOn.store(v>0.5f); };
         eye.onChange = []{ saveEyeDebug(); gEyeTrackReapply.store(true); };
         settings.items.push_back(eye);
 
-        MenuItem diag; diag.kind = MK_DROPDOWN; diag.label = "DIAGNOSTICS HUD";
-        diag.options = { "OFF", "PIPELINE", "SYSTEM" };
+        MenuItem diag; diag.kind = MK_DROPDOWN; diag.label = "Diagnostics HUD";
+        diag.options = { "Off", "Pipeline", "System" };
         diag.get = []{ return (float)gDiagHudMode.load(); };
         diag.set = [](float v){ gDiagHudMode.store((int)(v+0.5f)); };
         diag.onChange = []{ saveDiagHud(); };
@@ -266,7 +266,7 @@ static void buildCoreModel(MenuModel &m) {
     m.push_back(settings);
 
     // ABOUT (bottom) --------------------------------------------------------
-    MenuCategory about; about.name = "ABOUT"; about.custom = true;
+    MenuCategory about; about.name = "About"; about.custom = true;
     {
         MenuItem ab; ab.kind = MK_CUSTOM;
         ab.customH = 1.6f;
@@ -279,7 +279,7 @@ static void buildCoreModel(MenuModel &m) {
             // Header banner
             UiRect banner = { cx, y - 0.06f, halfW * 2.0f, 0.12f };
             uiBox(v, banner, kUiFill);
-            uiTextC(v, "WIVRN FOR PICO NEO 2", cx, y - 0.09f, 0.007f, 1.0f, 1.0f, 1.0f);
+            uiTextC(v, "WiVRn for Pico Neo 2", cx, y - 0.09f, 0.007f, 1.0f, 1.0f, 1.0f);
             y -= 0.20f;
 
             // Divider
@@ -289,9 +289,9 @@ static void buildCoreModel(MenuModel &m) {
 
             // Description
             const char *desc[] = {
-                "STREAM PC VR GAMES TO YOUR",
-                "PICO NEO 2 OVER WIFI OR USB",
-                "WITH LOW LATENCY",
+                "Stream PC VR games to your",
+                "Pico Neo 2 over Wi-Fi or USB",
+                "with low latency",
             };
             for (const char *line : desc) {
                 uiTextC(v, line, cx, y, 0.0045f,
@@ -301,20 +301,20 @@ static void buildCoreModel(MenuModel &m) {
             y -= 0.03f;
 
             // Links section
-            uiTextL(v, "UPSTREAM", -halfW + 0.02f, y, 0.004f,
+            uiTextL(v, "Upstream", -halfW + 0.02f, y, 0.004f,
                     kUiFill[0], kUiFill[1], kUiFill[2]);
             y -= 0.06f;
-            uiTextL(v, "GITHUB.COM/WIVRN/WIVRN", -halfW + 0.02f, y, 0.004f,
+            uiTextL(v, "github.com/wivrn/wivrn", -halfW + 0.02f, y, 0.004f,
                     kUiTitle[0], kUiTitle[1], kUiTitle[2]);
             y -= 0.08f;
 
-            uiTextL(v, "THIS CLIENT", -halfW + 0.02f, y, 0.004f,
+            uiTextL(v, "This client", -halfW + 0.02f, y, 0.004f,
                     kUiFill[0], kUiFill[1], kUiFill[2]);
             y -= 0.06f;
-            uiTextL(v, "GITLAB.COM/HTTPANIMATIONS/", -halfW + 0.02f, y, 0.004f,
+            uiTextL(v, "gitlab.com/httpanimations/", -halfW + 0.02f, y, 0.004f,
                     kUiTitle[0], kUiTitle[1], kUiTitle[2]);
             y -= 0.05f;
-            uiTextL(v, "PICONEO2-WIVRN", -halfW + 0.02f, y, 0.004f,
+            uiTextL(v, "piconeo2-wivrn", -halfW + 0.02f, y, 0.004f,
                     kUiTitle[0], kUiTitle[1], kUiTitle[2]);
             y -= 0.08f;
 
@@ -322,10 +322,10 @@ static void buildCoreModel(MenuModel &m) {
             appendQuad(v, -halfW, y, halfW, y - 0.005f,
                        kUiTrack[0], kUiTrack[1], kUiTrack[2]);
             y -= 0.04f;
-            uiTextC(v, "LICENSED UNDER AGPL V3", cx, y, 0.004f,
+            uiTextC(v, "Licensed under AGPL v3", cx, y, 0.004f,
                     kUiTitle[0], kUiTitle[1], kUiTitle[2]);
             y -= 0.06f;
-            uiTextC(v, "SEE LICENSES TAB FOR DETAILS", cx, y, 0.0035f,
+            uiTextC(v, "See Licenses tab for details", cx, y, 0.0035f,
                     kUiTrack[0], kUiTrack[1], kUiTrack[2]);
         };
         about.items.push_back(ab);
@@ -333,7 +333,7 @@ static void buildCoreModel(MenuModel &m) {
     m.push_back(about);
 
     // LICENSES (bottom) -----------------------------------------------------
-    MenuCategory licenses; licenses.name = "LICENSES"; licenses.custom = true;
+    MenuCategory licenses; licenses.name = "Licenses"; licenses.custom = true;
     {
         MenuItem lic; lic.kind = MK_CUSTOM;
         lic.customH = 0.6f;
@@ -345,27 +345,27 @@ static void buildCoreModel(MenuModel &m) {
 
             UiRect banner = { cx, y - 0.06f, halfW * 2.0f, 0.12f };
             uiBox(v, banner, kUiFill);
-            uiTextC(v, "AGPL V3", cx, y - 0.09f, 0.007f, 1.0f, 1.0f, 1.0f);
+            uiTextC(v, "AGPL v3", cx, y - 0.09f, 0.007f, 1.0f, 1.0f, 1.0f);
             y -= 0.20f;
 
-            uiTextC(v, "THIS PROJECT IS LICENSED UNDER", cx, y, 0.0045f,
+            uiTextC(v, "This project is licensed under", cx, y, 0.0045f,
                     kUiTitle[0], kUiTitle[1], kUiTitle[2]);
             y -= 0.06f;
-            uiTextC(v, "THE GNU AFFERO GENERAL", cx, y, 0.0045f,
+            uiTextC(v, "the GNU Affero General", cx, y, 0.0045f,
                     kUiTitle[0], kUiTitle[1], kUiTitle[2]);
             y -= 0.06f;
-            uiTextC(v, "PUBLIC LICENSE V3", cx, y, 0.0045f,
+            uiTextC(v, "Public License v3", cx, y, 0.0045f,
                     kUiTitle[0], kUiTitle[1], kUiTitle[2]);
             y -= 0.10f;
 
-            uiTextC(v, "FULL LICENSE TEXT", cx, y, 0.004f,
+            uiTextC(v, "Full license text", cx, y, 0.004f,
                     kUiFill[0], kUiFill[1], kUiFill[2]);
             y -= 0.07f;
 
             UiRect urlBtn = { cx, y - 0.035f, halfW * 2.0f, 0.07f };
-            uiButton(v, urlBtn, "GITLAB.COM/HTTPANIMATIONS/", false, false);
+            uiButton(v, urlBtn, "gitlab.com/httpanimations/", false, false);
             y -= 0.06f;
-            uiTextC(v, "PICONEO2-WIVRN/-/RAW/MAIN/LICENSE", cx, y, 0.0035f,
+            uiTextC(v, "piconeo2-wivrn/-/raw/main/LICENSE", cx, y, 0.0035f,
                     kUiTitle[0], kUiTitle[1], kUiTitle[2]);
         };
         licenses.items.push_back(lic);
@@ -373,9 +373,9 @@ static void buildCoreModel(MenuModel &m) {
     m.push_back(licenses);
 
     // EXIT (bottom) ---------------------------------------------------------
-    MenuCategory exit; exit.name = "EXIT";
+    MenuCategory exit; exit.name = "Exit";
     {
-        MenuItem quit; quit.kind = MK_BUTTON; quit.label = "QUIT WIVRN";
+        MenuItem quit; quit.kind = MK_BUTTON; quit.label = "Quit WiVRn";
         quit.onClick = []{
             extern std::function<void()> gOnExit;
             if (gOnExit) gOnExit();

@@ -35,9 +35,9 @@ float buildServerContent(std::vector<float> &v, float scrollY,
     float contentW = kCtX1 - kCtX0;
 
     if (servers.empty()) {
-        uiTextC(v, "START A WIVRN SERVER", (kCtX0 + kCtX1) * 0.5f,
+        uiTextC(v, "Start a WiVRn server", (kCtX0 + kCtX1) * 0.5f,
                 kCtTop - 0.05f - scrollY, kUiText * 1.8f, 0.5f, 0.5f, 0.55f);
-        uiTextC(v, "ON YOUR LOCAL NETWORK", (kCtX0 + kCtX1) * 0.5f,
+        uiTextC(v, "on your local network", (kCtX0 + kCtX1) * 0.5f,
                 kCtTop - 0.13f - scrollY, kUiText * 1.8f, 0.5f, 0.5f, 0.55f);
         return 0.20f;
     }
@@ -72,7 +72,7 @@ float buildServerContent(std::vector<float> &v, float scrollY,
         // Autoconnect toggle (non-manual only)
         if (!srv.manual) {
             UiRect tog = { kCtX1 - 0.35f, yTop - kRowH * 0.5f, 0.25f, 0.05f };
-            uiToggle(v, tog, "AUTO", srv.autoconnect, hot && connectHot != i);
+            uiToggle(v, tog, "Auto", srv.autoconnect, hot && connectHot != i);
         }
 
         // Connect button (green, wiVRn style)
@@ -88,7 +88,7 @@ float buildServerContent(std::vector<float> &v, float scrollY,
                        btn.cx + btn.w*0.5f, btn.cy - btn.h*0.5f,
                        0.1f, 0.4f, 0.15f);
         }
-        uiTextC(v, "CONNECT", btn.cx, btn.cy + 3.5f * kUiText * 0.85f,
+        uiTextC(v, "Connect", btn.cx, btn.cy + 3.5f * kUiText * 0.85f,
                 kUiText * 0.85f, 1.0f, 1.0f, 1.0f);
 
         yTop = yBot - kRowGap;

@@ -15,7 +15,7 @@ bool     gEqPresetOpen = false;
 int      gEqPresetIdx  = 0;
 int      gDominantHand = 1;
 
-const char *kEqPresetNames[kEqNumPresets] = { "CUSTOM 1", "CUSTOM 2" };
+const char *kEqPresetNames[kEqNumPresets] = { "Custom 1", "Custom 2" };
 // Band centre frequencies for the readout (Hz), MUST match eq.rs CENTER_FREQS.
 static const float kEqFreqs[kEqBands] = {
     31, 47, 71, 107, 161, 242, 364, 548, 825, 1242, 1869, 2813, 4234, 6373, 9593, 14438
@@ -40,7 +40,7 @@ void saveEqProfile() { saveAllConfig(); }
 void buildEqVerts(std::vector<float> &v, int hoverBand, bool resetHover,
                   bool headerHover, int presetHoverItem) {
     const float px = kEqText;   // 1x text
-    appendTextLine(v, "AUDIO EQ", kEqTitleY, px, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+    appendTextLine(v, "Audio EQ", kEqTitleY, px, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
 
     // RESET button (centred, between the faders/readout and the preset dropdown).
     {
@@ -50,7 +50,7 @@ void buildEqVerts(std::vector<float> &v, int hoverBand, bool resetHover,
         // appendTextLine centres on x=0, so build the label there and shift to cx.
         float rpx = px * 0.78f;   // smaller so RESET fits the button
         std::vector<float> tmp;
-        appendTextLine(tmp, "RESET", (kEqResetYTop+kEqResetYBot)*0.5f + 3.5f*rpx, rpx, 1,1,1);
+        appendTextLine(tmp, "Reset", (kEqResetYTop+kEqResetYBot)*0.5f + 3.5f*rpx, rpx, 1,1,1);
         for (size_t i = 0; i < tmp.size(); i += 6) tmp[i] += cx;
         v.insert(v.end(), tmp.begin(), tmp.end());
     }
@@ -80,8 +80,8 @@ void buildEqVerts(std::vector<float> &v, int hoverBand, bool resetHover,
     if (rb >= 0) {
         char buf[32];
         float fr = kEqFreqs[rb];
-        if (fr >= 1000.0f) snprintf(buf, sizeof(buf), "%.1fKHZ %+.1fDB", fr/1000.0f, gEqGains[rb]);
-        else               snprintf(buf, sizeof(buf), "%.0fHZ %+.1fDB", fr, gEqGains[rb]);
+        if (fr >= 1000.0f) snprintf(buf, sizeof(buf), "%.1fkHz %+.1fdB", fr/1000.0f, gEqGains[rb]);
+        else               snprintf(buf, sizeof(buf), "%.0fHz %+.1fdB", fr, gEqGains[rb]);
         uiTextL(v, buf, kEqX0, kEqReadoutY, px, 1, 1, 1);   // condensed to the left edge
     }
 
@@ -91,7 +91,7 @@ void buildEqVerts(std::vector<float> &v, int hoverBand, bool resetHover,
         appendQuad(v, kEqPresetX0, kEqPresetYTop, kEqPresetX1, kEqPresetYBot, hr, hg, hb);
         char hbuf[40];
         const char *pn = kEqPresetNames[gEqPresetIdx];
-        snprintf(hbuf, sizeof(hbuf), "PRESET: %s %s", pn, gEqPresetOpen ? "^" : "~");
+        snprintf(hbuf, sizeof(hbuf), "Preset: %s %s", pn, gEqPresetOpen ? "^" : "~");
         appendTextLine(v, hbuf, (kEqPresetYTop+kEqPresetYBot)*0.5f + 3.5f*px, px, 1, 1, 1);
     }
     // Dropdown items (when open), stacked below the header.
