@@ -947,6 +947,251 @@ static void uploadDynamicVbo(GLuint vbo, const std::vector<float> &v, GLsizeiptr
     glBufferSubData(GL_ARRAY_BUFFER, 0, bytes, v.data());
 }
 
+// ===== Shared lobby panel interaction + draw helpers ====================
+// Used by both the lobby path (pre-stream) and the streaming overlay path
+// (manual lobby toggled mid-stream). Extracted so the two paths can't drift.
+
+struct PanelInteract {
+    // inputs
+    float ptrOx, ptrOy, ptrOz;
+    float ptrDx, ptrDy, ptrDz;
+    bool  ptrFromController;
+    bool  ptrGrab;
+    float ptrStickY;
+    bool  clickEdge;
+    bool  grabEdge;
+    // outputs
+    int   sliderVertCount = 0;
+    float cursorLx = 0, cursorLy = 0;
+    bool  cursorOnPanel = false;
+    bool  cursorPressed = false;
+    bool  lobbyHover = false;
+    float laserLen = 100.0f;
+};
+
+static bool rayPanelHit(const Mat4 &W,
+                        float ptrOx, float ptrOy, float ptrOz,
+                        float ptrDx, float ptrDy, float ptrDz,
+                        bool ptrFromController, float &laserLen,
+                        float &lx, float &ly, float &t)
+{
+    float Rx=W.m[0],Ry=W.m[1],Rz=W.m[2];
+    float Ux=W.m[4],Uy=W.m[5],Uz=W.m[6];
+    float Nx=W.m[8],Ny=W.m[9],Nz=W.m[10];
+    float Qx=W.m[12],Qy=W.m[13],Qz=W.m[14];
+    float denom = ptrDx*Nx + ptrDy*Ny + ptrDz*Nz;
+    if (fabsf(denom) <= 1e-5f) return false;
+    t = ((Qx-ptrOx)*Nx + (Qy-ptrOy)*Ny + (Qz-ptrOz)*Nz) / denom;
+    if (t <= 0.0f) return false;
+    float hx=ptrOx+ptrDx*t, hy=ptrOy+ptrDy*t, hz=ptrOz+ptrDz*t;
+    float rx=hx-Qx, ry=hy-Qy, rz=hz-Qz;
+    lx = rx*Rx + ry*Ry + rz*Rz;
+    ly = rx*Ux + ry*Uy + rz*Uz;
+    if (ptrFromController && t < laserLen) laserLen = t - 0.01f;
+    return true;
+}
+
+static void updateLobbyPanel(PanelInteract &pi, const Mat4 &settingsWorld)
+{
+    static int   sDragMode = 0;
+    static float sScrollLastLy = 0;
+    static uint32_t sPanelSig = 0; static bool sPanelHave = false;
+    static int sSliderVertCount = 0; static GLsizeiptr sSetCap = 0;
+    static std::vector<float> sverts; sverts.clear();
+
+    float setOffX = 0, setOffY = 0;
+    float setContentH = 0;
+    settingsMeasure(setOffX, setOffY, setContentH);
+    bool scrollable = setContentH > kSetViewportH + 1e-4f;
+    MenuModel &model = settingsModel();
+    MenuCategory &cat = model[gSettingsCat];
+
+    float lx, ly, t;
+    bool onPanel = rayPanelHit(settingsWorld, pi.ptrOx, pi.ptrOy, pi.ptrOz,
+                               pi.ptrDx, pi.ptrDy, pi.ptrDz,
+                               pi.ptrFromController, pi.laserLen, lx, ly, t);
+    bool inContent = onPanel && lx >= kCtX0 && lx <= kCtX1 && ly <= kCtTop && ly >= kCtBot;
+    float cx = lx - setOffX, cy = ly - setOffY;
+
+    if (onPanel) { pi.cursorLx = lx; pi.cursorLy = ly; pi.cursorOnPanel = true; pi.cursorPressed = pi.ptrGrab; }
+
+    MenuHover mh;
+    int  setTabHover   = -1;
+    bool setCloseHover = false;
+
+    if (onPanel) {
+        if (uiHit(kSetClose, lx, ly)) { setCloseHover = true; pi.lobbyHover = true; }
+        for (int i = 0; i < (int)model.size(); i++) {
+            if (model[i].streamingOnly && !gStreamingMode) continue;
+            if (model[i].hideWhileStreaming && gStreamingMode) continue;
+            if (uiHit(settingsTabRect(i), lx, ly)) { setTabHover = i; pi.lobbyHover = true; }
+        }
+    }
+    if (inContent) mh = menuHit(cat, cx, cy);
+    if (mh.item >= 0 || setTabHover >= 0 || setCloseHover) pi.lobbyHover = true;
+
+    if (pi.grabEdge) {
+        if (inContent && setTabHover < 0 && !setCloseHover)
+            sDragMode = mh.grab ? 2 : (scrollable ? 1 : 2);
+        else
+            sDragMode = 2;
+        sScrollLastLy = ly;
+    }
+    if (!pi.ptrGrab) sDragMode = 0;
+
+    if (sDragMode == 1 && pi.ptrGrab && scrollable) {
+        gSettingsScroll[gSettingsCat] += (ly - sScrollLastLy);
+        sScrollLastLy = ly;
+    }
+
+    float scrollStickY = pi.ptrStickY;
+    if (scrollable && fabsf(scrollStickY) > 0.18f)
+        gSettingsScroll[gSettingsCat] -= scrollStickY * 0.01875f;
+
+    if (pi.clickEdge && setCloseHover) { /* panel always open, close disabled */ }
+    if (pi.clickEdge && setTabHover >= 0 && setTabHover != gSettingsCat) {
+        gSettingsCat = setTabHover; sDragMode = 0;
+        if (g_stream && g_stream->session && setTabHover == 4 /* Launch */) {
+            std::lock_guard<std::mutex> lk(g_stream->app_mutex);
+            if (g_stream->available_apps.empty() && !g_stream->app_list_requested) {
+                try { g_stream->session->send_control(
+                    wivrn::from_headset::get_application_list{"en","US",""}); }
+                catch (...) {}
+            }
+        }
+    }
+    if (g_stream && g_stream->session && gSettingsCat == 3 /* Apps */) {
+        static uint64_t lastAppPoll = 0;
+        uint64_t now = nowNs();
+        if (now - lastAppPoll > 1000000000ULL) {
+            lastAppPoll = now;
+            try { g_stream->session->send_control(
+                wivrn::from_headset::get_running_applications{}); }
+            catch (...) {}
+        }
+    }
+    if (sDragMode != 1)
+        menuApply(gSettingsCat, cat, mh, pi.clickEdge, pi.ptrGrab, cx, cy);
+    if (!pi.ptrGrab && gEqGrabbing) { gEqGrabbing = false; gEqActiveBand = -1; }
+    if (gEqDirty && nowNs() - gEqChangeNs > 500000000ULL) { saveEqProfile(); gEqDirty = false; }
+
+    uint32_t panelSig = 2166136261u;
+    auto pmix = [&](long x){ for (int b = 0; b < 8; b++) { panelSig = (panelSig ^ (unsigned char)(x & 0xff)) * 16777619u; x >>= 8; } };
+    pmix(gSettingsCat);
+    pmix(gStreamingMode ? 1 : 0);
+    pmix(setTabHover); pmix(setCloseHover ? 1 : 0);
+    pmix(mh.item); pmix(mh.part); pmix(mh.grab ? 1 : 0);
+    pmix(lroundf(setOffX * 2000.0f)); pmix(lroundf(setOffY * 2000.0f)); pmix(lroundf(setContentH * 2000.0f));
+    pmix((long)menuValueSig(cat));
+    for (const auto &it : cat.items) pmix(it.dropOpen ? 1 : 0);
+    pmix(gEqActiveBand); pmix(gEqPresetOpen ? 1 : 0); pmix(gEqPresetIdx);
+    for (int i = 0; i < kEqBands; i++) pmix(lroundf(gEqGains[i] * 2000.0f));
+    if (g_stream) {
+        pmix(g_stream->stats_fps);
+        pmix(lroundf(g_stream->stats_total_latency_ms * 10));
+        pmix(lroundf(g_stream->stats_bandwidth_rx * 1e-6f * 10));
+        pmix(lroundf(g_stream->stats_bandwidth_tx * 1e-6f * 10));
+        pmix(lroundf(g_stream->stats_cpu_time_ms * 10));
+        pmix(lroundf(g_stream->stats_gpu_time_ms * 10));
+        pmix(lroundf(g_stream->stats_encode_ms * 10));
+        pmix(lroundf(g_stream->stats_send_ms * 10));
+        pmix(lroundf(g_stream->stats_network_ms * 10));
+        pmix(lroundf(g_stream->stats_decode_ms * 10));
+        pmix(lroundf(g_stream->stats_render_wait_ms * 10));
+        pmix(lroundf(g_stream->stats_blit_ms * 10));
+        pmix(g_stream->current_bitrate_mbps.load());
+        pmix(g_stream->stream_eye_width.load());
+        pmix(g_stream->stream_eye_height.load());
+        pmix(g_stream->microphone_enabled.load() ? 1 : 0);
+        int nAvail = 0, nRun = 0;
+        { std::lock_guard<std::mutex> lk(g_stream->app_mutex);
+          nAvail = (int)g_stream->available_apps.size();
+          nRun = (int)g_stream->running_apps.size(); }
+        pmix(nAvail); pmix(nRun);
+    }
+    if (!sPanelHave || panelSig != sPanelSig) {
+        buildSettingsPanel(sverts, setOffX, setOffY, setContentH, mh, setTabHover, setCloseHover);
+        sSliderVertCount = (int)(sverts.size() / 6);
+        if (sSliderVertCount > 0) uploadDynamicVbo(gSliderVbo, sverts, sSetCap);
+        sPanelSig = panelSig; sPanelHave = true;
+    }
+    pi.sliderVertCount = sSliderVertCount;
+}
+
+static void drawLaserBeam(float ox, float oy, float oz,
+                          float dx, float dy, float dz, float len,
+                          const Mat4 &sproj, const Mat4 &sview)
+{
+    float exr = ox + dx*len, eyr = oy + dy*len, ezr = oz + dz*len;
+    float lv[12] = { ox,oy,oz, 0.70f,0.82f,1.00f,
+                     exr,eyr,ezr, 0.70f,0.82f,1.00f };
+    glBindBuffer(GL_ARRAY_BUFFER, gLaserVbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(lv), lv, GL_DYNAMIC_DRAW);
+    Mat4 mvp = mat4Mul(sproj, sview);
+    glUseProgram(gProg);
+    glBindVertexArray(gLaserVao);
+    glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, mvp.m);
+    glDrawArrays(GL_LINES, 0, 2);
+    glBindVertexArray(0);
+}
+
+static void drawSettingsPanelVerts(int sliderVertCount, const Mat4 &sproj, const Mat4 &sview, const Mat4 &settingsWorld)
+{
+    if (sliderVertCount <= 0) return;
+    Mat4 mvp = mat4Mul(sproj, mat4Mul(sview, settingsWorld));
+    glUseProgram(gProg);
+    glBindVertexArray(gSliderVao);
+    glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, mvp.m);
+    glDrawArrays(GL_TRIANGLES, 0, sliderVertCount);
+    glBindVertexArray(0);
+}
+
+static void drawPointerCursor(float cursorLx, float cursorLy, bool cursorPressed,
+                              const Mat4 &sproj, const Mat4 &sview, const Mat4 &settingsWorld)
+{
+    const int kSegs = 24;
+    const float r = 0.018f;
+    const float rz = 0.005f;
+    float cr = 0.85f, cg = 0.92f, cb = 1.0f;
+    if (cursorPressed) { cr = 0.3f; cg = 0.6f; cb = 1.0f; }
+    float cv[kSegs * 2 * 6 * 3];
+    int vi = 0;
+    if (cursorPressed) {
+        for (int i = 0; i < kSegs; i++) {
+            float a0 = (float)i       / kSegs * 2.0f * (float)M_PI;
+            float a1 = (float)(i + 1) / kSegs * 2.0f * (float)M_PI;
+            cv[vi++] = cursorLx;            cv[vi++] = cursorLy;            cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+            cv[vi++] = cursorLx+cosf(a0)*r; cv[vi++] = cursorLy+sinf(a0)*r; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+            cv[vi++] = cursorLx+cosf(a1)*r; cv[vi++] = cursorLy+sinf(a1)*r; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+        }
+    } else {
+        const float ri = r * 0.6f;
+        for (int i = 0; i < kSegs; i++) {
+            float a0 = (float)i       / kSegs * 2.0f * (float)M_PI;
+            float a1 = (float)(i + 1) / kSegs * 2.0f * (float)M_PI;
+            float ox0 = cosf(a0)*r,  oy0 = sinf(a0)*r;
+            float ox1 = cosf(a1)*r,  oy1 = sinf(a1)*r;
+            float ix0 = cosf(a0)*ri, iy0 = sinf(a0)*ri;
+            float ix1 = cosf(a1)*ri, iy1 = sinf(a1)*ri;
+            cv[vi++] = cursorLx+ox0; cv[vi++] = cursorLy+oy0; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+            cv[vi++] = cursorLx+ox1; cv[vi++] = cursorLy+oy1; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+            cv[vi++] = cursorLx+ix1; cv[vi++] = cursorLy+iy1; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+            cv[vi++] = cursorLx+ox0; cv[vi++] = cursorLy+oy0; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+            cv[vi++] = cursorLx+ix1; cv[vi++] = cursorLy+iy1; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+            cv[vi++] = cursorLx+ix0; cv[vi++] = cursorLy+iy0; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+        }
+    }
+    int cursorVerts = vi / 6;
+    glBindBuffer(GL_ARRAY_BUFFER, gCursorVbo);
+    glBufferData(GL_ARRAY_BUFFER, vi * sizeof(float), cv, GL_DYNAMIC_DRAW);
+    Mat4 mvp = mat4Mul(sproj, mat4Mul(sview, settingsWorld));
+    glUseProgram(gProg);
+    glBindVertexArray(gCursorVao);
+    glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, mvp.m);
+    glDrawArrays(GL_TRIANGLES, 0, cursorVerts);
+    glBindVertexArray(0);
+}
+
 // Pin the render/submit thread to big cores + elevated priority so a background
 // task can't preempt it between frame-ready and warp submit. SD845 = cpu0-3 little,
 // cpu4-7 big; we pin to the top half. SCHED_FIFO usually EPERMs for a normal app,
@@ -3057,157 +3302,16 @@ void *renderThread(void *) {
                         static bool sPtrGrabPrev = false;
                         bool grabEdge = ptrGrab && !sPtrGrabPrev;
                         bool clickEdge = ptrFromController ? grabEdge : okClicked;
-                        float laserOx=ptrOx, laserOy=ptrOy, laserOz=ptrOz;
-                        float laserDx=ptrDx, laserDy=ptrDy, laserDz=ptrDz;
-                        float laserLen = 100.0f;
 
-                        auto rayPanel = [&](const Mat4 &W, float &lx, float &ly, float &t)->bool {
-                            float Rx=W.m[0],Ry=W.m[1],Rz=W.m[2];
-                            float Ux=W.m[4],Uy=W.m[5],Uz=W.m[6];
-                            float Nx=W.m[8],Ny=W.m[9],Nz=W.m[10];
-                            float Qx=W.m[12],Qy=W.m[13],Qz=W.m[14];
-                            float denom = ptrDx*Nx + ptrDy*Ny + ptrDz*Nz;
-                            if (fabsf(denom) <= 1e-5f) return false;
-                            t = ((Qx-ptrOx)*Nx + (Qy-ptrOy)*Ny + (Qz-ptrOz)*Nz) / denom;
-                            if (t <= 0.0f) return false;
-                            float hx=ptrOx+ptrDx*t, hy=ptrOy+ptrDy*t, hz=ptrOz+ptrDz*t;
-                            float rx=hx-Qx, ry=hy-Qy, rz=hz-Qz;
-                            lx = rx*Rx + ry*Ry + rz*Rz;
-                            ly = rx*Ux + ry*Uy + rz*Uz;
-                            if (ptrFromController && t < laserLen) laserLen = t - 0.01f;
-                            return true;
-                        };
-
-                        MenuHover mh;
-                        int  setTabHover   = -1;
-                        bool setCloseHover = false;
-                        bool lobbyHover = false;
-                        static int   sDragMode = 0;
-                        static float sScrollLastLy = 0;
-
-                        Mat4 setHit = settingsWorld;
-                        static std::vector<float> sverts; sverts.clear();
-                        int sliderVertCount = 0;
-                        float setContentH = 0;
-                        float cursorLx = 0, cursorLy = 0;
-                        bool  cursorOnPanel = false;
-                        bool  cursorPressed = false;
-                        {
-                            float setOffX = 0, setOffY = 0;
-                            settingsMeasure(setOffX, setOffY, setContentH);
-                            bool scrollable = setContentH > kSetViewportH + 1e-4f;
-                            MenuModel &model = settingsModel();
-                            MenuCategory &cat = model[gSettingsCat];
-
-                            float lx, ly, t;
-                            bool onPanel = rayPanel(setHit, lx, ly, t);
-                            bool inContent = onPanel && lx >= kCtX0 && lx <= kCtX1 && ly <= kCtTop && ly >= kCtBot;
-                            float cx = lx - setOffX, cy = ly - setOffY;
-
-                            if (onPanel) { cursorLx = lx; cursorLy = ly; cursorOnPanel = true; cursorPressed = ptrGrab; }
-
-                            if (onPanel) {
-                                if (uiHit(kSetClose, lx, ly)) { setCloseHover = true; lobbyHover = true; }
-                                for (int i = 0; i < (int)model.size(); i++) {
-                                    if (model[i].streamingOnly && !gStreamingMode) continue;
-                                    if (model[i].hideWhileStreaming && gStreamingMode) continue;
-                                    if (uiHit(settingsTabRect(i), lx, ly)) { setTabHover = i; lobbyHover = true; }
-                                }
-                            }
-                            if (inContent) mh = menuHit(cat, cx, cy);
-                            if (mh.item >= 0 || setTabHover >= 0 || setCloseHover) lobbyHover = true;
-
-                            if (grabEdge) {
-                                if (inContent && setTabHover < 0 && !setCloseHover)
-                                    sDragMode = mh.grab ? 2 : (scrollable ? 1 : 2);
-                                else
-                                    sDragMode = 2;
-                                sScrollLastLy = ly;
-                            }
-                            if (!ptrGrab) sDragMode = 0;
-
-                            if (sDragMode == 1 && ptrGrab && scrollable) {
-                                gSettingsScroll[gSettingsCat] += (ly - sScrollLastLy);
-                                sScrollLastLy = ly;
-                            }
-
-                            float scrollStickY = ptrStickY;
-                            if (scrollable && fabsf(scrollStickY) > 0.18f)
-                                gSettingsScroll[gSettingsCat] -= scrollStickY * 0.01875f;
-
-                            if (clickEdge && setTabHover >= 0 && setTabHover != gSettingsCat) {
-                                gSettingsCat = setTabHover; sDragMode = 0;
-                                // Switching to Launch: request app list if not yet loaded.
-                                if (g_stream && g_stream->session && setTabHover == 4 /* Launch */) {
-                                    std::lock_guard<std::mutex> lk(g_stream->app_mutex);
-                                    if (g_stream->available_apps.empty() && !g_stream->app_list_requested) {
-                                        try { g_stream->session->send_control(
-                                            wivrn::from_headset::get_application_list{"en","US",""}); }
-                                        catch (...) {}
-                                    }
-                                }
-                            }
-                            // Auto-poll running apps every ~1s while on the Apps tab.
-                            if (g_stream && g_stream->session && gSettingsCat == 3 /* Apps */) {
-                                static uint64_t lastAppPoll = 0;
-                                uint64_t now = nowNs();
-                                if (now - lastAppPoll > 1000000000ULL) {
-                                    lastAppPoll = now;
-                                    try { g_stream->session->send_control(
-                                        wivrn::from_headset::get_running_applications{}); }
-                                    catch (...) {}
-                                }
-                            }
-                            if (sDragMode != 1)
-                                menuApply(gSettingsCat, cat, mh, clickEdge, ptrGrab, cx, cy);
-                            if (!ptrGrab && gEqGrabbing) { gEqGrabbing = false; gEqActiveBand = -1; }
-                            if (gEqDirty && nowNs() - gEqChangeNs > 500000000ULL) { saveEqProfile(); gEqDirty = false; }
-
-                            uint32_t panelSig = 2166136261u;
-                            auto pmix = [&](long x){ for (int b = 0; b < 8; b++) { panelSig = (panelSig ^ (unsigned char)(x & 0xff)) * 16777619u; x >>= 8; } };
-                            pmix(gSettingsCat);
-                            pmix(gStreamingMode ? 1 : 0);
-                            pmix(setTabHover); pmix(setCloseHover ? 1 : 0);
-                            pmix(mh.item); pmix(mh.part); pmix(mh.grab ? 1 : 0);
-                            pmix(lroundf(setOffX * 2000.0f)); pmix(lroundf(setOffY * 2000.0f)); pmix(lroundf(setContentH * 2000.0f));
-                            pmix((long)menuValueSig(cat));
-                            for (const auto &it : cat.items) pmix(it.dropOpen ? 1 : 0);
-                            pmix(gEqActiveBand); pmix(gEqPresetOpen ? 1 : 0); pmix(gEqPresetIdx);
-                            for (int i = 0; i < kEqBands; i++) pmix(lroundf(gEqGains[i] * 2000.0f));
-                            // Streaming data: stats + app counts change the panel.
-                            if (g_stream) {
-                                pmix(g_stream->stats_fps);
-                                pmix(lroundf(g_stream->stats_total_latency_ms * 10));
-                                pmix(lroundf(g_stream->stats_bandwidth_rx * 1e-6f * 10));
-                                pmix(lroundf(g_stream->stats_bandwidth_tx * 1e-6f * 10));
-                                pmix(lroundf(g_stream->stats_cpu_time_ms * 10));
-                                pmix(lroundf(g_stream->stats_gpu_time_ms * 10));
-                                pmix(lroundf(g_stream->stats_encode_ms * 10));
-                                pmix(lroundf(g_stream->stats_send_ms * 10));
-                                pmix(lroundf(g_stream->stats_network_ms * 10));
-                                pmix(lroundf(g_stream->stats_decode_ms * 10));
-                                pmix(lroundf(g_stream->stats_render_wait_ms * 10));
-                                pmix(lroundf(g_stream->stats_blit_ms * 10));
-                                pmix(g_stream->current_bitrate_mbps.load());
-                                pmix(g_stream->stream_eye_width.load());
-                                pmix(g_stream->stream_eye_height.load());
-                                pmix(g_stream->microphone_enabled.load() ? 1 : 0);
-                                int nAvail = 0, nRun = 0;
-                                { std::lock_guard<std::mutex> lk(g_stream->app_mutex);
-                                  nAvail = (int)g_stream->available_apps.size();
-                                  nRun = (int)g_stream->running_apps.size(); }
-                                pmix(nAvail); pmix(nRun);
-                            }
-                            static uint32_t sPanelSig = 0; static bool sPanelHave = false;
-                            static int sSliderVertCount = 0; static GLsizeiptr sSetCap = 0;
-                            if (!sPanelHave || panelSig != sPanelSig) {
-                                buildSettingsPanel(sverts, setOffX, setOffY, setContentH, mh, setTabHover, setCloseHover);
-                                sSliderVertCount = (int)(sverts.size() / 6);
-                                if (sSliderVertCount > 0) uploadDynamicVbo(gSliderVbo, sverts, sSetCap);
-                                sPanelSig = panelSig; sPanelHave = true;
-                            }
-                            sliderVertCount = sSliderVertCount;
-                        }
+                        PanelInteract pi;
+                        pi.ptrOx = ptrOx; pi.ptrOy = ptrOy; pi.ptrOz = ptrOz;
+                        pi.ptrDx = ptrDx; pi.ptrDy = ptrDy; pi.ptrDz = ptrDz;
+                        pi.ptrFromController = ptrFromController;
+                        pi.ptrGrab = ptrGrab;
+                        pi.ptrStickY = ptrStickY;
+                        pi.clickEdge = clickEdge;
+                        pi.grabEdge = grabEdge;
+                        updateLobbyPanel(pi, settingsWorld);
                         sPtrGrabPrev = ptrGrab;
 
                         // Apply menu-requested side effects.
@@ -3217,8 +3321,6 @@ void *renderThread(void *) {
                             g_stream->send_eye_foveation_override();
 
                         // Draw the lobby overlay into gSwap (on top of the video).
-                        // Order after the ALVR render via glWaitSync (already done
-                        // above if diag/battery drew; do it here otherwise).
                         if (alvrFence) { glWaitSync(alvrFence, 0, GL_TIMEOUT_IGNORED); glDeleteSync(alvrFence); alvrFence = 0; }
                         glBindFramebuffer(GL_FRAMEBUFFER, gStreamFbo);
                         glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_SCISSOR_TEST);
@@ -3230,76 +3332,11 @@ void *renderThread(void *) {
                                                    GL_TEXTURE_2D, gSwap[e][gSwapIdx], 0);
                             glViewport(0, 0, gStreamW, gStreamH);
 
-                            // Controller laser beam.
-                            if (ptrFromController) {
-                                const float L = laserLen;
-                                float exr = laserOx + laserDx*L, eyr = laserOy + laserDy*L, ezr = laserOz + laserDz*L;
-                                float lv[12] = { laserOx,laserOy,laserOz, 0.70f,0.82f,1.00f,
-                                                 exr,eyr,ezr, 0.70f,0.82f,1.00f };
-                                glBindBuffer(GL_ARRAY_BUFFER, gLaserVbo);
-                                glBufferData(GL_ARRAY_BUFFER, sizeof(lv), lv, GL_DYNAMIC_DRAW);
-                                Mat4 lMvp = mat4Mul(sproj, view);
-                                glUseProgram(gProg);
-                                glBindVertexArray(gLaserVao);
-                                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, lMvp.m);
-                                glDrawArrays(GL_LINES, 0, 2);
-                                glBindVertexArray(0);
-                            }
-
-                            // Settings panel.
-                            if (sliderVertCount > 0) {
-                                Mat4 setMvp = mat4Mul(sproj, mat4Mul(view, settingsWorld));
-                                glUseProgram(gProg);
-                                glBindVertexArray(gSliderVao);
-                                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, setMvp.m);
-                                glDrawArrays(GL_TRIANGLES, 0, sliderVertCount);
-                                glBindVertexArray(0);
-                            }
-
-                            // Pointer cursor on the panel.
-                            if (cursorOnPanel) {
-                                const int kSegs = 24;
-                                const float r = 0.018f;
-                                const float rz = 0.005f;
-                                float cr = 0.85f, cg = 0.92f, cb = 1.0f;
-                                if (cursorPressed) { cr = 0.3f; cg = 0.6f; cb = 1.0f; }
-                                float cv[kSegs * 2 * 6 * 3];
-                                int vi = 0;
-                                if (cursorPressed) {
-                                    for (int i = 0; i < kSegs; i++) {
-                                        float a0 = (float)i       / kSegs * 2.0f * (float)M_PI;
-                                        float a1 = (float)(i + 1) / kSegs * 2.0f * (float)M_PI;
-                                        cv[vi++] = cursorLx;            cv[vi++] = cursorLy;            cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
-                                        cv[vi++] = cursorLx+cosf(a0)*r; cv[vi++] = cursorLy+sinf(a0)*r; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
-                                        cv[vi++] = cursorLx+cosf(a1)*r; cv[vi++] = cursorLy+sinf(a1)*r; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
-                                    }
-                                } else {
-                                    const float ri = r * 0.6f;
-                                    for (int i = 0; i < kSegs; i++) {
-                                        float a0 = (float)i       / kSegs * 2.0f * (float)M_PI;
-                                        float a1 = (float)(i + 1) / kSegs * 2.0f * (float)M_PI;
-                                        float ox0 = cosf(a0)*r,  oy0 = sinf(a0)*r;
-                                        float ox1 = cosf(a1)*r,  oy1 = sinf(a1)*r;
-                                        float ix0 = cosf(a0)*ri, iy0 = sinf(a0)*ri;
-                                        float ix1 = cosf(a1)*ri, iy1 = sinf(a1)*ri;
-                                        cv[vi++] = cursorLx+ox0; cv[vi++] = cursorLy+oy0; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
-                                        cv[vi++] = cursorLx+ox1; cv[vi++] = cursorLy+oy1; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
-                                        cv[vi++] = cursorLx+ix1; cv[vi++] = cursorLy+iy1; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
-                                        cv[vi++] = cursorLx+ox0; cv[vi++] = cursorLy+oy0; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
-                                        cv[vi++] = cursorLx+ix1; cv[vi++] = cursorLy+iy1; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
-                                        cv[vi++] = cursorLx+ix0; cv[vi++] = cursorLy+iy0; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
-                                    }
-                                }
-                                int cursorVerts = vi / 6;
-                                glBindBuffer(GL_ARRAY_BUFFER, gCursorVbo);
-                                glBufferData(GL_ARRAY_BUFFER, vi * sizeof(float), cv, GL_DYNAMIC_DRAW);
-                                Mat4 cMvp = mat4Mul(sproj, mat4Mul(view, settingsWorld));
-                                glUseProgram(gProg);
-                                glBindVertexArray(gCursorVao);
-                                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, cMvp.m);
-                                glDrawArrays(GL_TRIANGLES, 0, cursorVerts);
-                                glBindVertexArray(0);
-                            }
+                            if (ptrFromController)
+                                drawLaserBeam(ptrOx, ptrOy, ptrOz, ptrDx, ptrDy, ptrDz, pi.laserLen, sproj, view);
+                            drawSettingsPanelVerts(pi.sliderVertCount, sproj, view, settingsWorld);
+                            if (pi.cursorOnPanel)
+                                drawPointerCursor(pi.cursorLx, pi.cursorLy, pi.cursorPressed, sproj, view, settingsWorld);
                         }
                         glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     }
@@ -3670,154 +3707,20 @@ void *renderThread(void *) {
         static bool sPtrGrabPrev = false;
         bool grabEdge = ptrGrab && !sPtrGrabPrev;
         bool clickEdge = ptrFromController ? grabEdge : okClicked;   // unified single-click
-        float laserOx=ptrOx, laserOy=ptrOy, laserOz=ptrOz;     // laser draw inputs
-        float laserDx=ptrDx, laserDy=ptrDy, laserDz=ptrDz;
-        float laserLen = 100.0f;   // 100 m; clipped to a panel hit (below)
 
-        // Ray vs a panel plane (column-major model matrix W). Returns hit + local x/y
-        // (panel metres) + distance t. Also clips the laser length to the hit.
-        auto rayPanel = [&](const Mat4 &W, float &lx, float &ly, float &t)->bool {
-            float Rx=W.m[0],Ry=W.m[1],Rz=W.m[2];
-            float Ux=W.m[4],Uy=W.m[5],Uz=W.m[6];
-            float Nx=W.m[8],Ny=W.m[9],Nz=W.m[10];
-            float Qx=W.m[12],Qy=W.m[13],Qz=W.m[14];
-            float denom = ptrDx*Nx + ptrDy*Ny + ptrDz*Nz;
-            if (fabsf(denom) <= 1e-5f) return false;
-            t = ((Qx-ptrOx)*Nx + (Qy-ptrOy)*Ny + (Qz-ptrOz)*Nz) / denom;
-            if (t <= 0.0f) return false;
-            float hx=ptrOx+ptrDx*t, hy=ptrOy+ptrDy*t, hz=ptrOz+ptrDz*t;
-            float rx=hx-Qx, ry=hy-Qy, rz=hz-Qz;
-            lx = rx*Rx + ry*Ry + rz*Rz;
-            ly = rx*Ux + ry*Uy + rz*Uz;
-            if (ptrFromController && t < laserLen) laserLen = t - 0.01f;
-            return true;
-        };
-
-        // ===== UNIFIED LOBBY PANEL (always open) ==============================
-        // Single world-locked floating window with sidebar tabs + content area.
-        // No separate HUD, no open/close buttons. wiVRn-style.
-        MenuHover mh;                    // hovered content item (data-driven menu)
-        int  setTabHover   = -1;         // hovered sidebar tab
-        bool setCloseHover = false;
-        bool lobbyHover = false;
-        static int   sDragMode = 0;     // 0=none, 1=scroll, 2=widget (decided on grab edge)
-        static float sScrollLastLy = 0;
-
-        // The panel is anchored in world space; the pointer ray is in the same
-        // frame, so hit-test directly against the panel's world matrix.
-        Mat4 setHit = settingsWorld;
-
-        // Cursor hit state (captured by drawLobbyScene lambda below).
-        float cursorLx = 0, cursorLy = 0;
-        bool  cursorOnPanel = false;
-        bool  cursorPressed = false;
-
-        int srvVertCount = 0;   // server list is now a tab inside the settings panel
-
-        static std::vector<float> sverts; sverts.clear();   // reuse capacity (settings panel)
-        int sliderVertCount = 0;
-        float setContentH = 0;
-        {
-            float setOffX = 0, setOffY = 0;
-            settingsMeasure(setOffX, setOffY, setContentH);
-            bool scrollable = setContentH > kSetViewportH + 1e-4f;
-
-            MenuModel &model = settingsModel();
-            MenuCategory &cat = model[gSettingsCat];
-
-            float lx, ly, t;
-            bool onPanel = rayPanel(setHit, lx, ly, t);
-            bool inContent = onPanel && lx >= kCtX0 && lx <= kCtX1 && ly <= kCtTop && ly >= kCtBot;
-            float cx = lx - setOffX, cy = ly - setOffY;   // builder-local content coords
-
-            // Store cursor state for the draw lambda.
-            if (onPanel) { cursorLx = lx; cursorLy = ly; cursorOnPanel = true; cursorPressed = ptrGrab; }
-
-            // ---- chrome: close + sidebar tabs (always clickable) ----
-            if (onPanel) {
-                if (uiHit(kSetClose, lx, ly)) { setCloseHover = true; lobbyHover = true; }
-                for (int i = 0; i < (int)model.size(); i++) {
-                    if (model[i].streamingOnly && !gStreamingMode) continue;
-                    if (model[i].hideWhileStreaming && gStreamingMode) continue;
-                    if (uiHit(settingsTabRect(i), lx, ly)) { setTabHover = i; lobbyHover = true; }
-                }
-            }
-
-            // ---- content hover (generic, over the active category's items) ----
-            if (inContent) mh = menuHit(cat, cx, cy);
-            if (mh.item >= 0 || setTabHover >= 0 || setCloseHover) lobbyHover = true;
-
-            // ---- grab-mode latch (decided once, on the grab edge) ----
-            // mh.grab = pointer is on a press/drag widget; empty content -> scroll.
-            if (grabEdge) {
-                if (inContent && setTabHover < 0 && !setCloseHover)
-                    sDragMode = mh.grab ? 2 : (scrollable ? 1 : 2);
-                else
-                    sDragMode = 2;   // chrome / off-panel: treat as discrete
-                sScrollLastLy = ly;
-            }
-            if (!ptrGrab) sDragMode = 0;
-
-            // ---- scroll (grab on empty content) ----
-            if (sDragMode == 1 && ptrGrab && scrollable) {
-                gSettingsScroll[gSettingsCat] += (ly - sScrollLastLy);   // content follows the hand
-                sScrollLastLy = ly;     // clamp applied in settingsMeasure() next frame
-            }
-
-            // ---- thumbstick page-scroll (whole page only, never sliders) ----
-            // Independent of the grab/drag path. When locomotion is on the LEFT
-            // stick, menu scroll uses the RIGHT stick Y; otherwise the dominant-hand
-            // stick Y.
-            float scrollStickY = ptrStickY;
-            if (scrollable && fabsf(scrollStickY) > 0.18f) {
-                gSettingsScroll[gSettingsCat] -= scrollStickY * 0.01875f;  // clamp next frame
-            }
-
-            // ---- discrete clicks on chrome ----
-            if (clickEdge && setCloseHover) { /* panel always open, close disabled */ }
-            if (clickEdge && setTabHover >= 0 && setTabHover != gSettingsCat) { gSettingsCat = setTabHover; sDragMode = 0; }
-
-            // ---- content actions (suppressed while scrolling) ----
-            // ONE generic dispatch over the active category's items: hold-to-repeat
-            // steppers, fader drag + release-commit, toggle/button clicks, and the
-            // custom EQ panel, all handled inside menuApply(). Side effects that
-            // need the render thread (GL rebuild, JNIEnv, loco) are raised as dirty
-            // flags and applied just below.
-            if (sDragMode != 1)
-                menuApply(gSettingsCat, cat, mh, clickEdge, ptrGrab, cx, cy);
-            if (!ptrGrab && gEqGrabbing) { gEqGrabbing = false; gEqActiveBand = -1; }
-            if (gEqDirty && nowNs() - gEqChangeNs > 500000000ULL) { saveEqProfile(); gEqDirty = false; }
-
-            // THROTTLE the settings-panel rebuild+upload. settingsMeasure / hit-test
-            // / menuApply still run every frame so dragging stays responsive, but
-            // the geometry build + VBO upload only happen when something that
-            // affects the drawn pixels changed. The signature covers category/
-            // hover/scroll-offset + the menu's get() values + dropdown-open + EQ state.
-            uint32_t panelSig = 2166136261u;
-            auto pmix = [&](long x){ for (int b = 0; b < 8; b++) { panelSig = (panelSig ^ (unsigned char)(x & 0xff)) * 16777619u; x >>= 8; } };
-            pmix(gSettingsCat);
-            pmix(gStreamingMode ? 1 : 0);
-            pmix(setTabHover); pmix(setCloseHover ? 1 : 0);
-            pmix(mh.item); pmix(mh.part); pmix(mh.grab ? 1 : 0);
-            pmix(lroundf(setOffX * 2000.0f)); pmix(lroundf(setOffY * 2000.0f)); pmix(lroundf(setContentH * 2000.0f));
-            pmix((long)menuValueSig(cat));
-            for (const auto &it : cat.items) pmix(it.dropOpen ? 1 : 0);
-            pmix(gEqActiveBand); pmix(gEqPresetOpen ? 1 : 0); pmix(gEqPresetIdx);
-            for (int i = 0; i < kEqBands; i++) pmix(lroundf(gEqGains[i] * 2000.0f));
-            static uint32_t sPanelSig = 0; static bool sPanelHave = false;
-            static int sSliderVertCount = 0; static GLsizeiptr sSetCap = 0;
-            if (!sPanelHave || panelSig != sPanelSig) {
-                buildSettingsPanel(sverts, setOffX, setOffY, setContentH, mh, setTabHover, setCloseHover);
-                sSliderVertCount = (int)(sverts.size() / 6);
-                if (sSliderVertCount > 0) uploadDynamicVbo(gSliderVbo, sverts, sSetCap);
-                sPanelSig = panelSig; sPanelHave = true;
-            }
-            sliderVertCount = sSliderVertCount;
-        }
+        PanelInteract pi;
+        pi.ptrOx = ptrOx; pi.ptrOy = ptrOy; pi.ptrOz = ptrOz;
+        pi.ptrDx = ptrDx; pi.ptrDy = ptrDy; pi.ptrDz = ptrDz;
+        pi.ptrFromController = ptrFromController;
+        pi.ptrGrab = ptrGrab;
+        pi.ptrStickY = ptrStickY;
+        pi.clickEdge = clickEdge;
+        pi.grabEdge = grabEdge;
+        updateLobbyPanel(pi, settingsWorld);
         if (!ptrGrab && gEqGrabbing) { gEqGrabbing = false; gEqActiveBand = -1; }
 
         sPtrGrabPrev = ptrGrab;
-        bool showReticle = (!ptrFromController && lobbyHover);
+        bool showReticle = (!ptrFromController && pi.lobbyHover);
 
         // ---- apply menu-requested side effects ----
         // The data-driven menu has no GL context / JNIEnv / locomotion access, so
@@ -3840,23 +3743,8 @@ void *renderThread(void *) {
             if (gPassthrough && gPassthrough->is_camera_on())
                 gPassthrough->draw(eyeIdx);
             glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE);
-            // Native HUD text and SETTINGS window replaced by the ported WiVRn lobby UI.
-            // Controller laser beam (world-space) when a controller drives the pointer.
-            if (ptrFromController) {
-                const float L = laserLen;
-                float exr = laserOx + laserDx*L, eyr = laserOy + laserDy*L, ezr = laserOz + laserDz*L;
-                // WiVRn-style pointer beam: soft blue-white.
-                float lv[12] = { laserOx,laserOy,laserOz, 0.70f,0.82f,1.00f,
-                                 exr,eyr,ezr,                   0.70f,0.82f,1.00f };
-                glBindBuffer(GL_ARRAY_BUFFER, gLaserVbo);
-                glBufferData(GL_ARRAY_BUFFER, sizeof(lv), lv, GL_DYNAMIC_DRAW);
-                Mat4 lMvp = mat4Mul(sproj, sview);   // verts already in world space
-                glUseProgram(gProg);
-                glBindVertexArray(gLaserVao);
-                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, lMvp.m);
-                glDrawArrays(GL_LINES, 0, 2);
-                glBindVertexArray(0);
-            }
+            if (ptrFromController)
+                drawLaserBeam(ptrOx, ptrOy, ptrOz, ptrDx, ptrDy, ptrDz, pi.laserLen, sproj, sview);
             // Controller models: textured solid meshes attached to each live
             // controller pose. Texture swaps based on button state.
             glEnable(GL_DEPTH_TEST);
@@ -3934,65 +3822,9 @@ void *renderThread(void *) {
                 glBindVertexArray(0);
             }
             // Native 3D lobby UI: unified floating panel (wiVRn-style).
-            // No HUD text, no separate server list panel. Everything is in
-            // the settings panel which is always open.
-            if (sliderVertCount > 0) {
-                Mat4 setMvp = mat4Mul(sproj, mat4Mul(sview, settingsWorld));
-                glUseProgram(gProg);
-                glBindVertexArray(gSliderVao);
-                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, setMvp.m);
-                glDrawArrays(GL_TRIANGLES, 0, sliderVertCount);
-                glBindVertexArray(0);
-            }
-
-            // Pointer cursor: small ring on the panel at the laser hit point.
-            // Drawn on top of the panel so the user sees exactly where the ray
-            // lands. Filled when pressed (trigger down).
-            if (cursorOnPanel) {
-                const int kSegs = 24;
-                const float r = 0.018f;
-                const float rz = 0.005f;   // slightly in front of the panel
-                float cr = 0.85f, cg = 0.92f, cb = 1.0f;
-                if (cursorPressed) { cr = 0.3f; cg = 0.6f; cb = 1.0f; }
-                float cv[kSegs * 2 * 6 * 3]; // worst case: ring + inner fill
-                int vi = 0;
-                if (cursorPressed) {
-                    // Filled disc.
-                    for (int i = 0; i < kSegs; i++) {
-                        float a0 = (float)i       / kSegs * 2.0f * M_PI;
-                        float a1 = (float)(i + 1) / kSegs * 2.0f * M_PI;
-                        cv[vi++] = cursorLx;            cv[vi++] = cursorLy;            cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
-                        cv[vi++] = cursorLx+cosf(a0)*r; cv[vi++] = cursorLy+sinf(a0)*r; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
-                        cv[vi++] = cursorLx+cosf(a1)*r; cv[vi++] = cursorLy+sinf(a1)*r; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
-                    }
-                } else {
-                    // Hollow ring (outer + inner radius).
-                    const float ri = r * 0.6f;
-                    for (int i = 0; i < kSegs; i++) {
-                        float a0 = (float)i       / kSegs * 2.0f * M_PI;
-                        float a1 = (float)(i + 1) / kSegs * 2.0f * M_PI;
-                        float ox0 = cosf(a0)*r,  oy0 = sinf(a0)*r;
-                        float ox1 = cosf(a1)*r,  oy1 = sinf(a1)*r;
-                        float ix0 = cosf(a0)*ri, iy0 = sinf(a0)*ri;
-                        float ix1 = cosf(a1)*ri, iy1 = sinf(a1)*ri;
-                        cv[vi++] = cursorLx+ox0; cv[vi++] = cursorLy+oy0; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
-                        cv[vi++] = cursorLx+ox1; cv[vi++] = cursorLy+oy1; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
-                        cv[vi++] = cursorLx+ix1; cv[vi++] = cursorLy+iy1; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
-                        cv[vi++] = cursorLx+ox0; cv[vi++] = cursorLy+oy0; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
-                        cv[vi++] = cursorLx+ix1; cv[vi++] = cursorLy+iy1; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
-                        cv[vi++] = cursorLx+ix0; cv[vi++] = cursorLy+iy0; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
-                    }
-                }
-                int cursorVerts = vi / 6;
-                glBindBuffer(GL_ARRAY_BUFFER, gCursorVbo);
-                glBufferData(GL_ARRAY_BUFFER, vi * sizeof(float), cv, GL_DYNAMIC_DRAW);
-                Mat4 cMvp = mat4Mul(sproj, mat4Mul(sview, settingsWorld));
-                glUseProgram(gProg);
-                glBindVertexArray(gCursorVao);
-                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, cMvp.m);
-                glDrawArrays(GL_TRIANGLES, 0, cursorVerts);
-                glBindVertexArray(0);
-            }
+            drawSettingsPanelVerts(pi.sliderVertCount, sproj, sview, settingsWorld);
+            if (pi.cursorOnPanel)
+                drawPointerCursor(pi.cursorLx, pi.cursorLy, pi.cursorPressed, sproj, sview, settingsWorld);
 
             glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);
         };
