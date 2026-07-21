@@ -1,0 +1,8 @@
+# SHA256 hashes of the Pico Neo 2 SDK files extracted by fetch_pico_sdk.sh.
+# Used by the script (--verify flag) and CI to confirm the extracted SDK
+# matches the expected prebuilt binaries from pvrSDK-release.aar in
+# PicoVR_Unity_SDK_2.8.12_B583.
+0e49fb1c671a79404c57cb4ad04a16c4e79a2428fc25d68cef7c5d1ffc7ef0b2  src/app/src/main/jniLibs/armeabi-v7a/libPvr_UnitySDK.so
+ac91b47205a6adedd58ad93a69f177286c25f3cd89852eada9ad718fd90dae18  src/app/src/main/jniLibs/armeabi-v7a/libnative.so
+545c7d65b78e0c289abea30a8542044f4fc77bbefbbf3a67ace39b456e35b52d  src/app/src/main/jniLibs/armeabi-v7a/libtracking_module.so
+5c2c809f0599d480aaf13a9b2340eda6bab097428e4af41eb53cecc23507fd68  src/app/libs/pvr_classes.jar
