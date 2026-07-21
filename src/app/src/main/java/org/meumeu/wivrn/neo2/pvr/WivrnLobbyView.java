@@ -162,7 +162,6 @@ public class WivrnLobbyView {
     private float fovDeg = 101;
     private boolean tcpOnly = false;
     private boolean microphoneEnabled = false;
-    private boolean lowerResWireless = false;
     private boolean passthroughEnabled = true;
     private int languageSetting = 0;
 
@@ -718,7 +717,6 @@ public class WivrnLobbyView {
         microphoneEnabled = sp.getBoolean("microphone", false);
         streamBitrateSetting = sp.getInt("stream_bitrate", 50);
         streamResolutionScale = sp.getInt("stream_resolution_scale", 100);
-        lowerResWireless = sp.getBoolean("lower_res_wireless", false);
         passthroughEnabled = sp.getBoolean("passthrough", true);
         languageSetting = sp.getInt("language", 0);
     }
@@ -736,7 +734,6 @@ public class WivrnLobbyView {
             .putBoolean("microphone", microphoneEnabled)
             .putInt("stream_bitrate", streamBitrateSetting)
             .putInt("stream_resolution_scale", streamResolutionScale)
-            .putBoolean("lower_res_wireless", lowerResWireless)
             .putBoolean("passthrough", passthroughEnabled)
             .putInt("language", languageSetting)
             .apply();
@@ -866,14 +863,8 @@ public class WivrnLobbyView {
 
     public int getResWidth() { return resWidth; }
 
-    private int getEffectiveResWidth() {
-        if (lowerResWireless && !tcpOnly)
-            return Math.min(resWidth, 1280);
-        return resWidth;
-    }
-
     public void applyResolution() {
-        int renderW = Math.max(256, getEffectiveResWidth());
+        int renderW = Math.max(256, resWidth);
         renderW = (renderW / 2) * 2;
         int renderH = renderW * 2160 / 2048;
         renderH = (renderH / 2) * 2;
@@ -895,7 +886,6 @@ public class WivrnLobbyView {
     public float getIpdMm() { return ipdMm; }
     public boolean isTcpOnly() { return tcpOnly; }
     public boolean isMicrophoneEnabled() { return microphoneEnabled; }
-    public boolean isLowerResWireless() { return lowerResWireless; }
 
     public void render() {
         canvas.drawRect(0, 0, width, height, bgPaint);
@@ -1112,7 +1102,6 @@ public class WivrnLobbyView {
 
         y = drawCheckbox(x, y, w, i18n.s(R.string.tcp_only), tcpOnly, false);
         y = drawCheckbox(x, y, w, i18n.s(R.string.setting_microphone), microphoneEnabled, false);
-        y = drawCheckbox(x, y, w, i18n.s(R.string.setting_lower_res_wireless), lowerResWireless, false);
         y = drawCheckbox(x, y, w, "PASSTHROUGH", passthroughEnabled, false);
 
         y = drawDropdown(x, y, w, i18n.s(R.string.setting_language),
@@ -2610,17 +2599,6 @@ public class WivrnLobbyView {
         }
         sy += 40;
 
-        // Lower resolution for wireless (enabled)
-        RectF lrCheckbox = new RectF(contentX, sy, contentX + 30, sy + 30);
-        if (lrCheckbox.contains(x, y) || (x >= contentX && x <= contentX + contentW && y >= sy - 5 && y <= sy + 35)) {
-            lowerResWireless = !lowerResWireless;
-            saveSettings();
-            applyResolution();
-            markDirty();
-            return;
-        }
-        sy += 40;
-
         // Passthrough
         RectF ptCheckbox = new RectF(contentX, sy, contentX + 30, sy + 30);
         if (ptCheckbox.contains(x, y) || (x >= contentX && x <= contentX + contentW && y >= sy - 5 && y <= sy + 35)) {
@@ -2676,7 +2654,6 @@ public class WivrnLobbyView {
             microphoneEnabled = false;
             streamBitrateSetting = 50;
             streamResolutionScale = 100;
-            lowerResWireless = false;
             languageSetting = 0;
             i18n.setLanguage(0);
             saveSettings();
