@@ -4,6 +4,9 @@
 - Add eye-tracked foveated streaming toggle (VIDEO settings)
 - Fix stereo IPD mismatch between server
 - Fix springing HMD tracking
+- Passthrough is now off by default
+- Fix passthrough warping at the edges of the view
+- Fix passthrough stuttering when moving your head
 
 # [Beta 1.0](https://github.com/openlyst/piconeo2-wivrn/releases/download/Beta-1.0/wivrn-pvr-Beta-1.0.apk)
 
