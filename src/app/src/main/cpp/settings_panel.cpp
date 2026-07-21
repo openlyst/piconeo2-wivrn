@@ -318,22 +318,6 @@ static void buildCoreModel(MenuModel &m) {
                     kUiTitle[0], kUiTitle[1], kUiTitle[2]);
             y -= 0.08f;
 
-            // Credits
-            uiTextL(v, "CREDITS", -halfW + 0.02f, y, 0.004f,
-                    kUiFill[0], kUiFill[1], kUiFill[2]);
-            y -= 0.06f;
-            const char *credits[] = {
-                "WIVRN - UPSTREAM PROJECT",
-                "ALVR PICO LEGACY - RENDERING REF",
-                "PICO SDK - DEVICE SDK",
-            };
-            for (const char *line : credits) {
-                uiTextL(v, line, -halfW + 0.02f, y, 0.0038f,
-                        kUiTitle[0], kUiTitle[1], kUiTitle[2]);
-                y -= 0.05f;
-            }
-            y -= 0.03f;
-
             // License
             appendQuad(v, -halfW, y, halfW, y - 0.005f,
                        kUiTrack[0], kUiTrack[1], kUiTrack[2]);
