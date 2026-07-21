@@ -93,6 +93,17 @@ static uint64_t alvrHeadId = 0;
 static uint64_t alvrHandId[2] = { 0, 0 };
 static BtnIds   alvrBtn[2] = {};
 
+// Stale-controller suppression: a broken/missing controller may report conn=1
+// (cached CV service state) but never produce real tracking, leaving its pose
+// stuck at the exact default (origin + identity quat). After kStaleThreshold
+// frames of that, we skip forwarding it so the server doesn't render a ghost
+// controller parked at the floor. Written by the tracking thread, read by the
+// render thread (lobby pointer / model draw). Benign race: at worst the render
+// thread sees a one-frame-stale decision.
+static int  staleFrames[2] = { 0, 0 };
+static bool staleSkip[2]   = { false, false };
+static constexpr int kStaleThreshold = 150;  // ~0.5s at 300Hz before suppressing
+
 // Window handed in by the SurfaceView callbacks. The render thread owns one
 // long-lived EGL display+context; it (re)creates only the window surface as
 // the SurfaceView surface is destroyed/recreated.
@@ -1238,13 +1249,36 @@ static void *trackingThread(void *) {
         int motionCount = 1;
         CtrlState cs[2];
         { std::lock_guard<std::mutex> lk(gCtrlMutex); cs[0] = gCtrl[0]; cs[1] = gCtrl[1]; }
+        // Stale-controller detection: a broken/missing controller may report
+        // conn=1 (cached CV service state) but never produce real tracking,
+        // leaving its pose stuck at the exact default (origin + identity quat).
+        // If that holds for a sustained window, skip forwarding it so the server
+        // doesn't render a ghost controller parked at the floor. The moment real
+        // tracking arrives (pose deviates from default), the hand re-arms.
+        for (int h = 0; h < 2; h++) {
+            bool isDefault = cs[h].conn == 1 &&
+                cs[h].pos[0] == 0.0f && cs[h].pos[1] == 0.0f && cs[h].pos[2] == 0.0f &&
+                cs[h].q[0] == 0.0f && cs[h].q[1] == 0.0f && cs[h].q[2] == 0.0f && cs[h].q[3] == 1.0f;
+            if (isDefault) {
+                if (staleFrames[h] < kStaleThreshold) staleFrames[h]++;
+                if (staleFrames[h] >= kStaleThreshold && !staleSkip[h]) {
+                    LOGI("CTRL[%d] stale (conn=1 but pose at origin for >%.1fs) -> suppressing ghost",
+                         h, kStaleThreshold / 300.0f);
+                    staleSkip[h] = true;
+                }
+            } else {
+                if (staleSkip[h]) LOGI("CTRL[%d] tracking resumed -> forwarding", h);
+                staleSkip[h] = false;
+                staleFrames[h] = 0;
+            }
+        }
         // In the lobby (manual lobby over a live stream) suppress ALL controller
         // input to the server, motions AND buttons, so interacting with our
         // menu doesn't fire ghost actions in the SteamVR scene. HMD pose + eye data
         // still flow (not "actions"). Only the HMD motion is forwarded.
         bool inLobby = gManualLobby.load();
         for (int h = 0; h < 2 && !inLobby; h++) {
-            if (!cs[h].fresh || cs[h].conn != 1) continue;
+            if (!cs[h].fresh || cs[h].conn != 1 || staleSkip[h]) continue;
             AlvrDeviceMotion &m = motions[motionCount++];
             m = {};
             m.device_id = alvrHandId[h];
@@ -1445,7 +1479,7 @@ static void *trackingThread(void *) {
             return s * curved;
         };
         for (int h = 0; h < 2 && !inLobby; h++) {
-            if (!cs[h].fresh || cs[h].conn != 1 || cs[h].keyCount < 10) continue;
+            if (!cs[h].fresh || cs[h].conn != 1 || cs[h].keyCount < 10 || staleSkip[h]) continue;
             const int *k = cs[h].keys;
             if (k[2]||k[3]||k[4]||k[5]||k[6]||k[7])
                 LOGI("BTN[%d] trig=%d grip=%d joyClk=%d menu=%d A/X=%d B/Y=%d (joy %d,%d trigA=%d gripA=%d)",
@@ -3140,10 +3174,10 @@ void *renderThread(void *) {
             CtrlState cc[2];
             { std::lock_guard<std::mutex> lk(gCtrlMutex); cc[0]=gCtrl[0]; cc[1]=gCtrl[1]; }
             for (int hh=0; hh<2; hh++)
-                if (cc[hh].conn==1 && cc[hh].keyCount>5 && cc[hh].keys[5]!=0) recenterDown = true;
+                if (cc[hh].conn==1 && !staleSkip[hh] && cc[hh].keyCount>5 && cc[hh].keys[5]!=0) recenterDown = true;
             // Capture both hands' world pose for the controller-model draw.
             // Same conversion as the laser path: pos*0.001, quat = (-x,-y,z,w).
-            for (int hh=0; hh<2; hh++) if (cc[hh].conn==1) {
+            for (int hh=0; hh<2; hh++) if (cc[hh].conn==1 && !staleSkip[hh]) {
                 ctrlConn[hh] = true;
                 ctrlPos[hh][0]=cc[hh].pos[0]*0.001f; ctrlPos[hh][1]=cc[hh].pos[1]*0.001f; ctrlPos[hh][2]=cc[hh].pos[2]*0.001f;
                 Quat cq = quatNorm({ -cc[hh].q[0], -cc[hh].q[1], cc[hh].q[2], cc[hh].q[3] });
@@ -3155,9 +3189,9 @@ void *renderThread(void *) {
             // Off-hand dominance: pulling the trigger on a connected NON-dominant
             // controller claims the laser.
             for (int hh=0; hh<2; hh++)
-                if (hh != gDominantHand && cc[hh].conn==1 && trig(cc[hh])) gDominantHand = hh;
-            int h = (cc[gDominantHand].conn==1) ? gDominantHand
-                  : (cc[0].conn==1 ? 0 : (cc[1].conn==1 ? 1 : -1));
+                if (hh != gDominantHand && cc[hh].conn==1 && !staleSkip[hh] && trig(cc[hh])) gDominantHand = hh;
+            int h = (cc[gDominantHand].conn==1 && !staleSkip[gDominantHand]) ? gDominantHand
+                  : (cc[0].conn==1 && !staleSkip[0] ? 0 : (cc[1].conn==1 && !staleSkip[1] ? 1 : -1));
             if (h >= 0) {
                 // Same conversion as the streaming controller path (CV service
                 // returns a world-frame pose): pos*0.001 and (-x,-y,z,w) directly.
