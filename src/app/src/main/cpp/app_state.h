@@ -43,6 +43,15 @@ extern std::atomic<bool>   gWivrnMicrophone;
 extern std::atomic<float>  gWivrnCtrlVibration; // 0..1
 extern std::atomic<bool>   gWivrnRecenterReq;   // one-shot button flag
 
+// Eye-tracked foveation: when true the client tells the server to derive the
+// foveation center from the live EYE_GAZE pose instead of a fixed forward
+// center. Only meaningful on Neo 2 EYE hardware (gEyeSupported) and requires
+// the server to have foveation enabled.
+extern std::atomic<bool>   gWivrnEyeFoveation;
+// Raised by the settings callback / streaming start-stop to request the render
+// thread re-send the override_foveation_center packet.
+extern std::atomic<bool>   gEyeFoveationDirty;
+
 // ---- Stream FOV (higher-DPI lever) -----------------------------------------
 // The server renders into a fixed 1664^2 per-eye buffer at whatever FOV the
 // client commands. Shrinking the commanded FOV packs the same pixels into fewer

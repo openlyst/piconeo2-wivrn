@@ -2146,6 +2146,10 @@ void *renderThread(void *) {
                     // Settings JSON is now live: light up the EYE illuminators only if
                     // the server's Face Tracking eye source is on.
                     applyServerEyeTracking(true);
+                    // Push the eye-foveation preference once the stream is up so
+                    // the server picks gaze-tracked or fixed-center foveation
+                    // from the start (no extra round-trip after first frame).
+                    if (g_stream) g_stream->send_eye_foveation_override();
                     // Forward the Pico play area to SteamVR as the chaperone.
                     // Only if a guardian was set up.
                     if (gPlayspaceW > 0.0f && gPlayspaceD > 0.0f) {
@@ -3385,6 +3389,12 @@ void *renderThread(void *) {
         // its callbacks raise flags; perform the real effect here.
         if (gEyeTrackReapply.exchange(false)) applyServerEyeTracking(gStreaming);
         if (gBrightnessApply.exchange(false)) applyHmdBrightness(gBrightnessFrac.load(), env);
+        // Eye-foveation toggle changed (or streaming just started): push the
+        // override_foveation_center packet so the server tracks gaze or pins
+        // the center accordingly. Skipped while not streaming so a lobby flip
+        // doesn't spam a disconnected session.
+        if (gEyeFoveationDirty.exchange(false) && gStreaming && g_stream)
+            g_stream->send_eye_foveation_override();
 
         // Render the lobby scene (passthrough background + world-locked HUD +
         // gaze disc) into the currently-bound FBO. Shared by the HW-compositor

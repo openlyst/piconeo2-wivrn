@@ -693,6 +693,32 @@ void streaming_client::send_bitrate_change(int mbps)
 	spdlog::info("send_bitrate_change: {} Mbps", mbps);
 }
 
+void streaming_client::send_eye_foveation_override()
+{
+	if (!session)
+		return;
+
+	// Only meaningful on EYE hardware. On non-EYE units there is no gaze to
+	// track and the server already falls back to a fixed center, so skip the
+	// packet to avoid confusing the server's override state.
+	if (!gEyeSupported.load())
+		return;
+
+	bool want_eye = gWivrnEyeFoveation.load();
+	from_headset::override_foveation_center pkt{};
+	pkt.enabled = !want_eye;   // server: enabled=true => use the fixed center we send
+	// Defaults mirror the WiVRn server's natural-gaze fallback (see
+	// wivrn_foveation.cpp: 10 deg below horizontal, 1 m convergence). Sent
+	// only when the override is active; the server ignores them otherwise.
+	pkt.pitch    = -10.0f * (float)M_PI / 180.0f;
+	pkt.distance = 1.0f;
+	session->send_control(pkt);
+	ALOGI("send_eye_foveation_override: eye_tracked=%d (server override=%s)",
+	      want_eye ? 1 : 0, pkt.enabled ? "fixed" : "gaze");
+	spdlog::info("send_eye_foveation_override: eye_tracked={} (server override={})",
+	             want_eye, pkt.enabled ? "fixed" : "gaze");
+}
+
 void streaming_client::update_dynamic_bitrate()
 {
 	constexpr int64_t check_interval_ns = 3'000'000'000LL;

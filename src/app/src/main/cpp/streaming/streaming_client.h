@@ -205,6 +205,11 @@ struct streaming_client
 	void reset_stream_state();
 	void update_dynamic_bitrate();
 	void send_bitrate_change(int mbps);
+	// Push the current eye-foveation preference to the server as an
+	// override_foveation_center packet. enabled=false tells the server to
+	// track the live EYE_GAZE pose; enabled=true pins the center to the
+	// supplied pitch/distance. No-op when no session is connected.
+	void send_eye_foveation_override();
 
 	void notify_connection_state(int state, const std::string & msg);
 	void notify_stream_stats(int fps, int latency_ms, float bandwidth_rx, float bandwidth_tx, int bitrate_mbps);

@@ -32,6 +32,9 @@ std::atomic<bool>   gWivrnMicrophone{false};
 std::atomic<float>  gWivrnCtrlVibration{1.0f};
 std::atomic<bool>   gWivrnRecenterReq{false};
 
+std::atomic<bool>   gWivrnEyeFoveation{true};
+std::atomic<bool>   gEyeFoveationDirty{false};
+
 std::atomic<float> gStreamFovDeg{101.0f};   // full per-eye FOV; 101 = SDK native (no change)
 std::atomic<bool>  gFovDirty{false};
 
@@ -82,6 +85,7 @@ void saveAllConfig() {
     fprintf(f, "%.2f\n", gWivrnCtrlVibration.load());
     fprintf(f, "%d\n", gWivrnEyeTracking.load() ? 1 : 0);
     fprintf(f, "%d\n", gWivrnPassthrough.load() ? 1 : 0);
+    fprintf(f, "%d\n", gWivrnEyeFoveation.load() ? 1 : 0);
     fclose(f);
 }
 
@@ -162,6 +166,7 @@ void loadAllConfig() {
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%f", &fv) == 1) gWivrnCtrlVibration.store(clampf(fv, 0.0f, 1.0f));
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) gWivrnEyeTracking.store(iv != 0);
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) gWivrnPassthrough.store(iv != 0);
+    if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) gWivrnEyeFoveation.store(iv != 0);
     fclose(f);
     LOGI("config: loaded %s", path);
     }
