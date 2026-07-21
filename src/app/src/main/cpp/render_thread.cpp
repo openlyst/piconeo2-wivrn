@@ -531,6 +531,7 @@ static GLuint gReticleVao = 0, gReticleVbo = 0; // head-gaze crosshair (static "
 static int    gReticleVertCount = 0;
 static GLuint gEqVao = 0, gEqVbo = 0;           // lobby 16-band audio EQ panel (dynamic)
 static GLuint gLaserVao = 0, gLaserVbo = 0;     // controller laser beam (dynamic, world-space)
+static GLuint gCursorVao = 0, gCursorVbo = 0;   // UI pointer cursor ring (dynamic, panel-local)
 static GLuint gDiagVao = 0, gDiagVbo = 0;       // streaming diagnostics overlay (dynamic, NDC)
 static GLuint gWarnVao = 0, gWarnVbo = 0;       // low-battery warning pop-up (dynamic)
 static GLuint gTestVao = 0, gTestVbo = 0;         // simple 2D box + text test overlay
@@ -576,6 +577,15 @@ static void buildTextBuffers() {
     glBindVertexArray(gLaserVao);
     glGenBuffers(1, &gLaserVbo);
     glBindBuffer(GL_ARRAY_BUFFER, gLaserVbo);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    // UI pointer cursor ring (panel-local, dynamic)
+    glGenVertexArrays(1, &gCursorVao);
+    glBindVertexArray(gCursorVao);
+    glGenBuffers(1, &gCursorVbo);
+    glBindBuffer(GL_ARRAY_BUFFER, gCursorVbo);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
@@ -3647,6 +3657,11 @@ void *renderThread(void *) {
         // frame, so hit-test directly against the panel's world matrix.
         Mat4 setHit = settingsWorld;
 
+        // Cursor hit state (captured by drawLobbyScene lambda below).
+        float cursorLx = 0, cursorLy = 0;
+        bool  cursorOnPanel = false;
+        bool  cursorPressed = false;
+
         int srvVertCount = 0;   // server list is now a tab inside the settings panel
 
         static std::vector<float> sverts; sverts.clear();   // reuse capacity (settings panel)
@@ -3664,6 +3679,9 @@ void *renderThread(void *) {
             bool onPanel = rayPanel(setHit, lx, ly, t);
             bool inContent = onPanel && lx >= kCtX0 && lx <= kCtX1 && ly <= kCtTop && ly >= kCtBot;
             float cx = lx - setOffX, cy = ly - setOffY;   // builder-local content coords
+
+            // Store cursor state for the draw lambda.
+            if (onPanel) { cursorLx = lx; cursorLy = ly; cursorOnPanel = true; cursorPressed = ptrGrab; }
 
             // ---- chrome: close + sidebar tabs (always clickable) ----
             if (onPanel) {
@@ -3874,6 +3892,55 @@ void *renderThread(void *) {
                 glBindVertexArray(gSliderVao);
                 glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, setMvp.m);
                 glDrawArrays(GL_TRIANGLES, 0, sliderVertCount);
+                glBindVertexArray(0);
+            }
+
+            // Pointer cursor: small ring on the panel at the laser hit point.
+            // Drawn on top of the panel so the user sees exactly where the ray
+            // lands. Filled when pressed (trigger down).
+            if (cursorOnPanel) {
+                const int kSegs = 24;
+                const float r = 0.018f;
+                const float rz = 0.005f;   // slightly in front of the panel
+                float cr = 0.85f, cg = 0.92f, cb = 1.0f;
+                if (cursorPressed) { cr = 0.3f; cg = 0.6f; cb = 1.0f; }
+                float cv[kSegs * 2 * 6 * 3]; // worst case: ring + inner fill
+                int vi = 0;
+                if (cursorPressed) {
+                    // Filled disc.
+                    for (int i = 0; i < kSegs; i++) {
+                        float a0 = (float)i       / kSegs * 2.0f * M_PI;
+                        float a1 = (float)(i + 1) / kSegs * 2.0f * M_PI;
+                        cv[vi++] = cursorLx;            cv[vi++] = cursorLy;            cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+                        cv[vi++] = cursorLx+cosf(a0)*r; cv[vi++] = cursorLy+sinf(a0)*r; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+                        cv[vi++] = cursorLx+cosf(a1)*r; cv[vi++] = cursorLy+sinf(a1)*r; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+                    }
+                } else {
+                    // Hollow ring (outer + inner radius).
+                    const float ri = r * 0.6f;
+                    for (int i = 0; i < kSegs; i++) {
+                        float a0 = (float)i       / kSegs * 2.0f * M_PI;
+                        float a1 = (float)(i + 1) / kSegs * 2.0f * M_PI;
+                        float ox0 = cosf(a0)*r,  oy0 = sinf(a0)*r;
+                        float ox1 = cosf(a1)*r,  oy1 = sinf(a1)*r;
+                        float ix0 = cosf(a0)*ri, iy0 = sinf(a0)*ri;
+                        float ix1 = cosf(a1)*ri, iy1 = sinf(a1)*ri;
+                        cv[vi++] = cursorLx+ox0; cv[vi++] = cursorLy+oy0; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+                        cv[vi++] = cursorLx+ox1; cv[vi++] = cursorLy+oy1; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+                        cv[vi++] = cursorLx+ix1; cv[vi++] = cursorLy+iy1; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+                        cv[vi++] = cursorLx+ox0; cv[vi++] = cursorLy+oy0; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+                        cv[vi++] = cursorLx+ix1; cv[vi++] = cursorLy+iy1; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+                        cv[vi++] = cursorLx+ix0; cv[vi++] = cursorLy+iy0; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+                    }
+                }
+                int cursorVerts = vi / 6;
+                glBindBuffer(GL_ARRAY_BUFFER, gCursorVbo);
+                glBufferData(GL_ARRAY_BUFFER, vi * sizeof(float), cv, GL_DYNAMIC_DRAW);
+                Mat4 cMvp = mat4Mul(sproj, mat4Mul(sview, settingsWorld));
+                glUseProgram(gProg);
+                glBindVertexArray(gCursorVao);
+                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, cMvp.m);
+                glDrawArrays(GL_TRIANGLES, 0, cursorVerts);
                 glBindVertexArray(0);
             }
 
