@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+- Fix controllers not tracking when only one is connected (6DoF thread no longer requires both)
+- Suppress ghost controllers stuck at the floor when a broken controller reports conn=1 with no real pose
+- Fix one-handed 6DoF tracking by falling back to the raw CV pose when the VR Shell breaks the head-aligned transform
+- Fix the right controller disconnecting when both were connected (stop+restart only runs in the single-controller path)
+
 ## v0.1.4
 - New: Trade field of view for clarity with the FOV slider in video settings
 - New: In-app low battery warning at 15% and 5%
