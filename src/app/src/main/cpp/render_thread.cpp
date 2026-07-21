@@ -366,12 +366,40 @@ static void loadCtrlObjTris(const char *path, std::vector<float> &out) {
 static void buildControllerMeshes() {
     if (kCtrlObjPath[0].empty()) initCtrlObjPaths();
     bool amber = gThemeAmber.load();
-    const float cr = amber?0.98f:0.50f, cg = amber?0.80f:0.50f, cb = amber?0.45f:0.50f;
+    // Light direction (normalized) - from upper front left
+    const float lx = -0.4f, ly = 0.6f, lz = -0.7f;
+    float llen = sqrtf(lx*lx + ly*ly + lz*lz);
+    float lxn = lx/llen, lyn = ly/llen, lzn = lz/llen;
     for (int h=0; h<2; h++) {
         if (gCtrlPos[h].empty()) loadCtrlObjTris(kCtrlObjPath[h].c_str(), gCtrlPos[h]);
         std::vector<float> v; v.reserve(gCtrlPos[h].size()*2);
-        for (size_t i=0; i+3<=gCtrlPos[h].size(); i+=3)
-            v.insert(v.end(), { gCtrlPos[h][i], gCtrlPos[h][i+1], gCtrlPos[h][i+2], cr,cg,cb });
+        // Per-triangle flat shading: compute face normal, dot with light dir,
+        // modulate base grey. Gives the model solid 3D look without a lighting shader.
+        const float baseR = amber ? 0.80f : 0.35f;
+        const float baseG = amber ? 0.65f : 0.35f;
+        const float baseB = amber ? 0.35f : 0.35f;
+        const float ambient = 0.35f;
+        for (size_t i = 0; i + 9 <= gCtrlPos[h].size(); i += 9) {
+            float ax = gCtrlPos[h][i],   ay = gCtrlPos[h][i+1], az = gCtrlPos[h][i+2];
+            float bx = gCtrlPos[h][i+3], by = gCtrlPos[h][i+4], bz = gCtrlPos[h][i+5];
+            float cx = gCtrlPos[h][i+6], cy = gCtrlPos[h][i+7], cz = gCtrlPos[h][i+8];
+            float ex1 = bx-ax, ey1 = by-ay, ez1 = bz-az;
+            float ex2 = cx-ax, ey2 = cy-ay, ez2 = cz-az;
+            float nx = ey1*ez2 - ez1*ey2;
+            float ny = ez1*ex2 - ex1*ez2;
+            float nz = ex1*ey2 - ey1*ex2;
+            float nl = sqrtf(nx*nx + ny*ny + nz*nz);
+            if (nl > 1e-6f) { nx /= nl; ny /= nl; nz /= nl; }
+            float diff = nx*lxn + ny*lyn + nz*lzn;
+            if (diff < 0) diff = 0;
+            float shade = ambient + (1.0f - ambient) * diff;
+            float r = baseR * shade;
+            float g = baseG * shade;
+            float b = baseB * shade;
+            v.insert(v.end(), { ax,ay,az, r,g,b });
+            v.insert(v.end(), { bx,by,bz, r,g,b });
+            v.insert(v.end(), { cx,cy,cz, r,g,b });
+        }
         gCtrlVertCount[h] = (int)(v.size()/6);
         if (!gCtrlVao[h]) {
             glGenVertexArrays(1,&gCtrlVao[h]);
