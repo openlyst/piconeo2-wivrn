@@ -3282,14 +3282,62 @@ void *renderThread(void *) {
         Mat4 hudHit = hudWorld;
         Mat4 setHit = settingsWorld;
 
-        // ---- SETTINGS open button (lives on the info HUD) ----
+        // ---- SETTINGS + SERVERS open buttons (live on the info HUD) ----
         sSettingsBtnHot = false;
-        if (!gSettingsOpen) {
+        sServersBtnHot  = false;
+        if (!gSettingsOpen && !gServersOpen) {
             float lx, ly, t;
-            if (rayPanel(hudHit, lx, ly, t) && uiHit(settingsBtn, lx, ly)) {
-                sSettingsBtnHot = true; lobbyHover = true;
-                if (clickEdge) { gSettingsOpen = true; sDragMode = 0; }
+            if (rayPanel(hudHit, lx, ly, t)) {
+                if (uiHit(settingsBtn, lx, ly)) {
+                    sSettingsBtnHot = true; lobbyHover = true;
+                    if (clickEdge) { gSettingsOpen = true; sDragMode = 0; }
+                }
+                if (uiHit(serversBtn, lx, ly)) {
+                    sServersBtnHot = true; lobbyHover = true;
+                    if (clickEdge) { gServersOpen = true; sDragMode = 0; }
+                }
             }
+        }
+
+        // ---- SERVER LIST PANEL ----
+        static std::vector<float> srvVerts; srvVerts.clear();
+        int srvVertCount = 0;
+        if (gServersOpen) {
+            float lx, ly, t;
+            bool onPanel = rayPanel(setHit, lx, ly, t);  // same world anchor as settings
+            int srvHoverItem = -1, srvConnectHot = -1;
+            bool srvCloseHover = false;
+            if (onPanel) {
+                SrvHover sh = hitServerPanel(lx, ly);
+                if (sh.item == -2) { srvCloseHover = true; lobbyHover = true; }
+                else if (sh.item >= 0) {
+                    srvHoverItem = sh.item;
+                    if (sh.part == 1) srvConnectHot = sh.item;
+                    lobbyHover = true;
+                    if (clickEdge) applyServerClick(sh, true);
+                }
+            }
+            if (clickEdge && srvCloseHover) { gServersOpen = false; sDragMode = 0; }
+
+            auto servers = getServerList();
+            uint32_t srvSig = 2166136261u;
+            srvSig = (srvSig ^ (unsigned)servers.size()) * 16777619u;
+            for (const auto &s : servers) {
+                for (char c : s.name) srvSig = (srvSig ^ (unsigned char)c) * 16777619u;
+                srvSig = (srvSig ^ (unsigned)s.port) * 16777619u;
+            }
+            srvSig = (srvSig ^ (srvHoverItem + 100)) * 16777619u;
+            srvSig = (srvSig ^ (srvConnectHot + 100)) * 16777619u;
+            srvSig = (srvSig ^ (srvCloseHover ? 1 : 0)) * 16777619u;
+            static uint32_t sSrvSig = 0; static bool sSrvHave = false;
+            static int sSrvVertCount = 0; static GLsizeiptr sSrvCap = 0;
+            if (!sSrvHave || srvSig != sSrvSig) {
+                buildServerPanel(srvVerts, srvHoverItem, srvCloseHover, srvConnectHot);
+                sSrvVertCount = (int)(srvVerts.size() / 6);
+                if (sSrvVertCount > 0) uploadDynamicVbo(gSrvVbo, srvVerts, sSrvCap);
+                sSrvSig = srvSig; sSrvHave = true;
+            }
+            srvVertCount = sSrvVertCount;
         }
 
         static std::vector<float> sverts; sverts.clear();   // reuse capacity (settings panel)
@@ -3492,6 +3540,30 @@ void *renderThread(void *) {
             // Native 3D lobby UI (wiVRn-style): HUD text + settings panel +
             // server list, all rendered as world-locked GL geometry. No texture
             // upload from Java.
+            if (textVertCount > 0) {
+                Mat4 hudMvp = mat4Mul(sproj, mat4Mul(sview, hudWorld));
+                glUseProgram(gProg);
+                glBindVertexArray(gTextVao);
+                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, hudMvp.m);
+                glDrawArrays(GL_TRIANGLES, 0, textVertCount);
+                glBindVertexArray(0);
+            }
+            if (sliderVertCount > 0) {
+                Mat4 setMvp = mat4Mul(sproj, mat4Mul(sview, settingsWorld));
+                glUseProgram(gProg);
+                glBindVertexArray(gSliderVao);
+                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, setMvp.m);
+                glDrawArrays(GL_TRIANGLES, 0, sliderVertCount);
+                glBindVertexArray(0);
+            }
+            if (srvVertCount > 0) {
+                Mat4 srvMvp = mat4Mul(sproj, mat4Mul(sview, settingsWorld));
+                glUseProgram(gProg);
+                glBindVertexArray(gSrvVao);
+                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, srvMvp.m);
+                glDrawArrays(GL_TRIANGLES, 0, srvVertCount);
+                glBindVertexArray(0);
+            }
 
             glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);
         };
