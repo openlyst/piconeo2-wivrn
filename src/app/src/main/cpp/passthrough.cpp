@@ -4,6 +4,7 @@
 #include <cmath>
 #include <vector>
 #include <cstdio>
+#include <camera/NdkCameraMetadata.h>
 
 // Vertex shader: positions are already in clip space (pre-computed from
 // the fisheye mesh tangent-space coords divided by tan(fov/2)).
@@ -141,6 +142,8 @@ void pico_passthrough::build_mesh()
     // The camera's vertical FOV is narrower than the display, so the mesh
     // doesn't reach y=±1 in clip space where x is visible. Find the actual
     // y extent within the visible x range and scale y to fill the screen.
+    // Use both eyes so the scale is symmetric (left-only caused a slight
+    // vertical offset on the right eye).
     float y_min = 1e9f, y_max = -1e9f;
     for (auto &p : grid)
     {
@@ -148,6 +151,13 @@ void pico_passthrough::build_mesh()
         if (cx >= -1.0f && cx <= 1.0f)
         {
             float cy = p.yl / tan_half;
+            if (cy < y_min) y_min = cy;
+            if (cy > y_max) y_max = cy;
+        }
+        float cxr = p.xr / tan_half;
+        if (cxr >= -1.0f && cxr <= 1.0f)
+        {
+            float cy = p.yr / tan_half;
             if (cy < y_min) y_min = cy;
             if (cy > y_max) y_max = cy;
         }
@@ -159,19 +169,35 @@ void pico_passthrough::build_mesh()
         if (y_range > 0.0f)
             y_scale = 2.0f / y_range;
     }
+    // Back off slightly so the extreme edge rows of the fisheye mesh
+    // (which have the most distortion and least reliable camera data)
+    // don't get stretched all the way to y=±1. This removes the faint
+    // "wrapping" artefact at the top and bottom of the passthrough image.
+    y_scale *= 0.97f;
     LOGI("passthrough: y fill scale=%.3f (visible y=[%.3f, %.3f])", y_scale, y_min, y_max);
 
     // Build per-eye vertex data: pos (clip space) + uv (camera texture)
     // V is flipped because camera frames are top-down, GL textures bottom-up.
+    // UVs are clamped to [0,1] to prevent edge texel bleeding even though the
+    // texture uses CLAMP_TO_EDGE (some grid files have UVs that drift just
+    // past the boundary).
     struct Vert { float x, y, u, v; };
     std::vector<Vert> verts_left(gw * gh);
     std::vector<Vert> verts_right(gw * gh);
 
+    auto clamp01 = [](float f) {
+        if (f < 0.0f) return 0.0f;
+        if (f > 1.0f) return 1.0f;
+        return f;
+    };
+
     for (int i = 0; i < gw * gh; i++)
     {
         auto &p = grid[i];
-        verts_left[i]  = { p.xl / tan_half, (p.yl / tan_half) * y_scale, p.u, 1.0f - p.v };
-        verts_right[i] = { p.xr / tan_half, (p.yr / tan_half) * y_scale, p.u, 1.0f - p.v };
+        float u = clamp01(p.u);
+        float v = clamp01(1.0f - p.v);
+        verts_left[i]  = { p.xl / tan_half, (p.yl / tan_half) * y_scale, u, v };
+        verts_right[i] = { p.xr / tan_half, (p.yr / tan_half) * y_scale, u, v };
     }
 
     // Build index buffer for the grid triangles
@@ -358,6 +384,17 @@ void pico_passthrough::start()
         ACaptureSessionOutputContainer_free(outputs);
         return;
     }
+
+    // Request the highest available frame rate to minimise judder when the
+    // head is moving. Without this the driver defaults to a low FPS (often
+    // 30) which is well below the display refresh and stutters visibly.
+    int32_t fps_range[2] = { 30, 60 };
+    camera_status_t frc = ACaptureRequest_setEntry_i32(cam_request,
+        ACAMERA_CONTROL_AE_TARGET_FPS_RANGE, 2, fps_range);
+    if (frc != ACAMERA_OK)
+        LOGE("passthrough: set FPS range failed rc=%d", frc);
+    else
+        LOGI("passthrough: AE target FPS range set to [%d,%d]", fps_range[0], fps_range[1]);
 
     ACameraOutputTarget *target = nullptr;
     ACameraOutputTarget_create(img_reader_win, &target);
