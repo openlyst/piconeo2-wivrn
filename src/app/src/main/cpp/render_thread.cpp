@@ -194,7 +194,7 @@ static float gRefreshHint = 72.0f;
 // gManualLobby / gWindowDirty ARE cross-thread and are atomic.
 static std::atomic<bool>   gStreaming{false};
 static std::atomic<bool>   gDecoderReady{false};
-static bool   gAlvrGlReady = false;
+static std::atomic<bool>   gAlvrGlReady{false};
 // Set by STREAMING_STARTED, consumed by the video submit path: reset the frame
 // pacer + per-second video counters at the start of each stream.
 static bool   gResetPacer = false;
