@@ -183,7 +183,7 @@ static const uint64_t kFovDebounceNs = 250000000ULL;   // 250ms settle window
 // decoder torn down) to save power, then resumes on wear. alvr_pause/resume must
 // run on THIS thread where the connection lives.
 std::atomic<bool> gSleepReq{false};
-static bool gSlept = false;
+static std::atomic<bool> gSlept{false};
 // Play-area extents (meters) from the Pico boundary; forwarded to SteamVR as
 // chaperone on each STREAMING_STARTED. 0 = none configured.
 static float gPlayspaceW = 0.0f, gPlayspaceD = 0.0f;
