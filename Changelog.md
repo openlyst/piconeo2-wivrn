@@ -4,9 +4,6 @@
 - Add eye-tracked foveated streaming toggle (VIDEO settings)
 - Fix stereo IPD mismatch between server
 - Fix springing HMD tracking
-
-# [Beta 1.0.1]()
-
 - Passthrough is now off by default
 - Fix passthrough warping at the edges of the view
 - Fix passthrough stuttering when moving your head
