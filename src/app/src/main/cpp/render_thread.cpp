@@ -3015,73 +3015,16 @@ void *renderThread(void *) {
         float fovy = lobbyFovDeg * (float)M_PI / 180.0f;
         Mat4 proj  = mat4Perspective(fovy, 1.0f, 0.05f, 250.0f);   // square target -> aspect 1
 
-        // ---- HUD content: device IP (line 1) + client status (line 2). A
-        // WORLD-LOCKED panel: anchored once in front of where the user is
-        // looking at lobby entry, then rendered through the head-tracked view
-        // so it stays planted in space. Built once per frame in panel-local meters.
-        // refresh occasionally, and keep retrying while we still have no numeric IP
+        // ---- Unified lobby panel (wiVRn-style floating window) ----
+        // A single world-locked panel with sidebar tabs (SERVERS, CONNECT,
+        // VIDEO, AUDIO, INPUT, SYSTEM, DEBUG, LOBBY, ABOUT, EXIT) and a
+        // content area. Always visible. No separate HUD or buttons.
         if ((frame % 120) == 0 || !(gIpText[0] >= '0' && gIpText[0] <= '9')) refreshDeviceIp();
-        const float kHudDist = 2.0f;         // panel distance in front of the user at anchor time
+        const float kHudDist = 2.0f;         // panel distance in front of the user
 
-        // Three lines, sized by "points" relative to the IP line: model = IP+2pt,
-        // status = IP-2pt. We model 1 "point" as 10% of the IP pixel size.
-        const float pxI = 0.012f;            // IP (base) metres per font pixel
-        const float pxM = pxI * 1.2f;        // model: +2pt (larger)
-        const float pxH = pxI * 0.8f;        // hostname: -2pt (smaller)
-        const float pxS = pxI * 0.8f;        // status: -2pt (smaller)
-        // status colour: green=connected, yellow=connecting, cyan=searching, red=down
-        float sr=1, sg=0.3f, sb=0.3f;        // default DISCONNECTED (red)
-        if      (!strcmp(gStatusText, "CONNECTED"))  { sr=0.2f; sg=1.0f; sb=0.3f; }
-        else if (!strcmp(gStatusText, "CONNECTING")) { sr=1.0f; sg=0.9f; sb=0.2f; }
-        else if (!strcmp(gStatusText, "SEARCHING"))  { sr=0.3f; sg=0.8f; sb=1.0f; }
-        // Stack model / IP / hostname / status (top->bottom), vertically centred.
-        // The hostname line shows only once known.
-        bool haveHost = gHostnameText[0] != 0;
-        const float gap = 3.0f * pxI;
-        float hM = 7*pxM, hI = 7*pxI, hH = 7*pxH, hS = 7*pxS;
-        float total = hM + gap + hI + gap + hS + (haveHost ? (gap + hH) : 0);
-        float yTopM = total * 0.5f;
-        float yTopI = yTopM - hM - gap;
-        float yTopH = yTopI - hI - gap;                       // hostname (if shown)
-        float yTopS = (haveHost ? yTopH - hH - gap : yTopI - hI - gap);
-        // SETTINGS + SERVERS buttons below the info text.
-        // Rects are recomputed each frame and reused for both geometry and hit-test.
-        UiRect settingsBtn = { -0.18f, yTopS - hS - 0.07f, 0.30f, 0.085f };
-        UiRect serversBtn  = {  0.18f, yTopS - hS - 0.07f, 0.30f, 0.085f };
-        static bool sSettingsBtnHot = false;
-        static bool sServersBtnHot  = false;
-        bool setBtnHot = sSettingsBtnHot && !gSettingsOpen && !gServersOpen;
-        bool srvBtnHot = sServersBtnHot  && !gServersOpen  && !gSettingsOpen;
-        // THROTTLE the HUD text rebuild+upload. The 4 lines + SETTINGS button
-        // only change when the strings, button hover, or theme change, not
-        // every frame, so regenerate the glyph quads and re-upload the VBO
-        // only then. The rect above is still computed every frame for the hit-test.
-        static GLsizeiptr sTextCap = 0;
-        static int sTextVertCount = 0;
-        static uint32_t sHudSig = 0; static bool sHudHave = false;
-        uint32_t hudSig = 2166136261u;
-        { const char *ss[4] = { gModelText, gIpText, gHostnameText, gStatusText };
-          for (int k = 0; k < 4; k++) for (const char *p = ss[k]; *p; ++p) hudSig = (hudSig ^ (unsigned char)*p) * 16777619u; }
-        hudSig = (hudSig ^ (setBtnHot ? 0x9E3779B9u : 0u)) * 16777619u;
-        hudSig = (hudSig ^ (srvBtnHot ? 0x1234567u : 0u)) * 16777619u;
-        hudSig = (hudSig ^ (gThemeAmber.load() ? 0x85EBCA77u : 0u)) * 16777619u;
-        if (!sHudHave || hudSig != sHudSig) {
-            static std::vector<float> tverts; tverts.clear();   // reuse capacity
-            appendTextLine(tverts, gModelText,  yTopM, pxM, kUiTitle[0], kUiTitle[1], kUiTitle[2]);  // model: themed title
-            bool haveIp = (gIpText[0] >= '0' && gIpText[0] <= '9');
-            if (haveIp) appendTextLine(tverts, gIpText, yTopI, pxI, 1.0f, 1.0f, 1.0f);   // IP: white
-            else        appendTextLine(tverts, gIpText, yTopI, pxI, 1.0f, 0.09f, 0.07f);  // CHECK WI-FI: scarlet
-            if (haveHost)
-                appendTextLine(tverts, gHostnameText, yTopH, pxH, 1.0f, 0.8f, 0.4f);  // hostname: amber
-            appendTextLine(tverts, gStatusText, yTopS, pxS, sr, sg, sb);        // status: state colour
-            uiButton(tverts, settingsBtn, "SETTINGS", setBtnHot);
-            uiButton(tverts, serversBtn,  "SERVERS",  srvBtnHot);
-            sTextVertCount = (int)(tverts.size() / 6);
-            if (sTextVertCount > 0) uploadDynamicVbo(gTextVbo, tverts, sTextCap);
-            sHudSig = hudSig; sHudHave = true;
-        }
-        int textVertCount = sTextVertCount;
-        // World-anchor the HUD once per lobby entry: plant it kHudDist in front
+        int textVertCount = 0;   // no HUD text anymore
+
+        // World-anchor the panel once per lobby entry: plant it kHudDist in front
         // of the current head, at head height, facing back toward the user, using
         // YAW ONLY (no pitch/roll) so it stands upright. Captured into hudWorld
         // and reused every frame thereafter -> the panel is fixed in space.
@@ -3100,15 +3043,8 @@ void *renderThread(void *) {
             m.m[12] = ax;  m.m[13] = ay; m.m[14] = az;   // translation
             hudWorld = m;
 
-            // Unified SETTINGS window: same facing as the info HUD, planted a
-            // touch CLOSER so it overlays the info area when open. Same yaw.
-            const float kSetDist = kHudDist - 0.25f;
-            float setx = px + fx * kSetDist, setz = pz + fz * kSetDist;
-            Mat4 mset = mat4Identity();
-            mset.m[0] = cphi; mset.m[2] = -sphi;
-            mset.m[8] = sphi; mset.m[10] = cphi;
-            mset.m[12] = setx; mset.m[13] = py; mset.m[14] = setz;
-            settingsWorld = mset;
+            // Unified lobby panel: same facing, same distance.
+            settingsWorld = m;
 
             hudAnchored = true;
         }
@@ -3265,11 +3201,9 @@ void *renderThread(void *) {
             return true;
         };
 
-        // ===== UNIFIED SETTINGS WINDOW =======================================
-        // The info-HUD SETTINGS button opens ONE world-locked panel: a category
-        // sidebar (VIDEO/AUDIO/DEBUG) + a grab-anywhere-to-scroll content area +
-        // a reference scrollbar. Content widgets are addressed in builder-local
-        // coords (cx,cy = panel-local minus the scroll/centre offset).
+        // ===== UNIFIED LOBBY PANEL (always open) ==============================
+        // Single world-locked floating window with sidebar tabs + content area.
+        // No separate HUD, no open/close buttons. wiVRn-style.
         MenuHover mh;                    // hovered content item (data-driven menu)
         int  setTabHover   = -1;         // hovered sidebar tab
         bool setCloseHover = false;
@@ -3277,73 +3211,16 @@ void *renderThread(void *) {
         static int   sDragMode = 0;     // 0=none, 1=scroll, 2=widget (decided on grab edge)
         static float sScrollLastLy = 0;
 
-        // The panels are anchored in world space; the pointer ray is in the same
-        // frame, so hit-test directly against each panel's world matrix.
-        Mat4 hudHit = hudWorld;
+        // The panel is anchored in world space; the pointer ray is in the same
+        // frame, so hit-test directly against the panel's world matrix.
         Mat4 setHit = settingsWorld;
 
-        // ---- SETTINGS + SERVERS open buttons (live on the info HUD) ----
-        sSettingsBtnHot = false;
-        sServersBtnHot  = false;
-        if (!gSettingsOpen && !gServersOpen) {
-            float lx, ly, t;
-            if (rayPanel(hudHit, lx, ly, t)) {
-                if (uiHit(settingsBtn, lx, ly)) {
-                    sSettingsBtnHot = true; lobbyHover = true;
-                    if (clickEdge) { gSettingsOpen = true; sDragMode = 0; }
-                }
-                if (uiHit(serversBtn, lx, ly)) {
-                    sServersBtnHot = true; lobbyHover = true;
-                    if (clickEdge) { gServersOpen = true; sDragMode = 0; }
-                }
-            }
-        }
-
-        // ---- SERVER LIST PANEL ----
-        static std::vector<float> srvVerts; srvVerts.clear();
-        int srvVertCount = 0;
-        if (gServersOpen) {
-            float lx, ly, t;
-            bool onPanel = rayPanel(setHit, lx, ly, t);  // same world anchor as settings
-            int srvHoverItem = -1, srvConnectHot = -1;
-            bool srvCloseHover = false;
-            if (onPanel) {
-                SrvHover sh = hitServerPanel(lx, ly);
-                if (sh.item == -2) { srvCloseHover = true; lobbyHover = true; }
-                else if (sh.item >= 0) {
-                    srvHoverItem = sh.item;
-                    if (sh.part == 1) srvConnectHot = sh.item;
-                    lobbyHover = true;
-                    if (clickEdge) applyServerClick(sh, true);
-                }
-            }
-            if (clickEdge && srvCloseHover) { gServersOpen = false; sDragMode = 0; }
-
-            auto servers = getServerList();
-            uint32_t srvSig = 2166136261u;
-            srvSig = (srvSig ^ (unsigned)servers.size()) * 16777619u;
-            for (const auto &s : servers) {
-                for (char c : s.name) srvSig = (srvSig ^ (unsigned char)c) * 16777619u;
-                srvSig = (srvSig ^ (unsigned)s.port) * 16777619u;
-            }
-            srvSig = (srvSig ^ (srvHoverItem + 100)) * 16777619u;
-            srvSig = (srvSig ^ (srvConnectHot + 100)) * 16777619u;
-            srvSig = (srvSig ^ (srvCloseHover ? 1 : 0)) * 16777619u;
-            static uint32_t sSrvSig = 0; static bool sSrvHave = false;
-            static int sSrvVertCount = 0; static GLsizeiptr sSrvCap = 0;
-            if (!sSrvHave || srvSig != sSrvSig) {
-                buildServerPanel(srvVerts, srvHoverItem, srvCloseHover, srvConnectHot);
-                sSrvVertCount = (int)(srvVerts.size() / 6);
-                if (sSrvVertCount > 0) uploadDynamicVbo(gSrvVbo, srvVerts, sSrvCap);
-                sSrvSig = srvSig; sSrvHave = true;
-            }
-            srvVertCount = sSrvVertCount;
-        }
+        int srvVertCount = 0;   // server list is now a tab inside the settings panel
 
         static std::vector<float> sverts; sverts.clear();   // reuse capacity (settings panel)
         int sliderVertCount = 0;
         float setContentH = 0;
-        if (gSettingsOpen) {
+        {
             float setOffX = 0, setOffY = 0;
             settingsMeasure(setOffX, setOffY, setContentH);
             bool scrollable = setContentH > kSetViewportH + 1e-4f;
@@ -3394,7 +3271,7 @@ void *renderThread(void *) {
             }
 
             // ---- discrete clicks on chrome ----
-            if (clickEdge && setCloseHover) { gSettingsOpen = false; sDragMode = 0; }
+            if (clickEdge && setCloseHover) { /* panel always open, close disabled */ }
             if (clickEdge && setTabHover >= 0 && setTabHover != gSettingsCat) { gSettingsCat = setTabHover; sDragMode = 0; }
 
             // ---- content actions (suppressed while scrolling) ----
@@ -3432,9 +3309,8 @@ void *renderThread(void *) {
                 sPanelSig = panelSig; sPanelHave = true;
             }
             sliderVertCount = sSliderVertCount;
-        } else {
-            if (!ptrGrab && gEqGrabbing) { gEqGrabbing = false; gEqActiveBand = -1; }
         }
+        if (!ptrGrab && gEqGrabbing) { gEqGrabbing = false; gEqActiveBand = -1; }
 
         sPtrGrabPrev = ptrGrab;
         bool showReticle = (!ptrFromController && lobbyHover);
@@ -3537,31 +3413,15 @@ void *renderThread(void *) {
                 glDrawArrays(GL_TRIANGLES, 0, gReticleVertCount);
                 glBindVertexArray(0);
             }
-            // Native 3D lobby UI (wiVRn-style): HUD text + settings panel +
-            // server list, all rendered as world-locked GL geometry. No texture
-            // upload from Java.
-            if (textVertCount > 0) {
-                Mat4 hudMvp = mat4Mul(sproj, mat4Mul(sview, hudWorld));
-                glUseProgram(gProg);
-                glBindVertexArray(gTextVao);
-                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, hudMvp.m);
-                glDrawArrays(GL_TRIANGLES, 0, textVertCount);
-                glBindVertexArray(0);
-            }
+            // Native 3D lobby UI: unified floating panel (wiVRn-style).
+            // No HUD text, no separate server list panel. Everything is in
+            // the settings panel which is always open.
             if (sliderVertCount > 0) {
                 Mat4 setMvp = mat4Mul(sproj, mat4Mul(sview, settingsWorld));
                 glUseProgram(gProg);
                 glBindVertexArray(gSliderVao);
                 glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, setMvp.m);
                 glDrawArrays(GL_TRIANGLES, 0, sliderVertCount);
-                glBindVertexArray(0);
-            }
-            if (srvVertCount > 0) {
-                Mat4 srvMvp = mat4Mul(sproj, mat4Mul(sview, settingsWorld));
-                glUseProgram(gProg);
-                glBindVertexArray(gSrvVao);
-                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, srvMvp.m);
-                glDrawArrays(GL_TRIANGLES, 0, srvVertCount);
                 glBindVertexArray(0);
             }
 

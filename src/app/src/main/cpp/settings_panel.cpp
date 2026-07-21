@@ -125,7 +125,8 @@ static void buildCoreModel(MenuModel &m) {
             h.item = sh.item; h.part = sh.part; h.grab = sh.grab;
         };
         srv.cAct = [](const MenuHover &h, bool click, bool grab, float cx, float cy) {
-            applyServerClick(h, click);
+            SrvHover sh; sh.item = h.item; sh.part = h.part; sh.grab = h.grab;
+            applyServerClick(sh, click);
         };
         servers.items.push_back(srv);
     }
@@ -437,8 +438,10 @@ void buildSettingsPanel(std::vector<float> &v, float offX, float offY, float con
         appendQuad(v, kSetPanelL, kSetPanelTop, kSetPanelR, kSetPanelBot, 0.08f, 0.08f, 0.08f);
         appendQuad(v, kSetPanelL, kSetPanelTop, -0.45f, kSetPanelBot, 0.10f, 0.10f, 0.10f);
     }
-    uiTextC(v, m[cat].name, (kCtX0 + kCtX1) * 0.5f, kSetHdrY, 0.0055f, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
-    uiButton(v, kSetClose, "X", closeHover);
+    // Header: "WIVRN" title (wiVRn-style, always visible)
+    uiTextC(v, "WIVRN", (kCtX0 + kCtX1) * 0.5f, kSetHdrY, 0.007f,
+            kUiFill[0], kUiFill[1], kUiFill[2]);
+    // Close button removed: panel is always open.
 
     // sidebar tabs (one per category, auto-stacked)
     for (int i = 0; i < (int)m.size(); i++) {
