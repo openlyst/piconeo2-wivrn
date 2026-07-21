@@ -282,11 +282,6 @@ static void buildCoreModel(MenuModel &m) {
             uiTextC(v, "WIVRN FOR PICO NEO 2", cx, y - 0.09f, 0.007f, 1.0f, 1.0f, 1.0f);
             y -= 0.20f;
 
-            // Version line
-            uiTextC(v, "BETA 1.1 - UNRELEASED", cx, y, 0.005f,
-                    kUiTitle[0], kUiTitle[1], kUiTitle[2]);
-            y -= 0.08f;
-
             // Divider
             appendQuad(v, -halfW, y, halfW, y - 0.005f,
                        kUiTrack[0], kUiTrack[1], kUiTrack[2]);
