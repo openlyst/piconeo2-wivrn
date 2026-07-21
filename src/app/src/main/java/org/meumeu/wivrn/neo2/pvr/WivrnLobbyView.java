@@ -613,6 +613,10 @@ public class WivrnLobbyView {
         return all;
     }
 
+    public List<ServerEntry> getAllServersPublic() {
+        return getAllServers();
+    }
+
     private void initPaints() {
         bgPaint.setColor(Color.rgb(18, 20, 28));
         sidebarBgPaint.setColor(Color.rgb(10, 11, 16));

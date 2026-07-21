@@ -18,6 +18,7 @@
 #include <atomic>
 #include <mutex>
 #include <vector>
+#include <string>
 #include <cstdio>
 #include <time.h>
 
@@ -34,6 +35,7 @@
 #include "ui_kit.h"      // font + appendTextLine/Quad + immediate-mode widget kit
 #include "eq_panel.h"    // 16-band audio EQ: state + persistence + buildEqVerts
 #include "settings_panel.h"  // unified lobby SETTINGS window (sidebar + scroll)
+#include "server_list.h"     // wiVRn-style server list panel
 #include "app_state.h"   // shared lobby/render knobs: IPD, input edges, toggles, diag
 #include "lobby.h"       // ported pico_oxr WiVRn lobby UI panel
 #include "passthrough.h" // passthrough camera background for the lobby
@@ -319,61 +321,199 @@ static void buildGazeMarker() {
 // ---------------------------------------------------------------------------
 static GLuint gCtrlVao[2] = {0,0}, gCtrlVbo[2] = {0,0};
 static int    gCtrlVertCount[2] = {0,0};
-static std::vector<float> gCtrlPos[2];   // line-endpoint positions (xyz), in metres
-// The system OBJ filenames don't match the hand they look correct on in our
-// frame: r.obj reads right on the LEFT hand, controller2s.obj on the RIGHT.
-static const char *kCtrlObjPath[2] = {
-    "/system/pre_resource/data/misc/user/controller/r.obj",            // 0 = left hand
-    "/system/pre_resource/data/misc/user/controller/controller2s.obj", // 1 = right hand
-};
-static void loadCtrlObjLines(const char *path, std::vector<float> &out) {
-    out.clear();
+// Vertex format: pos.xyz + uv.xy + shade.rgb = 8 floats
+static GLuint gCtrlTex[5] = {0,0,0,0,0};  // idle, app, home, touchpad, trigger
+static GLuint gCtrlProg = 0;
+static GLint  gCtrlMvpLoc = 0, gCtrlTexLoc = 0;
+enum CtrlTex { TEX_IDLE=0, TEX_APP=1, TEX_HOME=2, TEX_TOUCH=3, TEX_TRIG=4 };
+// Controller OBJ models bundled in assets, extracted to HOME/controller/.
+// r.obj reads right on the LEFT hand, controller2s.obj on the RIGHT.
+static std::string kCtrlObjPath[2];
+static std::string kCtrlTexPath[5];
+static void initCtrlObjPaths() {
+    const char *home = getenv("HOME");
+    if (!home) home = "/data/data/org.meumeu.wivrn.neo2.pvr/files";
+    std::string base = std::string(home) + "/controller/";
+    kCtrlObjPath[0] = base + "r.obj";
+    kCtrlObjPath[1] = base + "controller2s.obj";
+    kCtrlTexPath[TEX_IDLE]  = base + "controller2s_idle.png";
+    kCtrlTexPath[TEX_APP]   = base + "controller2s_app.png";
+    kCtrlTexPath[TEX_HOME]  = base + "controller2s_home.png";
+    kCtrlTexPath[TEX_TOUCH] = base + "controller2s_touchpad.png";
+    kCtrlTexPath[TEX_TRIG]  = base + "controller2s_trigger.png";
+}
+// Load OBJ with UVs. Output: interleaved pos.xyz + uv.xy per vertex (5 floats),
+// triangulated. Positions converted cm -> m.
+static void loadCtrlObjTextured(const char *path, std::vector<float> &outPos, std::vector<float> &outUv) {
+    outPos.clear(); outUv.clear();
     FILE *f = fopen(path, "r");
     if (!f) { LOGE("ctrl obj missing: %s", path); return; }
-    std::vector<float> vx, vy, vz;
-    char line[256];
+    std::vector<float> vx, vy, vz, vt_u, vt_v;
+    char line[512];
     while (fgets(line, sizeof(line), f)) {
         if (line[0]=='v' && line[1]==' ') {
             float x,y,z;
             if (sscanf(line+2, "%f %f %f", &x,&y,&z)==3) { vx.push_back(x); vy.push_back(y); vz.push_back(z); }
-        } else if (line[0]=='f' && line[1]==' ') {
-            int idx[8]; int n=0;
+        } else if (line[0]=='v' && line[1]=='t' && line[2]==' ') {
+            float u,v;
+            if (sscanf(line+3, "%f %f", &u,&v)==2) { vt_u.push_back(u); vt_v.push_back(v); }
+        } else if (line[0]=='f' && (line[1]==' '||line[1]=='\t')) {
+            int vi[16], ti[16]; int n=0;
             char *tok = strtok(line+2, " \t\r\n");
-            while (tok && n<8) {
-                int vi = atoi(tok);          // 1-based; neg = relative
-                if (vi != 0) idx[n++] = (vi > 0) ? vi-1 : (int)vx.size()+vi;
+            while (tok && n<16) {
+                int v_idx=0, t_idx=0;
+                // format: v/vt/vn or v/vt or v
+                v_idx = atoi(tok);
+                const char *slash1 = strchr(tok, '/');
+                if (slash1) t_idx = atoi(slash1+1);
+                if (v_idx != 0) {
+                    vi[n] = (v_idx > 0) ? v_idx-1 : (int)vx.size()+v_idx;
+                    ti[n] = (t_idx > 0) ? t_idx-1 : (t_idx < 0) ? (int)vt_u.size()+t_idx : -1;
+                    n++;
+                }
                 tok = strtok(nullptr, " \t\r\n");
             }
-            auto edge = [&](int a, int b){
-                if (a<0||b<0||a>=(int)vx.size()||b>=(int)vx.size()) return;
-                out.insert(out.end(), { vx[a],vy[a],vz[a] });
-                out.insert(out.end(), { vx[b],vy[b],vz[b] });
-            };
-            for (int i=0;i<n;i++) edge(idx[i], idx[(i+1)%n]);
+            for (int i=1; i+1<n; i++) {
+                int a=vi[0], b=vi[i], c=vi[i+1];
+                int ta=ti[0], tb=ti[i], tc=ti[i+1];
+                if (a<0||b<0||c<0||a>=(int)vx.size()||b>=(int)vx.size()||c>=(int)vx.size()) continue;
+                outPos.insert(outPos.end(), { vx[a]*0.01f,vy[a]*0.01f,vz[a]*0.01f });
+                outPos.insert(outPos.end(), { vx[b]*0.01f,vy[b]*0.01f,vz[b]*0.01f });
+                outPos.insert(outPos.end(), { vx[c]*0.01f,vy[c]*0.01f,vz[c]*0.01f });
+                auto uv = [&](int idx) {
+                    if (idx>=0 && idx<(int)vt_u.size())
+                        outUv.insert(outUv.end(), { vt_u[idx], vt_v[idx] });
+                    else
+                        outUv.insert(outUv.end(), { 0.0f, 0.0f });
+                };
+                uv(ta); uv(tb); uv(tc);
+            }
         }
     }
     fclose(f);
-    for (auto &c : out) c *= 0.01f;          // centimetres -> metres
-    LOGI("ctrl obj %s -> %d line verts", path, (int)(out.size()/3));
+    LOGI("ctrl obj %s -> %d tri verts (UVs: %s)", path, (int)(outPos.size()/3),
+         vt_u.empty() ? "no" : "yes");
 }
+// Load a PNG from file into a GL texture (RGBA). Uses stb_image if available,
+// otherwise falls back to a raw RGBA loader. Here we use a minimal PNG decoder
+// via the Android BitmapFactory through JNI is overkill; instead we use stb_image.
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+static GLuint loadCtrlTexture(const char *path) {
+    int w, h, ch;
+    stbi_set_flip_vertically_on_load(1); // PNG is top-down, GL is bottom-up
+    unsigned char *data = stbi_load(path, &w, &h, &ch, 4);
+    if (!data) { LOGE("ctrl tex load failed: %s", path); return 0; }
+    GLuint tex;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    LOGI("ctrl tex %s -> %d (%dx%d)", path, tex, w, h);
+    stbi_image_free(data);
+    return tex;
+}
+static void buildCtrlShader() {
+    if (gCtrlProg) return;
+    const char *vs = R"(#version 300 es
+        layout(location=0) in vec3 aPos;
+        layout(location=1) in vec2 aUV;
+        layout(location=2) in vec3 aShade;
+        uniform mat4 uMVP;
+        out vec2 vUV;
+        out vec3 vShade;
+        void main() {
+            gl_Position = uMVP * vec4(aPos, 1.0);
+            vUV = aUV;
+            vShade = aShade;
+        })";
+    const char *fs = R"(#version 300 es
+        precision mediump float;
+        in vec2 vUV;
+        in vec3 vShade;
+        uniform sampler2D uTex;
+        out vec4 frag;
+        void main() {
+            vec4 tex = texture(uTex, vUV);
+            frag = vec4(tex.rgb * vShade, 1.0);
+        })";
+    gCtrlProg = glCreateProgram();
+    GLuint s1 = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(s1, 1, &vs, nullptr); glCompileShader(s1);
+    GLint ok; glGetShaderiv(s1, GL_COMPILE_STATUS, &ok);
+    if (!ok) { char log[1024]; glGetShaderInfoLog(s1, 1024, nullptr, log); LOGE("ctrl VS: %s", log); }
+    GLuint s2 = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(s2, 1, &fs, nullptr); glCompileShader(s2);
+    glGetShaderiv(s2, GL_COMPILE_STATUS, &ok);
+    if (!ok) { char log[1024]; glGetShaderInfoLog(s2, 1024, nullptr, log); LOGE("ctrl FS: %s", log); }
+    glAttachShader(gCtrlProg, s1); glAttachShader(gCtrlProg, s2);
+    glLinkProgram(gCtrlProg);
+    glGetProgramiv(gCtrlProg, GL_LINK_STATUS, &ok);
+    if (!ok) { char log[1024]; glGetProgramInfoLog(gCtrlProg, 1024, nullptr, log); LOGE("ctrl link: %s", log); }
+    glDeleteShader(s1); glDeleteShader(s2);
+    gCtrlMvpLoc = glGetUniformLocation(gCtrlProg, "uMVP");
+    gCtrlTexLoc = glGetUniformLocation(gCtrlProg, "uTex");
+    LOGI("ctrl shader prog=%u", gCtrlProg);
+}
+static std::vector<float> gCtrlPosData[2], gCtrlUvData[2];
 static void buildControllerMeshes() {
-    bool amber = gThemeAmber.load();
-    const float cr = amber?0.98f:0.35f, cg = amber?0.80f:0.65f, cb = amber?0.45f:0.95f;  // WiVRn blue accent
+    if (kCtrlObjPath[0].empty()) initCtrlObjPaths();
+    buildCtrlShader();
+    for (int t = 0; t < 5; t++)
+        if (!gCtrlTex[t] && !kCtrlTexPath[t].empty())
+            gCtrlTex[t] = loadCtrlTexture(kCtrlTexPath[t].c_str());
+    // Light direction (normalized) - from upper front left
+    const float lx = -0.4f, ly = 0.6f, lz = -0.7f;
+    float llen = sqrtf(lx*lx + ly*ly + lz*lz);
+    float lxn = lx/llen, lyn = ly/llen, lzn = lz/llen;
+    const float ambient = 0.4f;
     for (int h=0; h<2; h++) {
-        if (gCtrlPos[h].empty()) loadCtrlObjLines(kCtrlObjPath[h], gCtrlPos[h]);
-        std::vector<float> v; v.reserve(gCtrlPos[h].size()*2);
-        for (size_t i=0; i+3<=gCtrlPos[h].size(); i+=3)
-            v.insert(v.end(), { gCtrlPos[h][i], gCtrlPos[h][i+1], gCtrlPos[h][i+2], cr,cg,cb });
-        gCtrlVertCount[h] = (int)(v.size()/6);
+        if (gCtrlPosData[h].empty())
+            loadCtrlObjTextured(kCtrlObjPath[h].c_str(), gCtrlPosData[h], gCtrlUvData[h]);
+        // Build 8-float vertices: pos.xyz + uv.xy + shade.rgb
+        std::vector<float> v;
+        v.reserve(gCtrlPosData[h].size() / 3 * 8);
+        for (size_t i = 0; i + 9 <= gCtrlPosData[h].size(); i += 9) {
+            float ax = gCtrlPosData[h][i],   ay = gCtrlPosData[h][i+1], az = gCtrlPosData[h][i+2];
+            float bx = gCtrlPosData[h][i+3], by = gCtrlPosData[h][i+4], bz = gCtrlPosData[h][i+5];
+            float cx = gCtrlPosData[h][i+6], cy = gCtrlPosData[h][i+7], cz = gCtrlPosData[h][i+8];
+            // face normal
+            float ex1 = bx-ax, ey1 = by-ay, ez1 = bz-az;
+            float ex2 = cx-ax, ey2 = cy-ay, ez2 = cz-az;
+            float nx = ey1*ez2 - ez1*ey2;
+            float ny = ez1*ex2 - ex1*ez2;
+            float nz = ex1*ey2 - ey1*ex2;
+            float nl = sqrtf(nx*nx + ny*ny + nz*nz);
+            if (nl > 1e-6f) { nx /= nl; ny /= nl; nz /= nl; }
+            float diff = nx*lxn + ny*lyn + nz*lzn;
+            if (diff < 0) diff = 0;
+            float shade = ambient + (1.0f - ambient) * diff;
+            float sR = shade, sG = shade, sB = shade;
+            size_t uvBase = i / 3 * 2;  // matching UV index
+            v.insert(v.end(), { ax,ay,az, gCtrlUvData[h][uvBase],   gCtrlUvData[h][uvBase+1],   sR,sG,sB });
+            v.insert(v.end(), { bx,by,bz, gCtrlUvData[h][uvBase+2], gCtrlUvData[h][uvBase+3], sR,sG,sB });
+            v.insert(v.end(), { cx,cy,cz, gCtrlUvData[h][uvBase+4], gCtrlUvData[h][uvBase+5], sR,sG,sB });
+        }
+        gCtrlVertCount[h] = (int)(v.size()/8);
         if (!gCtrlVao[h]) {
             glGenVertexArrays(1,&gCtrlVao[h]);
             glBindVertexArray(gCtrlVao[h]);
             glGenBuffers(1,&gCtrlVbo[h]);
             glBindBuffer(GL_ARRAY_BUFFER,gCtrlVbo[h]);
+            // pos.xyz
             glEnableVertexAttribArray(0);
-            glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,6*sizeof(float),(void*)0);
+            glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,8*sizeof(float),(void*)0);
+            // uv.xy
             glEnableVertexAttribArray(1);
-            glVertexAttribPointer(1,3,GL_FLOAT,GL_FALSE,6*sizeof(float),(void*)(3*sizeof(float)));
+            glVertexAttribPointer(1,2,GL_FLOAT,GL_FALSE,8*sizeof(float),(void*)(3*sizeof(float)));
+            // shade.rgb
+            glEnableVertexAttribArray(2);
+            glVertexAttribPointer(2,3,GL_FLOAT,GL_FALSE,8*sizeof(float),(void*)(5*sizeof(float)));
             glBindVertexArray(0);
         }
         glBindBuffer(GL_ARRAY_BUFFER, gCtrlVbo[h]);
@@ -383,8 +523,10 @@ static void buildControllerMeshes() {
 
 // 3D HUD text + lobby UI kit (font, appendTextLine/Quad, ui* widgets) live in
 // ui_kit.h/.cpp. The dynamic VBOs they fill are still owned here.
+static bool gServersOpen = false;              // server list panel shown
 static GLuint gTextVao = 0, gTextVbo = 0;
 static GLuint gSliderVao = 0, gSliderVbo = 0;   // lobby SETTINGS panel (dynamic)
+static GLuint gSrvVao = 0, gSrvVbo = 0;         // lobby SERVER LIST panel (dynamic)
 static GLuint gReticleVao = 0, gReticleVbo = 0; // head-gaze crosshair (static "+")
 static int    gReticleVertCount = 0;
 static GLuint gEqVao = 0, gEqVbo = 0;           // lobby 16-band audio EQ panel (dynamic)
@@ -407,6 +549,15 @@ static void buildTextBuffers() {
     glBindVertexArray(gSliderVao);
     glGenBuffers(1, &gSliderVbo);
     glBindBuffer(GL_ARRAY_BUFFER, gSliderVbo);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    // server list panel
+    glGenVertexArrays(1, &gSrvVao);
+    glBindVertexArray(gSrvVao);
+    glGenBuffers(1, &gSrvVbo);
+    glBindBuffer(GL_ARRAY_BUFFER, gSrvVbo);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
@@ -1776,7 +1927,6 @@ void *renderThread(void *) {
     glCullFace(GL_BACK);
     buildGraphics();
     buildLobbyTarget();      // per-eye ring for the SDK warp
-    if (gLobby) gLobby->init(kLobbySz, kLobbySz);
     buildGazeMarker();       // eye-gaze debug disc (Neo 2 EYE only)
     buildTextBuffers();      // dynamic VBOs for lobby HUD text + slider
     buildReticle();          // head-gaze crosshair
@@ -2797,68 +2947,11 @@ void *renderThread(void *) {
                     // When gManualLobby is toggled mid-stream, composite the lobby
                     // UI directly on top of the video in gSwap (overlay mode: no
                     // color clear, only depth). The video keeps playing underneath.
-                    if (gManualLobby.load() && gLobby) {
-                        if (alvrFence) { glWaitSync(alvrFence, 0, GL_TIMEOUT_IGNORED); glDeleteSync(alvrFence); alvrFence = 0; }
-                        int ew = g_stream ? g_stream->eye_width.load() : 0;
-                        int eh = g_stream ? g_stream->eye_height.load() : 0;
-                        if (ew <= 0) ew = gStreamW;
-                        if (eh <= 0) eh = gStreamH;
-                        float half_fov = ((fEyeTextureFov0 > 1.0f ? fEyeTextureFov0 : 101.0f) * 0.5f) * ((float)M_PI / 180.0f);
-                        XrFovf lobby_fov = {-half_fov, half_fov, half_fov, -half_fov};
-                        // The lobby is composited into the same texture as the
-                        // stream video, which the warp reprojects from the server
-                        // render pose to the live head pose. Render the lobby at
-                        // the server pose too so the warp's reprojection is correct
-                        // for both layers. Using the live pose here would double-
-                        // apply head movement and make the panel drift opposite
-                        // to the head.
-                        float head_orient[4] = {qx, qy, qz, qw};
-                        float head_pos[3] = {px, py, pz};
-                        XrPosef srvPoses[2];
-                        if (wivrn_get_server_pose(srvPoses)) {
-                            head_orient[0] = srvPoses[0].orientation.x;
-                            head_orient[1] = srvPoses[0].orientation.y;
-                            head_orient[2] = srvPoses[0].orientation.z;
-                            head_orient[3] = srvPoses[0].orientation.w;
-                            // Midpoint of the two eye positions = head centre.
-                            head_pos[0] = (srvPoses[0].position.x + srvPoses[1].position.x) * 0.5f;
-                            head_pos[1] = (srvPoses[0].position.y + srvPoses[1].position.y) * 0.5f;
-                            head_pos[2] = (srvPoses[0].position.z + srvPoses[1].position.z) * 0.5f;
-                        }
-                        controller_sample cs[2];
-                        {
-                            std::lock_guard<std::mutex> lk(gCtrlMutex);
-                            for (int h = 0; h < 2; h++) {
-                                cs[h].connected = (gCtrl[h].conn == 1);
-                                for (int i = 0; i < 4; i++) cs[h].orientation[i] = gCtrl[h].q[i];
-                                for (int i = 0; i < 3; i++) cs[h].position[i] = gCtrl[h].pos[i];
-                                int trig = 0;
-                                if (gCtrl[h].keyCount > 2) trig = std::max(trig, gCtrl[h].keys[2]);
-                                if (gCtrl[h].keyCount > 8) trig = std::max(trig, gCtrl[h].keys[8]);
-                                cs[h].trigger = trig;
-                                cs[h].button_a = (gCtrl[h].keyCount > 6 && gCtrl[h].keys[6] != 0);
-                                cs[h].button_b = (gCtrl[h].keyCount > 7 && gCtrl[h].keys[7] != 0);
-                                cs[h].menu = (gCtrl[h].keyCount > 5 && gCtrl[h].keys[5] != 0);
-                                cs[h].home = (gCtrl[h].keyCount > 11 && gCtrl[h].keys[11] != 0);
-                                cs[h].grip = (gCtrl[h].keyCount > 3 && gCtrl[h].keys[3] != 0);
-                                cs[h].thumbstick_click = (gCtrl[h].keyCount > 4 && gCtrl[h].keys[4] != 0);
-                                cs[h].touch[0] = (gCtrl[h].keyCount > 0) ? gCtrl[h].keys[0] : 0;
-                                cs[h].touch[1] = (gCtrl[h].keyCount > 1) ? gCtrl[h].keys[1] : 0;
-                                cs[h].battery = 0;
-                                cs[h].has_angular_velocity = false;
-                            }
-                        }
-                        gLobby->flush_pending_texture();
-                        gLobby->set_resolution(ew, eh);
-                        for (int e = 0; e < 2; e++) {
-                            glBindFramebuffer(GL_FRAMEBUFFER, gStreamFbo);
-                            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                                                   GL_TEXTURE_2D, gSwap[e][gSwapIdx], 0);
-                            glDisable(GL_SCISSOR_TEST);
-                            gLobby->draw(e, head_orient, head_pos, cs, lobby_fov,
-                                         softIpdM(), gOkHeld.load(), true, false);
-                        }
-                        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                    if (gManualLobby.load()) {
+                        // Manual lobby overlay during streaming: the native 3D
+                        // lobby UI (HUD + settings) is drawn by drawLobbyScene
+                        // in the main lobby submit path. During streaming we
+                        // skip the texture-panel overlay for now.
                     }
                     // PIPELINE: fence THIS slot and flush so the GPU starts it, but
                     // do NOT block. The warp samples this slot a frame from now, by
@@ -3061,68 +3154,16 @@ void *renderThread(void *) {
         float fovy = lobbyFovDeg * (float)M_PI / 180.0f;
         Mat4 proj  = mat4Perspective(fovy, 1.0f, 0.05f, 250.0f);   // square target -> aspect 1
 
-        // ---- HUD content: device IP (line 1) + client status (line 2). A
-        // WORLD-LOCKED panel: anchored once in front of where the user is
-        // looking at lobby entry, then rendered through the head-tracked view
-        // so it stays planted in space. Built once per frame in panel-local meters.
-        // refresh occasionally, and keep retrying while we still have no numeric IP
+        // ---- Unified lobby panel (wiVRn-style floating window) ----
+        // A single world-locked panel with sidebar tabs (SERVERS, CONNECT,
+        // VIDEO, AUDIO, INPUT, SYSTEM, DEBUG, LOBBY, ABOUT, EXIT) and a
+        // content area. Always visible. No separate HUD or buttons.
         if ((frame % 120) == 0 || !(gIpText[0] >= '0' && gIpText[0] <= '9')) refreshDeviceIp();
-        const float kHudDist = 2.0f;         // panel distance in front of the user at anchor time
+        const float kHudDist = 2.0f;         // panel distance in front of the user
 
-        // Three lines, sized by "points" relative to the IP line: model = IP+2pt,
-        // status = IP-2pt. We model 1 "point" as 10% of the IP pixel size.
-        const float pxI = 0.012f;            // IP (base) metres per font pixel
-        const float pxM = pxI * 1.2f;        // model: +2pt (larger)
-        const float pxH = pxI * 0.8f;        // hostname: -2pt (smaller)
-        const float pxS = pxI * 0.8f;        // status: -2pt (smaller)
-        // status colour: green=connected, yellow=connecting, cyan=searching, red=down
-        float sr=1, sg=0.3f, sb=0.3f;        // default DISCONNECTED (red)
-        if      (!strcmp(gStatusText, "CONNECTED"))  { sr=0.2f; sg=1.0f; sb=0.3f; }
-        else if (!strcmp(gStatusText, "CONNECTING")) { sr=1.0f; sg=0.9f; sb=0.2f; }
-        else if (!strcmp(gStatusText, "SEARCHING"))  { sr=0.3f; sg=0.8f; sb=1.0f; }
-        // Stack model / IP / hostname / status (top->bottom), vertically centred.
-        // The hostname line shows only once known.
-        bool haveHost = gHostnameText[0] != 0;
-        const float gap = 3.0f * pxI;
-        float hM = 7*pxM, hI = 7*pxI, hH = 7*pxH, hS = 7*pxS;
-        float total = hM + gap + hI + gap + hS + (haveHost ? (gap + hH) : 0);
-        float yTopM = total * 0.5f;
-        float yTopI = yTopM - hM - gap;
-        float yTopH = yTopI - hI - gap;                       // hostname (if shown)
-        float yTopS = (haveHost ? yTopH - hH - gap : yTopI - hI - gap);
-        // SETTINGS button below the info text -> opens the unified settings window.
-        // Rect is recomputed each frame and reused for both geometry and hit-test.
-        UiRect settingsBtn = { 0.0f, yTopS - hS - 0.07f, 0.34f, 0.085f };
-        static bool sSettingsBtnHot = false;   // hover carried from the prev frame's hit-test
-        bool setBtnHot = sSettingsBtnHot && !gSettingsOpen;
-        // THROTTLE the HUD text rebuild+upload. The 4 lines + SETTINGS button
-        // only change when the strings, button hover, or theme change, not
-        // every frame, so regenerate the glyph quads and re-upload the VBO
-        // only then. The rect above is still computed every frame for the hit-test.
-        static GLsizeiptr sTextCap = 0;
-        static int sTextVertCount = 0;
-        static uint32_t sHudSig = 0; static bool sHudHave = false;
-        uint32_t hudSig = 2166136261u;
-        { const char *ss[4] = { gModelText, gIpText, gHostnameText, gStatusText };
-          for (int k = 0; k < 4; k++) for (const char *p = ss[k]; *p; ++p) hudSig = (hudSig ^ (unsigned char)*p) * 16777619u; }
-        hudSig = (hudSig ^ (setBtnHot ? 0x9E3779B9u : 0u)) * 16777619u;
-        hudSig = (hudSig ^ (gThemeAmber.load() ? 0x85EBCA77u : 0u)) * 16777619u;
-        if (!sHudHave || hudSig != sHudSig) {
-            static std::vector<float> tverts; tverts.clear();   // reuse capacity
-            appendTextLine(tverts, gModelText,  yTopM, pxM, kUiTitle[0], kUiTitle[1], kUiTitle[2]);  // model: themed title
-            bool haveIp = (gIpText[0] >= '0' && gIpText[0] <= '9');
-            if (haveIp) appendTextLine(tverts, gIpText, yTopI, pxI, 1.0f, 1.0f, 1.0f);   // IP: white
-            else        appendTextLine(tverts, gIpText, yTopI, pxI, 1.0f, 0.09f, 0.07f);  // CHECK WI-FI: scarlet
-            if (haveHost)
-                appendTextLine(tverts, gHostnameText, yTopH, pxH, 1.0f, 0.8f, 0.4f);  // hostname: amber
-            appendTextLine(tverts, gStatusText, yTopS, pxS, sr, sg, sb);        // status: state colour
-            uiButton(tverts, settingsBtn, "SETTINGS", setBtnHot);
-            sTextVertCount = (int)(tverts.size() / 6);
-            if (sTextVertCount > 0) uploadDynamicVbo(gTextVbo, tverts, sTextCap);
-            sHudSig = hudSig; sHudHave = true;
-        }
-        int textVertCount = sTextVertCount;
-        // World-anchor the HUD once per lobby entry: plant it kHudDist in front
+        int textVertCount = 0;   // no HUD text anymore
+
+        // World-anchor the panel once per lobby entry: plant it kHudDist in front
         // of the current head, at head height, facing back toward the user, using
         // YAW ONLY (no pitch/roll) so it stands upright. Captured into hudWorld
         // and reused every frame thereafter -> the panel is fixed in space.
@@ -3141,15 +3182,8 @@ void *renderThread(void *) {
             m.m[12] = ax;  m.m[13] = ay; m.m[14] = az;   // translation
             hudWorld = m;
 
-            // Unified SETTINGS window: same facing as the info HUD, planted a
-            // touch CLOSER so it overlays the info area when open. Same yaw.
-            const float kSetDist = kHudDist - 0.25f;
-            float setx = px + fx * kSetDist, setz = pz + fz * kSetDist;
-            Mat4 mset = mat4Identity();
-            mset.m[0] = cphi; mset.m[2] = -sphi;
-            mset.m[8] = sphi; mset.m[10] = cphi;
-            mset.m[12] = setx; mset.m[13] = py; mset.m[14] = setz;
-            settingsWorld = mset;
+            // Unified lobby panel: same facing, same distance.
+            settingsWorld = m;
 
             hudAnchored = true;
         }
@@ -3170,6 +3204,8 @@ void *renderThread(void *) {
         bool  ctrlConn[2] = {false,false};
         float ctrlPos[2][3] = {{0,0,0},{0,0,0}};
         float ctrlQuat[2][4] = {{0,0,0,1},{0,0,0,1}};
+        int   ctrlKeys[2][16] = {{0},{0}};
+        int   ctrlKeyCount[2] = {0,0};
         {
             CtrlState cc[2];
             { std::lock_guard<std::mutex> lk(gCtrlMutex); cc[0]=gCtrl[0]; cc[1]=gCtrl[1]; }
@@ -3182,6 +3218,8 @@ void *renderThread(void *) {
                 ctrlPos[hh][0]=cc[hh].pos[0]*0.001f; ctrlPos[hh][1]=cc[hh].pos[1]*0.001f; ctrlPos[hh][2]=cc[hh].pos[2]*0.001f;
                 Quat cq = quatNorm({ -cc[hh].q[0], -cc[hh].q[1], cc[hh].q[2], cc[hh].q[3] });
                 ctrlQuat[hh][0]=cq.x; ctrlQuat[hh][1]=cq.y; ctrlQuat[hh][2]=cq.z; ctrlQuat[hh][3]=cq.w;
+                ctrlKeyCount[hh] = cc[hh].keyCount;
+                for (int k=0; k<cc[hh].keyCount && k<16; k++) ctrlKeys[hh][k] = cc[hh].keys[k];
             }
             auto trig = [](const CtrlState &s){
                 return (s.keyCount>2 && s.keys[2]!=0) || (s.keyCount>8 && s.keys[8]>40);
@@ -3306,11 +3344,9 @@ void *renderThread(void *) {
             return true;
         };
 
-        // ===== UNIFIED SETTINGS WINDOW =======================================
-        // The info-HUD SETTINGS button opens ONE world-locked panel: a category
-        // sidebar (VIDEO/AUDIO/DEBUG) + a grab-anywhere-to-scroll content area +
-        // a reference scrollbar. Content widgets are addressed in builder-local
-        // coords (cx,cy = panel-local minus the scroll/centre offset).
+        // ===== UNIFIED LOBBY PANEL (always open) ==============================
+        // Single world-locked floating window with sidebar tabs + content area.
+        // No separate HUD, no open/close buttons. wiVRn-style.
         MenuHover mh;                    // hovered content item (data-driven menu)
         int  setTabHover   = -1;         // hovered sidebar tab
         bool setCloseHover = false;
@@ -3318,25 +3354,16 @@ void *renderThread(void *) {
         static int   sDragMode = 0;     // 0=none, 1=scroll, 2=widget (decided on grab edge)
         static float sScrollLastLy = 0;
 
-        // The panels are anchored in world space; the pointer ray is in the same
-        // frame, so hit-test directly against each panel's world matrix.
-        Mat4 hudHit = hudWorld;
+        // The panel is anchored in world space; the pointer ray is in the same
+        // frame, so hit-test directly against the panel's world matrix.
         Mat4 setHit = settingsWorld;
 
-        // ---- SETTINGS open button (lives on the info HUD) ----
-        sSettingsBtnHot = false;
-        if (!gSettingsOpen) {
-            float lx, ly, t;
-            if (rayPanel(hudHit, lx, ly, t) && uiHit(settingsBtn, lx, ly)) {
-                sSettingsBtnHot = true; lobbyHover = true;
-                if (clickEdge) { gSettingsOpen = true; sDragMode = 0; }
-            }
-        }
+        int srvVertCount = 0;   // server list is now a tab inside the settings panel
 
         static std::vector<float> sverts; sverts.clear();   // reuse capacity (settings panel)
         int sliderVertCount = 0;
         float setContentH = 0;
-        if (gSettingsOpen) {
+        {
             float setOffX = 0, setOffY = 0;
             settingsMeasure(setOffX, setOffY, setContentH);
             bool scrollable = setContentH > kSetViewportH + 1e-4f;
@@ -3387,7 +3414,7 @@ void *renderThread(void *) {
             }
 
             // ---- discrete clicks on chrome ----
-            if (clickEdge && setCloseHover) { gSettingsOpen = false; sDragMode = 0; }
+            if (clickEdge && setCloseHover) { /* panel always open, close disabled */ }
             if (clickEdge && setTabHover >= 0 && setTabHover != gSettingsCat) { gSettingsCat = setTabHover; sDragMode = 0; }
 
             // ---- content actions (suppressed while scrolling) ----
@@ -3425,9 +3452,8 @@ void *renderThread(void *) {
                 sPanelSig = panelSig; sPanelHave = true;
             }
             sliderVertCount = sSliderVertCount;
-        } else {
-            if (!ptrGrab && gEqGrabbing) { gEqGrabbing = false; gEqActiveBand = -1; }
         }
+        if (!ptrGrab && gEqGrabbing) { gEqGrabbing = false; gEqActiveBand = -1; }
 
         sPtrGrabPrev = ptrGrab;
         bool showReticle = (!ptrFromController && lobbyHover);
@@ -3470,19 +3496,35 @@ void *renderThread(void *) {
                 glDrawArrays(GL_LINES, 0, 2);
                 glBindVertexArray(0);
             }
-            // Controller models: wireframe meshes attached to each live
-            // controller pose. Mesh is pre-scaled to metres and centred at origin.
+            // Controller models: textured solid meshes attached to each live
+            // controller pose. Texture swaps based on button state.
+            glEnable(GL_DEPTH_TEST);
+            glDepthFunc(GL_LEQUAL);
             for (int h = 0; h < 2; h++) {
                 if (!ctrlConn[h] || gCtrlVertCount[h] <= 0) continue;
                 Mat4 M = quatToMat4(ctrlQuat[h][0], ctrlQuat[h][1], ctrlQuat[h][2], ctrlQuat[h][3]);
                 M.m[12] = ctrlPos[h][0]; M.m[13] = ctrlPos[h][1]; M.m[14] = ctrlPos[h][2];
                 Mat4 cMvp = mat4Mul(sproj, mat4Mul(sview, M));
-                glUseProgram(gProg);
+                // Pick texture based on button state.
+                // k[8]=trigger(0-255), k[4]=touchpad click, k[6]=app, k[5]=home
+                int texIdx = TEX_IDLE;
+                const int *k = ctrlKeys[h];
+                int kc = ctrlKeyCount[h];
+                if (kc > 8 && k[8] > 40)       texIdx = TEX_TRIG;
+                else if (kc > 4 && k[4] != 0)  texIdx = TEX_TOUCH;
+                else if (kc > 6 && k[6] != 0)  texIdx = TEX_APP;
+                else if (kc > 5 && k[5] != 0)  texIdx = TEX_HOME;
+                GLuint tex = gCtrlTex[texIdx] ? gCtrlTex[texIdx] : gCtrlTex[TEX_IDLE];
+                glUseProgram(gCtrlProg);
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, tex);
+                glUniform1i(gCtrlTexLoc, 0);
                 glBindVertexArray(gCtrlVao[h]);
-                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, cMvp.m);
-                glDrawArrays(GL_LINES, 0, gCtrlVertCount[h]);
+                glUniformMatrix4fv(gCtrlMvpLoc, 1, GL_FALSE, cMvp.m);
+                glDrawArrays(GL_TRIANGLES, 0, gCtrlVertCount[h]);
                 glBindVertexArray(0);
             }
+            glDisable(GL_DEPTH_TEST);
             // Eye-gaze debug marker: the green disc at the live RAW Tobii gaze
             // point. Gated by the persisted EYE DEBUG toggle.
             if (gEyeDebugOn.load() && gEyeOnline.load() && gGazeValid.load() && gGazeVertCount > 0) {
@@ -3530,38 +3572,16 @@ void *renderThread(void *) {
                 glDrawArrays(GL_TRIANGLES, 0, gReticleVertCount);
                 glBindVertexArray(0);
             }
-            // Ported WiVRn lobby UI panel (pico_oxr WivrnLobbyView rendered to texture).
-            if (gLobby) {
-                if (eyeIdx == 0)
-                    gLobby->flush_pending_texture();
-                float head_orient[4] = {qx, qy, qz, qw};
-                float head_pos[3] = {px, py, pz};
-                controller_sample cs[2];
-                {
-                    std::lock_guard<std::mutex> lk(gCtrlMutex);
-                    for (int h = 0; h < 2; h++) {
-                        cs[h].connected = (gCtrl[h].conn == 1);
-                        for (int i = 0; i < 4; i++) cs[h].orientation[i] = gCtrl[h].q[i];
-                        for (int i = 0; i < 3; i++) cs[h].position[i] = gCtrl[h].pos[i]; // mm
-                        int trig = 0;
-                        if (gCtrl[h].keyCount > 2) trig = std::max(trig, gCtrl[h].keys[2]);
-                        if (gCtrl[h].keyCount > 8) trig = std::max(trig, gCtrl[h].keys[8]);
-                        cs[h].trigger = trig;
-                        cs[h].button_a = (gCtrl[h].keyCount > 6 && gCtrl[h].keys[6] != 0);
-                        cs[h].button_b = (gCtrl[h].keyCount > 7 && gCtrl[h].keys[7] != 0);
-                        cs[h].menu = (gCtrl[h].keyCount > 5 && gCtrl[h].keys[5] != 0);
-                        cs[h].home = (gCtrl[h].keyCount > 11 && gCtrl[h].keys[11] != 0);
-                        cs[h].grip = (gCtrl[h].keyCount > 3 && gCtrl[h].keys[3] != 0);
-                        cs[h].thumbstick_click = (gCtrl[h].keyCount > 4 && gCtrl[h].keys[4] != 0);
-                        cs[h].touch[0] = (gCtrl[h].keyCount > 0) ? gCtrl[h].keys[0] : 0;
-                        cs[h].touch[1] = (gCtrl[h].keyCount > 1) ? gCtrl[h].keys[1] : 0;
-                        cs[h].battery = 0;
-                        cs[h].has_angular_velocity = false;
-                    }
-                }
-                float half_fov = (lobbyFovDeg * 0.5f) * ((float)M_PI / 180.0f);
-                XrFovf lobby_fov = {-half_fov, half_fov, half_fov, -half_fov};
-                gLobby->draw(eyeIdx, head_orient, head_pos, cs, lobby_fov, softIpdM(), gOkHeld.load(), true, false);
+            // Native 3D lobby UI: unified floating panel (wiVRn-style).
+            // No HUD text, no separate server list panel. Everything is in
+            // the settings panel which is always open.
+            if (sliderVertCount > 0) {
+                Mat4 setMvp = mat4Mul(sproj, mat4Mul(sview, settingsWorld));
+                glUseProgram(gProg);
+                glBindVertexArray(gSliderVao);
+                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, setMvp.m);
+                glDrawArrays(GL_TRIANGLES, 0, sliderVertCount);
+                glBindVertexArray(0);
             }
 
             glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);

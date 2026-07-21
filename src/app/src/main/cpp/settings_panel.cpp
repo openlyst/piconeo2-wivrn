@@ -4,6 +4,7 @@
 #include "menu_model.h"
 #include "passthrough.h"
 #include "eye_tracking.h"   // gEyeSupported (disable toggle on non-EYE hw)
+#include "server_list.h"    // wiVRn server list tab
 #include "log.h"        // nowNs()
 #include "streaming/streaming_client.h"
 #include <cstdio>
@@ -11,7 +12,7 @@
 #include <cmath>
 
 // session state
-bool gSettingsOpen = false;
+bool gSettingsOpen = true;   // always open: unified lobby panel
 int  gSettingsCat  = 0;
 std::vector<float> gSettingsScroll;
 
@@ -106,30 +107,43 @@ static inline MenuItem wivrnToggle(const char *label, std::atomic<bool> &val) {
 }
 
 // ---- model assembly --------------------------------------------------------
+// wiVRn-style tab layout:
+//   Top:    SERVERS, SETTINGS
+//   Bottom: ABOUT, LICENSES, EXIT
 static void buildCoreModel(MenuModel &m) {
-    // CONNECTION ------------------------------------------------------------
-    MenuCategory conn; conn.name = "CONNECT";
+    // SERVERS (wiVRn-style server list, first tab) --------------------------
+    MenuCategory servers; servers.name = "SERVERS"; servers.custom = true;
     {
-        MenuItem tcp = wivrnToggle("TCP ONLY", gWivrnTcpOnly);
-        tcp.onChange = []{ saveAllConfig(); };
-        conn.items.push_back(tcp);
-
-        MenuItem pin; pin.kind = MK_BUTTON; pin.label = "PAIRING PIN";
-        pin.disabled = true;
-        pin.onClick = []{ /* TODO: wire up native PIN entry for wivrn handshake */ };
-        conn.items.push_back(pin);
+        MenuItem srv; srv.kind = MK_CUSTOM;
+        srv.customH = 0.8f;
+        srv.cBuild = [](std::vector<float> &v, const MenuHover &h) {
+            int hoverItem = (h.item >= 0) ? h.item : -1;
+            int connectHot = (h.item >= 0 && h.part == 1) ? h.item : -1;
+            float scrollY = settingsScroll();
+            buildServerContent(v, scrollY, hoverItem, connectHot);
+        };
+        srv.cHit = [](float cx, float cy, MenuHover &h) {
+            float scrollY = settingsScroll();
+            SrvHover sh = hitServerContent(cx, cy, scrollY);
+            h.item = sh.item; h.part = sh.part; h.grab = sh.grab;
+        };
+        srv.cAct = [](const MenuHover &h, bool click, bool grab, float cx, float cy) {
+            SrvHover sh; sh.item = h.item; sh.part = h.part; sh.grab = h.grab;
+            applyServerClick(sh, click);
+        };
+        servers.items.push_back(srv);
     }
-    m.push_back(conn);
+    m.push_back(servers);
 
-    // VIDEO -----------------------------------------------------------------
-    MenuCategory video; video.name = "VIDEO";
+    // SETTINGS (only options we actually support) ---------------------------
+    MenuCategory settings; settings.name = "SETTINGS";
     {
         MenuItem ipd; ipd.kind = MK_STEPPER; ipd.label = "SOFTWARE IPD";
         ipd.vmin = kIpdMin; ipd.vmax = kIpdMax; ipd.vstep = kIpdStep;
         ipd.get = []{ return gSoftIpdMm.load(); };
         ipd.set = [](float v){ gSoftIpdMm.store(v); gIpdChangeNs.store(nowNs()); gIpdDirty.store(true); };
         ipd.valueText = [](char *b,int n){ snprintf(b,n,"%.1f MM", gSoftIpdMm.load()); };
-        video.items.push_back(ipd);
+        settings.items.push_back(ipd);
 
         MenuItem br; br.kind = MK_FADER; br.label = "BRIGHTNESS";
         br.vmin = 0.0f; br.vmax = 1.0f;
@@ -137,7 +151,7 @@ static void buildCoreModel(MenuModel &m) {
         br.set = [](float f){ gBrightnessFrac.store(f); gBrightnessSaved.store(true); gBrightnessApply.store(true); };
         br.valueText = [](char *b,int n){ snprintf(b,n,"%d PERCENT",(int)(gBrightnessFrac.load()*100.0f+0.5f)); };
         br.onCommit = []{ saveBrightness(); };
-        video.items.push_back(br);
+        settings.items.push_back(br);
 
         MenuItem fov; fov.kind = MK_FADER; fov.label = "FIELD OF VIEW";
         fov.vmin = kFovMin; fov.vmax = kFovMax;
@@ -145,7 +159,7 @@ static void buildCoreModel(MenuModel &m) {
         fov.set = [](float v){ gStreamFovDeg.store(roundf(v)); };
         fov.valueText = [](char *b,int n){ snprintf(b,n,"%.0f DEG", gStreamFovDeg.load()); };
         fov.onCommit = []{ gFovDirty.store(true); };
-        video.items.push_back(fov);
+        settings.items.push_back(fov);
 
         MenuItem res; res.kind = MK_FADER; res.label = "RESOLUTION SCALE";
         res.vmin = 0.5f; res.vmax = 2.0f;
@@ -154,16 +168,11 @@ static void buildCoreModel(MenuModel &m) {
         res.valueText = [](char *b,int n){ snprintf(b,n,"%.2f X", gWivrnResolutionScale.load()); };
         res.onCommit = []{
             if (g_stream && g_stream->session) {
-                // Scale both render and stream resolution together; scaling only
-                // the stream caused the server to encode at a different size than
-                // the client swapchain, appearing as a FOV change instead of a
-                // pixel density change.
                 constexpr int base_w = 1664;
                 constexpr int base_h = 1756;
                 float s = gWivrnResolutionScale.load();
                 int rw = (int)(base_w * s);
                 int rh = (int)(base_h * s);
-                // Align to 2 for the encoder
                 rw = (rw / 2) * 2;
                 rh = (rh / 2) * 2;
                 g_stream->eye_width.store(rw);
@@ -177,7 +186,7 @@ static void buildCoreModel(MenuModel &m) {
             }
             saveAllConfig();
         };
-        video.items.push_back(res);
+        settings.items.push_back(res);
 
         MenuItem bit; bit.kind = MK_FADER; bit.label = "BITRATE";
         bit.vmin = 5.0f; bit.vmax = 200.0f;
@@ -192,42 +201,12 @@ static void buildCoreModel(MenuModel &m) {
             }
             saveAllConfig();
         };
-        video.items.push_back(bit);
+        settings.items.push_back(bit);
 
-        MenuItem codec; codec.kind = MK_DROPDOWN; codec.label = "CODEC";
-        codec.disabled = true;
-        codec.options = { "H264", "H265", "AV1" };
-        codec.get = []{ return (float)gWivrnCodec.load(); };
-        codec.set = [](float v){ gWivrnCodec.store((int)(v+0.5f)); };
-        video.items.push_back(codec);
-
-        MenuItem fovq; fovq.kind = MK_DROPDOWN; fovq.label = "FOVEATION";
-        fovq.disabled = true;
-        fovq.options = { "OFF", "LOW", "MEDIUM", "HIGH" };
-        fovq.get = []{ return (float)gWivrnFoveation.load(); };
-        fovq.set = [](float v){ gWivrnFoveation.store((int)(v+0.5f)); };
-        video.items.push_back(fovq);
-
-        // Eye-tracked foveation center: tells the server to follow the live
-        // EYE_GAZE pose for the foveation center instead of a fixed forward
-        // point. Only effective on Neo 2 EYE hardware; on other units the
-        // toggle is inert (send_eye_foveation_override early-outs).
         MenuItem eyeFov = wivrnToggle("EYE-TRACKED FOVEATION", gWivrnEyeFoveation);
         eyeFov.disabled = !gEyeSupported.load();
-        eyeFov.onChange = []{
-            saveAllConfig();
-            gEyeFoveationDirty.store(true);
-        };
-        video.items.push_back(eyeFov);
-    }
-    m.push_back(video);
-
-    // AUDIO (EQ custom) -----------------------------------------------------
-    MenuCategory audio; audio.name = "AUDIO"; audio.custom = true;
-    {
-        MenuItem eq; eq.kind = MK_CUSTOM; eq.customH = 0.66f;
-        eq.cBuild = eqBuild; eq.cHit = eqHit; eq.cAct = eqAct;
-        audio.items.push_back(eq);
+        eyeFov.onChange = []{ saveAllConfig(); gEyeFoveationDirty.store(true); };
+        settings.items.push_back(eyeFov);
 
         MenuItem mic = wivrnToggle("MICROPHONE", gWivrnMicrophone);
         mic.onChange = []{
@@ -240,14 +219,7 @@ static void buildCoreModel(MenuModel &m) {
             }
             saveAllConfig();
         };
-        audio.items.push_back(mic);
-    }
-    m.push_back(audio);
-
-    // INPUT -----------------------------------------------------------------
-    MenuCategory input; input.name = "INPUT";
-    {
-        input.items.push_back(wivrnToggle("HAND TRACKING", gWivrnHandTracking));
+        settings.items.push_back(mic);
 
         MenuItem vib; vib.kind = MK_FADER; vib.label = "CONTROLLER VIBRATION";
         vib.vmin = 0.0f; vib.vmax = 1.0f;
@@ -255,13 +227,8 @@ static void buildCoreModel(MenuModel &m) {
         vib.set = [](float v){ gWivrnCtrlVibration.store(v); };
         vib.valueText = [](char *b,int n){ snprintf(b,n,"%d PCT", (int)(gWivrnCtrlVibration.load()*100.0f+0.5f)); };
         vib.onCommit = []{ saveAllConfig(); };
-        input.items.push_back(vib);
-    }
-    m.push_back(input);
+        settings.items.push_back(vib);
 
-    // SYSTEM ----------------------------------------------------------------
-    MenuCategory sys; sys.name = "SYSTEM";
-    {
         MenuItem pt = wivrnToggle("PASSTHROUGH", gWivrnPassthrough);
         pt.onChange = []{
             extern pico_passthrough * gPassthrough;
@@ -272,42 +239,74 @@ static void buildCoreModel(MenuModel &m) {
             }
             saveAllConfig();
         };
-        sys.items.push_back(pt);
+        settings.items.push_back(pt);
 
         MenuItem rec; rec.kind = MK_BUTTON; rec.label = "RECENTER";
         rec.onClick = []{ gWivrnRecenterReq.store(true); };
-        sys.items.push_back(rec);
-    }
-    m.push_back(sys);
+        settings.items.push_back(rec);
 
-    // DEBUG -----------------------------------------------------------------
-    MenuCategory dbg; dbg.name = "DEBUG";
-    {
         MenuItem eye; eye.kind = MK_TOGGLE; eye.label = "EYE DEBUG";
         eye.get = []{ return gEyeDebugOn.load()?1.0f:0.0f; };
         eye.set = [](float v){ gEyeDebugOn.store(v>0.5f); };
         eye.onChange = []{ saveEyeDebug(); gEyeTrackReapply.store(true); };
-        dbg.items.push_back(eye);
+        settings.items.push_back(eye);
 
         MenuItem diag; diag.kind = MK_DROPDOWN; diag.label = "DIAGNOSTICS HUD";
         diag.options = { "OFF", "PIPELINE", "SYSTEM" };
         diag.get = []{ return (float)gDiagHudMode.load(); };
         diag.set = [](float v){ gDiagHudMode.store((int)(v+0.5f)); };
         diag.onChange = []{ saveDiagHud(); };
-        dbg.items.push_back(diag);
-    }
-    m.push_back(dbg);
+        settings.items.push_back(diag);
 
-    // LOBBY -----------------------------------------------------------------
-    MenuCategory lobby; lobby.name = "LOBBY";
-    {
         MenuItem theme; theme.kind = MK_TOGGLE; theme.label = "AMBER THEME";
         theme.get = []{ return gThemeAmber.load()?1.0f:0.0f; };
         theme.set = [](float v){ bool a=v>0.5f; gThemeAmber.store(a); applyUiTheme(a); };
         theme.onChange = []{ saveTheme(); gGridThemeDirty.store(true); };
-        lobby.items.push_back(theme);
+        settings.items.push_back(theme);
     }
-    m.push_back(lobby);
+    m.push_back(settings);
+
+    // ABOUT (bottom) --------------------------------------------------------
+    MenuCategory about; about.name = "ABOUT";
+    {
+        MenuItem info; info.kind = MK_BUTTON; info.label = "WIVRN FOR PICO NEO 2";
+        info.disabled = true;
+        about.items.push_back(info);
+
+        MenuItem ver; ver.kind = MK_BUTTON; ver.label = "VERSION: POC";
+        ver.disabled = true;
+        about.items.push_back(ver);
+
+        MenuItem url; url.kind = MK_BUTTON; url.label = "GITHUB.COM/WIVRN/WIVRN";
+        url.disabled = true;
+        about.items.push_back(url);
+    }
+    m.push_back(about);
+
+    // LICENSES (bottom) -----------------------------------------------------
+    MenuCategory licenses; licenses.name = "LICENSES";
+    {
+        MenuItem info; info.kind = MK_BUTTON; info.label = "GPL V3 OR LATER";
+        info.disabled = true;
+        licenses.items.push_back(info);
+
+        MenuItem note; note.kind = MK_BUTTON; note.label = "SEE WIVRN REPO FOR DETAILS";
+        note.disabled = true;
+        licenses.items.push_back(note);
+    }
+    m.push_back(licenses);
+
+    // EXIT (bottom) ---------------------------------------------------------
+    MenuCategory exit; exit.name = "EXIT";
+    {
+        MenuItem quit; quit.kind = MK_BUTTON; quit.label = "QUIT WIVRN";
+        quit.onClick = []{
+            extern std::function<void()> gOnExit;
+            if (gOnExit) gOnExit();
+        };
+        exit.items.push_back(quit);
+    }
+    m.push_back(exit);
 }
 
 MenuModel &settingsModel() {
@@ -322,7 +321,26 @@ int  settingsNumCats() { return (int)settingsModel().size(); }
 void settingsClampCat() { int n = settingsNumCats(); if (gSettingsCat < 0) gSettingsCat = 0; else if (gSettingsCat >= n) gSettingsCat = n-1; }
 float &settingsScroll() { settingsModel(); settingsClampCat(); return gSettingsScroll[gSettingsCat]; }
 
-UiRect settingsTabRect(int i) { return { -0.55f, 0.28f - 0.11f*i, 0.18f, 0.085f }; }
+// wiVRn-style sidebar: top group (SERVERS, SETTINGS)
+// then gap, then bottom group (ABOUT, LICENSES, EXIT) anchored to bottom.
+UiRect settingsTabRect(int i) {
+    int nTop = 2;       // top group
+    float tabH = 0.09f;
+    float tabGap = 0.02f;
+    float sidebarL = kSetPanelL + 0.02f;
+    float sidebarR = kSidebarR - 0.02f;
+    float tabW = sidebarR - sidebarL;
+    float sidebarX = (sidebarL + sidebarR) * 0.5f;
+    if (i < nTop) {
+        float yTop = kSetPanelTop - 0.02f;
+        return { sidebarX, yTop - tabH*0.5f - i*(tabH + tabGap), tabW, tabH };
+    } else {
+        int bi = i - nTop;  // 0=ABOUT, 1=LICENSES, 2=EXIT
+        float yBot = kSetPanelBot + 0.02f;
+        int nBot = 3;
+        return { sidebarX, yBot + tabH*0.5f + (nBot-1-bi)*(tabH + tabGap), tabW, tabH };
+    }
+}
 
 // Signature of everything that can move the active category's geometry (item set,
 // kinds, dropdown-open states, EQ preset dropdown). Hover/scroll don't change
@@ -374,31 +392,32 @@ void buildSettingsPanel(std::vector<float> &v, float offX, float offY, float con
                         const MenuHover &content, int tabHover, bool closeHover) {
     MenuModel &m = settingsModel();
     int cat = gSettingsCat;
-    bool amber = gThemeAmber.load();
-    if (amber) {
-        appendQuad(v, kSetPanelL, kSetPanelTop, kSetPanelR, kSetPanelBot, 0.09f, 0.06f, 0.03f);
-        appendQuad(v, kSetPanelL, kSetPanelTop, -0.45f, kSetPanelBot, 0.15f, 0.10f, 0.04f);
-    } else {
-        // WiVRn dark: near-black panel, dark sidebar.
-        appendQuad(v, kSetPanelL, kSetPanelTop, kSetPanelR, kSetPanelBot, 0.08f, 0.08f, 0.08f);
-        appendQuad(v, kSetPanelL, kSetPanelTop, -0.45f, kSetPanelBot, 0.10f, 0.10f, 0.10f);
-    }
-    uiTextC(v, m[cat].name, (kCtX0 + kCtX1) * 0.5f, kSetHdrY, 0.0055f, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
-    uiButton(v, kSetClose, "X", closeHover);
+    // wiVRn-style: pure black sidebar, grey semi-transparent content area.
+    // Sidebar: pure black (0,0,0)
+    appendQuad(v, kSetPanelL, kSetPanelTop, kSidebarR, kSetPanelBot, 0.0f, 0.0f, 0.0f);
+    // Content area: dark grey semi-transparent (wiVRn uses 8,8,8,224)
+    appendQuad(v, kSidebarR, kSetPanelTop, kSetPanelR, kSetPanelBot, 0.03f, 0.03f, 0.03f);
 
-    // sidebar tabs (one per category, auto-stacked)
+    // Header removed - wiVRn doesn't show a title in the content area.
+
+    // sidebar tabs: blue buttons (wiVRn style)
     for (int i = 0; i < (int)m.size(); i++) {
         bool active = (i == cat);
         UiRect r = settingsTabRect(i);
         float xL = r.cx - r.w*0.5f, xR = r.cx + r.w*0.5f;
         float yT = r.cy + r.h*0.5f, yB = r.cy - r.h*0.5f;
         float c0,c1,c2;
-        if (active)            { c0=kUiFill[0]*0.35f; c1=kUiFill[1]*0.35f; c2=kUiFill[2]*0.35f; }
-        else if (tabHover==i)  { c0=0.18f; c1=0.22f; c2=0.30f; }
-        else                   { c0=0.10f; c1=0.10f; c2=0.10f; }
+        // Active: bright blue, hover: medium blue, inactive: dark blue
+        if (active)           { c0=0.10f; c1=0.35f; c2=0.70f; }
+        else if (tabHover==i) { c0=0.08f; c1=0.22f; c2=0.45f; }
+        else                  { c0=0.04f; c1=0.10f; c2=0.22f; }
         appendQuad(v, xL, yT, xR, yB, c0, c1, c2);
         const float *tc = active ? kUiWhite : kUiTitle;
-        uiTextC(v, m[i].name, r.cx, r.cy + 3.0f*0.005f, 0.005f, tc[0], tc[1], tc[2]);
+        // Shrink text to fit button width
+        float tpx = 0.0045f;
+        float textW = r.w - 0.02f;  // padding
+        // measureTextTTF is internal to ui_kit; use a simple fit
+        uiTextC(v, m[i].name, r.cx, r.cy + 3.0f*tpx, tpx, tc[0], tc[1], tc[2]);
     }
 
     // content: build builder-local, then translate + triangle-clip to the viewport

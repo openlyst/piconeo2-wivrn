@@ -14,12 +14,14 @@
 #include "app_state.h"       // gOkHeld/gSideHeld/gOkClick
 #include "passthrough.h"     // gPassthrough (extern in render_thread.cpp)
 #include "lobby.h"
+#include "server_list.h"
 #include "log.h"
 #include "pico_sdk.h"        // Pvr_ResetSensor
 #include "streaming/streaming_client.h"
 #include <ctime>
 
 static jmethodID g_onLobbyTouchMethod = nullptr;
+static jmethodID g_onServerConnectMethod = nullptr;
 
 // HMD home button long-press tracking for recenter (mirrors pico_oxr).
 static struct timespec g_home_press_ts = {};
@@ -60,7 +62,39 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
     gActivity = env->NewGlobalRef(activity);
     jclass clazz = env->GetObjectClass(activity);
     g_onLobbyTouchMethod = env->GetMethodID(clazz, "onLobbyTouch", "(FFZZF)V");
-    LOGI("nativeStart: onLobbyTouch method=%p", g_onLobbyTouchMethod);
+    g_onServerConnectMethod = env->GetMethodID(clazz, "onServerConnect", "(Ljava/lang/String;IZ)V");
+    LOGI("nativeStart: onLobbyTouch method=%p onServerConnect=%p", g_onLobbyTouchMethod, g_onServerConnectMethod);
+
+    // Wire the native server list CONNECT button to Java's onServerConnect.
+    gOnServerConnect = [](const ServerInfo &s) {
+        if (!gVM || !gActivity || !g_onServerConnectMethod) return;
+        JNIEnv *env = nullptr;
+        bool attached = false;
+        if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+            if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+        }
+        if (!env) return;
+        jstring jhost = env->NewStringUTF(s.hostname.c_str());
+        env->CallVoidMethod(gActivity, g_onServerConnectMethod, jhost, s.port, s.tcp_only);
+        env->DeleteLocalRef(jhost);
+        if (attached) gVM->DetachCurrentThread();
+    };
+
+    // Wire the EXIT tab to finish the activity.
+    gOnExit = []() {
+        if (!gVM || !gActivity) return;
+        JNIEnv *env = nullptr;
+        bool attached = false;
+        if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+            if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+        }
+        if (!env) return;
+        jclass clazz = env->GetObjectClass(gActivity);
+        jmethodID finishMethod = env->GetMethodID(clazz, "finish", "()V");
+        if (finishMethod) env->CallVoidMethod(gActivity, finishMethod);
+        env->DeleteLocalRef(clazz);
+        if (attached) gVM->DetachCurrentThread();
+    };
     // VrActivity ships in the Pico system runtime; guard against a firmware that
     // lacks it so callVrStatic() degrades to a no-op instead of crashing.
     jclass localVr = env->FindClass("com/psmart/vrlib/VrActivity");
@@ -284,6 +318,35 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeUpdateLobbyTexture(
     std::vector<uint32_t> argb(n);
     env->GetIntArrayRegion(pixels, 0, n, (jint *)argb.data());
     gLobby->update_texture_argb(width, height, argb.data());
+}
+
+// Sync the discovered server list from Java to the native 3D server list panel.
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetServerList(
+        JNIEnv *env, jobject thiz, jobjectArray names, jobjectArray hosts,
+        jintArray ports, jbooleanArray tcpOnly) {
+    (void) thiz;
+    if (!names || !hosts) return;
+    jsize n = env->GetArrayLength(names);
+    if (n <= 0) { setServerList({}); return; }
+    std::vector<ServerInfo> servers(n);
+    jint *portsArr = ports ? env->GetIntArrayElements(ports, nullptr) : nullptr;
+    jboolean *tcpArr = tcpOnly ? env->GetBooleanArrayElements(tcpOnly, nullptr) : nullptr;
+    for (jsize i = 0; i < n; i++) {
+        jstring jname = (jstring) env->GetObjectArrayElement(names, i);
+        jstring jhost = (jstring) env->GetObjectArrayElement(hosts, i);
+        const char *cname = jname ? env->GetStringUTFChars(jname, nullptr) : "";
+        const char *chost = jhost ? env->GetStringUTFChars(jhost, nullptr) : "";
+        servers[i].name = cname;
+        servers[i].hostname = chost;
+        servers[i].port = portsArr ? portsArr[i] : 0;
+        servers[i].tcp_only = tcpArr ? tcpArr[i] : false;
+        if (jname) { env->ReleaseStringUTFChars(jname, cname); env->DeleteLocalRef(jname); }
+        if (jhost) { env->ReleaseStringUTFChars(jhost, chost); env->DeleteLocalRef(jhost); }
+    }
+    if (portsArr) env->ReleaseIntArrayElements(ports, portsArr, JNI_ABORT);
+    if (tcpArr) env->ReleaseBooleanArrayElements(tcpOnly, tcpArr, JNI_ABORT);
+    setServerList(servers);
 }
 
 // Push lobby pointer state to the Java UI thread so the cursor tracks the
