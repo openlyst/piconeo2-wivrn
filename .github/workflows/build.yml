@@ -32,12 +32,10 @@ jobs:
       - name: Fetch Pico Neo 2 SDK
         run: ./tools/fetch_pico_sdk.sh "${{ secrets.PICO_SDK_DOWNLOAD_URL }}"
 
-      - name: Verify SDK files present
+      - name: Verify SDK file hashes
         run: |
-          test -f src/app/src/main/jniLibs/armeabi-v7a/libPvr_UnitySDK.so
-          test -f src/app/src/main/jniLibs/armeabi-v7a/libnative.so
-          test -f src/app/src/main/jniLibs/armeabi-v7a/libtracking_module.so
-          test -f src/app/libs/pvr_classes.jar
+          cd "$GITHUB_WORKSPACE"
+          sha256sum -c tools/pico_sdk_hashes.txt
 
       - name: Decode signing keystore
         working-directory: src
