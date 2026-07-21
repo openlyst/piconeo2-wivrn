@@ -163,7 +163,6 @@ public class WivrnLobbyView {
     private boolean tcpOnly = false;
     private boolean microphoneEnabled = false;
     private boolean lowerResWireless = false;
-    private boolean dynamicBitrate = true;
     private boolean passthroughEnabled = true;
     private int languageSetting = 0;
 
@@ -720,7 +719,6 @@ public class WivrnLobbyView {
         streamBitrateSetting = sp.getInt("stream_bitrate", 50);
         streamResolutionScale = sp.getInt("stream_resolution_scale", 100);
         lowerResWireless = sp.getBoolean("lower_res_wireless", false);
-        dynamicBitrate = sp.getBoolean("dynamic_bitrate", true);
         passthroughEnabled = sp.getBoolean("passthrough", true);
         languageSetting = sp.getInt("language", 0);
     }
@@ -739,7 +737,6 @@ public class WivrnLobbyView {
             .putInt("stream_bitrate", streamBitrateSetting)
             .putInt("stream_resolution_scale", streamResolutionScale)
             .putBoolean("lower_res_wireless", lowerResWireless)
-            .putBoolean("dynamic_bitrate", dynamicBitrate)
             .putBoolean("passthrough", passthroughEnabled)
             .putInt("language", languageSetting)
             .apply();
@@ -899,7 +896,6 @@ public class WivrnLobbyView {
     public boolean isTcpOnly() { return tcpOnly; }
     public boolean isMicrophoneEnabled() { return microphoneEnabled; }
     public boolean isLowerResWireless() { return lowerResWireless; }
-    public boolean isDynamicBitrate() { return dynamicBitrate; }
 
     public void render() {
         canvas.drawRect(0, 0, width, height, bgPaint);
@@ -1117,7 +1113,6 @@ public class WivrnLobbyView {
         y = drawCheckbox(x, y, w, i18n.s(R.string.tcp_only), tcpOnly, false);
         y = drawCheckbox(x, y, w, i18n.s(R.string.setting_microphone), microphoneEnabled, false);
         y = drawCheckbox(x, y, w, i18n.s(R.string.setting_lower_res_wireless), lowerResWireless, false);
-        y = drawCheckbox(x, y, w, i18n.s(R.string.setting_dynamic_bitrate), dynamicBitrate, false);
         y = drawCheckbox(x, y, w, "PASSTHROUGH", passthroughEnabled, false);
 
         y = drawDropdown(x, y, w, i18n.s(R.string.setting_language),
@@ -2626,17 +2621,6 @@ public class WivrnLobbyView {
         }
         sy += 40;
 
-        // Dynamic bitrate (enabled)
-        RectF dbCheckbox = new RectF(contentX, sy, contentX + 30, sy + 30);
-        if (dbCheckbox.contains(x, y) || (x >= contentX && x <= contentX + contentW && y >= sy - 5 && y <= sy + 35)) {
-            dynamicBitrate = !dynamicBitrate;
-            saveSettings();
-            ((MainActivity) context).nativeSetDynamicBitrate(dynamicBitrate);
-            markDirty();
-            return;
-        }
-        sy += 40;
-
         // Passthrough
         RectF ptCheckbox = new RectF(contentX, sy, contentX + 30, sy + 30);
         if (ptCheckbox.contains(x, y) || (x >= contentX && x <= contentX + contentW && y >= sy - 5 && y <= sy + 35)) {
@@ -2693,14 +2677,12 @@ public class WivrnLobbyView {
             streamBitrateSetting = 50;
             streamResolutionScale = 100;
             lowerResWireless = false;
-            dynamicBitrate = true;
             languageSetting = 0;
             i18n.setLanguage(0);
             saveSettings();
             applyResolution();
             ((MainActivity) context).onIpdChanged(ipdMm);
             ((MainActivity) context).onMicrophoneChanged(false);
-            ((MainActivity) context).nativeSetDynamicBitrate(true);
             showResetConfirm = false;
             markDirty();
             return;
