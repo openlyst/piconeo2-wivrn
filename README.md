@@ -41,7 +41,6 @@ The Pico Neo 2 SDK is not bundled due to licensing. A helper script downloads an
 - Android SDK with NDK 26.3.11579264
 - JDK 17
 - CMake 3.22.1
-- `p7zip-full`, `unzip`, `curl` (for the SDK fetch script)
 - Pico Neo 2 with USB debugging enabled
 
 ## Building
