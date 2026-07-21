@@ -19,7 +19,6 @@ std::atomic<bool> gManualLobby{false};
 
 std::atomic<bool> gEyeDebugOn{false};
 std::atomic<int>  gDiagHudMode{0};
-std::atomic<bool>  gThemeAmber{false};
 std::atomic<float> gBrightnessFrac{1.0f};
 std::atomic<bool>  gBrightnessSaved{false};
 
@@ -76,7 +75,6 @@ void saveAllConfig() {
     fprintf(f, "softIpd=%.2f\n", gSoftIpdMm.load());
     fprintf(f, "eyeDebug=%d\n",   gEyeDebugOn.load() ? 1 : 0);
     fprintf(f, "diagHud=%d\n",   gDiagHudMode.load());
-    fprintf(f, "theme=%d\n",   gThemeAmber.load() ? 1 : 0);
     fprintf(f, "brightness=%.3f\n", gBrightnessSaved.load() ? gBrightnessFrac.load() : -1.0f);
     fprintf(f, "eqPreset=%d\n",   gEqPresetIdx);
     fprintf(f, "eqCustom1=");
@@ -113,7 +111,6 @@ static bool migrateLegacyConfig() {
     if ((f = openOld("software_ipd.txt"))) { float v; if (fscanf(f, "%f", &v) == 1) gSoftIpdMm.store(clampf(v, kIpdMin, kIpdMax)); fclose(f); }
     if ((f = openOld("eye_debug.txt")))    { int v;   if (fscanf(f, "%d", &v) == 1) gEyeDebugOn.store(v != 0); fclose(f); }
     if ((f = openOld("diag_hud.txt")))     { int v;   if (fscanf(f, "%d", &v) == 1) { if (v < 0) v = 0; if (v > 2) v = 2; gDiagHudMode.store(v); } fclose(f); }
-    if ((f = openOld("theme.txt")))        { int v;   if (fscanf(f, "%d", &v) == 1) gThemeAmber.store(v != 0); fclose(f); }
     if ((f = openOld("brightness.txt")))   { float v; if (fscanf(f, "%f", &v) == 1) { gBrightnessFrac.store(clampf(v, 0.0f, 1.0f)); gBrightnessSaved.store(true); } fclose(f); }
     if ((f = openOld("eq_profile.txt"))) {   // old format: idx line, then 2x16 gains (one per line)
         int idx = 0; if (fscanf(f, "%d", &idx) != 1) idx = 0; if (idx < 0 || idx >= kEqNumPresets) idx = 0; gEqPresetIdx = idx;
@@ -160,7 +157,6 @@ static bool loadLegacyPositionalConfig(FILE *f) {
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%f", &fv) == 1) gSoftIpdMm.store(clampf(fv, kIpdMin, kIpdMax));
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) gEyeDebugOn.store(iv != 0);
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) { if (iv < 0) iv = 0; if (iv > 2) iv = 2; gDiagHudMode.store(iv); }
-    if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) gThemeAmber.store(iv != 0);
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%f", &fv) == 1 && fv >= 0.0f) {
         gBrightnessFrac.store(clampf(fv, 0.0f, 1.0f)); gBrightnessSaved.store(true);
     }
@@ -213,7 +209,6 @@ void loadAllConfig() {
                 if      (keyIs(key, keyLen, "softIpd"))              { if (sscanf(v, "%f", &fv) == 1) gSoftIpdMm.store(clampf(fv, kIpdMin, kIpdMax)); }
                 else if (keyIs(key, keyLen, "eyeDebug"))             { if (sscanf(v, "%d", &iv) == 1) gEyeDebugOn.store(iv != 0); }
                 else if (keyIs(key, keyLen, "diagHud"))              { if (sscanf(v, "%d", &iv) == 1) { if (iv < 0) iv = 0; if (iv > 2) iv = 2; gDiagHudMode.store(iv); } }
-                else if (keyIs(key, keyLen, "theme"))                { if (sscanf(v, "%d", &iv) == 1) gThemeAmber.store(iv != 0); }
                 else if (keyIs(key, keyLen, "brightness"))           { if (sscanf(v, "%f", &fv) == 1 && fv >= 0.0f) { gBrightnessFrac.store(clampf(fv, 0.0f, 1.0f)); gBrightnessSaved.store(true); } }
                 else if (keyIs(key, keyLen, "eqPreset"))             { if (sscanf(v, "%d", &iv) == 1) { if (iv < 0 || iv >= kEqNumPresets) iv = 0; gEqPresetIdx = iv; } }
                 else if (keyIs(key, keyLen, "eqCustom1") || keyIs(key, keyLen, "eqCustom2")) {
@@ -262,5 +257,4 @@ void saveSoftIpd()    { saveAllConfig(); }
 void saveEyeDebug()   { saveAllConfig(); }
 void saveDiagHud()    { saveAllConfig(); }
 void saveStreamFov()  { saveAllConfig(); }
-void saveTheme()      { saveAllConfig(); }
 void saveBrightness() { gBrightnessSaved.store(true); saveAllConfig(); }

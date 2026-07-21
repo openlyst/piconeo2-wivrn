@@ -103,23 +103,11 @@ const float kUiText      = 0.0045f;            // standard 1x text size
 const float kUiBg[3]     = {0.13f, 0.13f, 0.13f};   // widget / panel surface
 const float kUiBgHot[3]  = {0.26f, 0.34f, 0.46f};   // hovered widget
 const float kUiTrack[3]  = {0.08f, 0.08f, 0.08f};   // slider track / disabled fill
-float       kUiFill[3]   = {0.24f, 0.52f, 0.88f};   // accent (themeable)
+float       kUiFill[3]   = {0.24f, 0.52f, 0.88f};   // accent
 const float kUiOn[3]     = {0.24f, 0.52f, 0.88f};   // toggle on = accent
 const float kUiOff[3]    = {0.18f, 0.18f, 0.18f};
 const float kUiWhite[3]  = {1.0f, 1.0f, 1.0f};
 float       kUiTitle[3]  = {0.90f, 0.90f, 0.92f};   // labels / titles
-
-void applyUiTheme(bool amber) {
-    if (amber) {
-        // 1970s amber terminal: blue accent -> orange, light title -> cream.
-        kUiFill[0]  = 0.95f; kUiFill[1]  = 0.72f; kUiFill[2]  = 0.10f;
-        kUiTitle[0] = 0.98f; kUiTitle[1] = 0.92f; kUiTitle[2] = 0.70f;
-    } else {
-        // WiVRn dark blue.
-        kUiFill[0]  = 0.24f; kUiFill[1]  = 0.52f; kUiFill[2]  = 0.88f;
-        kUiTitle[0] = 0.90f; kUiTitle[1] = 0.90f; kUiTitle[2] = 0.92f;
-    }
-}
 
 void uiBox(std::vector<float> &v, const UiRect &r, const float c[3]) {
     appendQuad(v, r.cx-r.w*0.5f, r.cy+r.h*0.5f, r.cx+r.w*0.5f, r.cy-r.h*0.5f, c[0],c[1],c[2]);

@@ -22,14 +22,11 @@ extern const float kUiText;        // standard 1x text size
 extern const float kUiBg[3];
 extern const float kUiBgHot[3];
 extern const float kUiTrack[3];
-extern float       kUiFill[3];     // accent (themeable: cyan <-> amber-orange)
+extern float       kUiFill[3];     // accent
 extern const float kUiOn[3];       // green = on
 extern const float kUiOff[3];
 extern const float kUiWhite[3];
-extern float       kUiTitle[3];    // title/label text (themeable: light blue <-> cream)
-
-// Apply the lobby UI theme: false = blue (default), true = amber terminal.
-void applyUiTheme(bool amber);
+extern float       kUiTitle[3];    // title/label text
 
 void uiBox(std::vector<float> &v, const UiRect &r, const float c[3]);
 void uiTextC(std::vector<float> &v, const char *s, float cx, float yTop, float px,
