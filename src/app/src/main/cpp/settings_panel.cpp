@@ -107,12 +107,15 @@ static inline MenuItem wivrnToggle(const char *label, std::atomic<bool> &val) {
 }
 
 // ---- model assembly --------------------------------------------------------
+// wiVRn-style tab layout:
+//   Top:    SERVERS, SETTINGS, POST-PROCESSING, CUSTOMIZE
+//   Bottom: ABOUT, LICENSES, EXIT
 static void buildCoreModel(MenuModel &m) {
     // SERVERS (wiVRn-style server list, first tab) --------------------------
     MenuCategory servers; servers.name = "SERVERS"; servers.custom = true;
     {
         MenuItem srv; srv.kind = MK_CUSTOM;
-        srv.customH = 0.8f;  // dynamic, but give it a default
+        srv.customH = 0.8f;
         srv.cBuild = [](std::vector<float> &v, const MenuHover &h) {
             int hoverItem = (h.item >= 0) ? h.item : -1;
             int connectHot = (h.item >= 0 && h.part == 1) ? h.item : -1;
@@ -132,29 +135,21 @@ static void buildCoreModel(MenuModel &m) {
     }
     m.push_back(servers);
 
-    // CONNECTION ------------------------------------------------------------
-    MenuCategory conn; conn.name = "CONNECT";
+    // SETTINGS (consolidates old CONNECT/VIDEO/AUDIO/INPUT/SYSTEM/DEBUG/LOBBY)
+    MenuCategory settings; settings.name = "SETTINGS";
     {
+        // Connection
         MenuItem tcp = wivrnToggle("TCP ONLY", gWivrnTcpOnly);
         tcp.onChange = []{ saveAllConfig(); };
-        conn.items.push_back(tcp);
+        settings.items.push_back(tcp);
 
-        MenuItem pin; pin.kind = MK_BUTTON; pin.label = "PAIRING PIN";
-        pin.disabled = true;
-        pin.onClick = []{ /* TODO: wire up native PIN entry for wivrn handshake */ };
-        conn.items.push_back(pin);
-    }
-    m.push_back(conn);
-
-    // VIDEO -----------------------------------------------------------------
-    MenuCategory video; video.name = "VIDEO";
-    {
+        // Video
         MenuItem ipd; ipd.kind = MK_STEPPER; ipd.label = "SOFTWARE IPD";
         ipd.vmin = kIpdMin; ipd.vmax = kIpdMax; ipd.vstep = kIpdStep;
         ipd.get = []{ return gSoftIpdMm.load(); };
         ipd.set = [](float v){ gSoftIpdMm.store(v); gIpdChangeNs.store(nowNs()); gIpdDirty.store(true); };
         ipd.valueText = [](char *b,int n){ snprintf(b,n,"%.1f MM", gSoftIpdMm.load()); };
-        video.items.push_back(ipd);
+        settings.items.push_back(ipd);
 
         MenuItem br; br.kind = MK_FADER; br.label = "BRIGHTNESS";
         br.vmin = 0.0f; br.vmax = 1.0f;
@@ -162,7 +157,7 @@ static void buildCoreModel(MenuModel &m) {
         br.set = [](float f){ gBrightnessFrac.store(f); gBrightnessSaved.store(true); gBrightnessApply.store(true); };
         br.valueText = [](char *b,int n){ snprintf(b,n,"%d PERCENT",(int)(gBrightnessFrac.load()*100.0f+0.5f)); };
         br.onCommit = []{ saveBrightness(); };
-        video.items.push_back(br);
+        settings.items.push_back(br);
 
         MenuItem fov; fov.kind = MK_FADER; fov.label = "FIELD OF VIEW";
         fov.vmin = kFovMin; fov.vmax = kFovMax;
@@ -170,7 +165,7 @@ static void buildCoreModel(MenuModel &m) {
         fov.set = [](float v){ gStreamFovDeg.store(roundf(v)); };
         fov.valueText = [](char *b,int n){ snprintf(b,n,"%.0f DEG", gStreamFovDeg.load()); };
         fov.onCommit = []{ gFovDirty.store(true); };
-        video.items.push_back(fov);
+        settings.items.push_back(fov);
 
         MenuItem res; res.kind = MK_FADER; res.label = "RESOLUTION SCALE";
         res.vmin = 0.5f; res.vmax = 2.0f;
@@ -179,16 +174,11 @@ static void buildCoreModel(MenuModel &m) {
         res.valueText = [](char *b,int n){ snprintf(b,n,"%.2f X", gWivrnResolutionScale.load()); };
         res.onCommit = []{
             if (g_stream && g_stream->session) {
-                // Scale both render and stream resolution together; scaling only
-                // the stream caused the server to encode at a different size than
-                // the client swapchain, appearing as a FOV change instead of a
-                // pixel density change.
                 constexpr int base_w = 1664;
                 constexpr int base_h = 1756;
                 float s = gWivrnResolutionScale.load();
                 int rw = (int)(base_w * s);
                 int rh = (int)(base_h * s);
-                // Align to 2 for the encoder
                 rw = (rw / 2) * 2;
                 rh = (rh / 2) * 2;
                 g_stream->eye_width.store(rw);
@@ -202,7 +192,7 @@ static void buildCoreModel(MenuModel &m) {
             }
             saveAllConfig();
         };
-        video.items.push_back(res);
+        settings.items.push_back(res);
 
         MenuItem bit; bit.kind = MK_FADER; bit.label = "BITRATE";
         bit.vmin = 5.0f; bit.vmax = 200.0f;
@@ -217,43 +207,28 @@ static void buildCoreModel(MenuModel &m) {
             }
             saveAllConfig();
         };
-        video.items.push_back(bit);
+        settings.items.push_back(bit);
 
         MenuItem codec; codec.kind = MK_DROPDOWN; codec.label = "CODEC";
         codec.disabled = true;
         codec.options = { "H264", "H265", "AV1" };
         codec.get = []{ return (float)gWivrnCodec.load(); };
         codec.set = [](float v){ gWivrnCodec.store((int)(v+0.5f)); };
-        video.items.push_back(codec);
+        settings.items.push_back(codec);
 
         MenuItem fovq; fovq.kind = MK_DROPDOWN; fovq.label = "FOVEATION";
         fovq.disabled = true;
         fovq.options = { "OFF", "LOW", "MEDIUM", "HIGH" };
         fovq.get = []{ return (float)gWivrnFoveation.load(); };
         fovq.set = [](float v){ gWivrnFoveation.store((int)(v+0.5f)); };
-        video.items.push_back(fovq);
+        settings.items.push_back(fovq);
 
-        // Eye-tracked foveation center: tells the server to follow the live
-        // EYE_GAZE pose for the foveation center instead of a fixed forward
-        // point. Only effective on Neo 2 EYE hardware; on other units the
-        // toggle is inert (send_eye_foveation_override early-outs).
         MenuItem eyeFov = wivrnToggle("EYE-TRACKED FOVEATION", gWivrnEyeFoveation);
         eyeFov.disabled = !gEyeSupported.load();
-        eyeFov.onChange = []{
-            saveAllConfig();
-            gEyeFoveationDirty.store(true);
-        };
-        video.items.push_back(eyeFov);
-    }
-    m.push_back(video);
+        eyeFov.onChange = []{ saveAllConfig(); gEyeFoveationDirty.store(true); };
+        settings.items.push_back(eyeFov);
 
-    // AUDIO (EQ custom) -----------------------------------------------------
-    MenuCategory audio; audio.name = "AUDIO"; audio.custom = true;
-    {
-        MenuItem eq; eq.kind = MK_CUSTOM; eq.customH = 0.66f;
-        eq.cBuild = eqBuild; eq.cHit = eqHit; eq.cAct = eqAct;
-        audio.items.push_back(eq);
-
+        // Audio
         MenuItem mic = wivrnToggle("MICROPHONE", gWivrnMicrophone);
         mic.onChange = []{
             bool on = gWivrnMicrophone.load();
@@ -265,14 +240,10 @@ static void buildCoreModel(MenuModel &m) {
             }
             saveAllConfig();
         };
-        audio.items.push_back(mic);
-    }
-    m.push_back(audio);
+        settings.items.push_back(mic);
 
-    // INPUT -----------------------------------------------------------------
-    MenuCategory input; input.name = "INPUT";
-    {
-        input.items.push_back(wivrnToggle("HAND TRACKING", gWivrnHandTracking));
+        // Input
+        settings.items.push_back(wivrnToggle("HAND TRACKING", gWivrnHandTracking));
 
         MenuItem vib; vib.kind = MK_FADER; vib.label = "CONTROLLER VIBRATION";
         vib.vmin = 0.0f; vib.vmax = 1.0f;
@@ -280,13 +251,9 @@ static void buildCoreModel(MenuModel &m) {
         vib.set = [](float v){ gWivrnCtrlVibration.store(v); };
         vib.valueText = [](char *b,int n){ snprintf(b,n,"%d PCT", (int)(gWivrnCtrlVibration.load()*100.0f+0.5f)); };
         vib.onCommit = []{ saveAllConfig(); };
-        input.items.push_back(vib);
-    }
-    m.push_back(input);
+        settings.items.push_back(vib);
 
-    // SYSTEM ----------------------------------------------------------------
-    MenuCategory sys; sys.name = "SYSTEM";
-    {
+        // System
         MenuItem pt = wivrnToggle("PASSTHROUGH", gWivrnPassthrough);
         pt.onChange = []{
             extern pico_passthrough * gPassthrough;
@@ -297,44 +264,54 @@ static void buildCoreModel(MenuModel &m) {
             }
             saveAllConfig();
         };
-        sys.items.push_back(pt);
+        settings.items.push_back(pt);
 
         MenuItem rec; rec.kind = MK_BUTTON; rec.label = "RECENTER";
         rec.onClick = []{ gWivrnRecenterReq.store(true); };
-        sys.items.push_back(rec);
-    }
-    m.push_back(sys);
+        settings.items.push_back(rec);
 
-    // DEBUG -----------------------------------------------------------------
-    MenuCategory dbg; dbg.name = "DEBUG";
-    {
+        // Debug
         MenuItem eye; eye.kind = MK_TOGGLE; eye.label = "EYE DEBUG";
         eye.get = []{ return gEyeDebugOn.load()?1.0f:0.0f; };
         eye.set = [](float v){ gEyeDebugOn.store(v>0.5f); };
         eye.onChange = []{ saveEyeDebug(); gEyeTrackReapply.store(true); };
-        dbg.items.push_back(eye);
+        settings.items.push_back(eye);
 
         MenuItem diag; diag.kind = MK_DROPDOWN; diag.label = "DIAGNOSTICS HUD";
         diag.options = { "OFF", "PIPELINE", "SYSTEM" };
         diag.get = []{ return (float)gDiagHudMode.load(); };
         diag.set = [](float v){ gDiagHudMode.store((int)(v+0.5f)); };
         diag.onChange = []{ saveDiagHud(); };
-        dbg.items.push_back(diag);
-    }
-    m.push_back(dbg);
+        settings.items.push_back(diag);
 
-    // LOBBY -----------------------------------------------------------------
-    MenuCategory lobby; lobby.name = "LOBBY";
-    {
+        // Lobby
         MenuItem theme; theme.kind = MK_TOGGLE; theme.label = "AMBER THEME";
         theme.get = []{ return gThemeAmber.load()?1.0f:0.0f; };
         theme.set = [](float v){ bool a=v>0.5f; gThemeAmber.store(a); applyUiTheme(a); };
         theme.onChange = []{ saveTheme(); gGridThemeDirty.store(true); };
-        lobby.items.push_back(theme);
+        settings.items.push_back(theme);
     }
-    m.push_back(lobby);
+    m.push_back(settings);
 
-    // ABOUT -----------------------------------------------------------------
+    // POST-PROCESSING (placeholder for now) ---------------------------------
+    MenuCategory post; post.name = "POST";
+    {
+        MenuItem placeholder; placeholder.kind = MK_BUTTON; placeholder.label = "NOT YET AVAILABLE";
+        placeholder.disabled = true;
+        post.items.push_back(placeholder);
+    }
+    m.push_back(post);
+
+    // CUSTOMIZE (placeholder for now) ---------------------------------------
+    MenuCategory customize; customize.name = "CUSTOMIZE";
+    {
+        MenuItem placeholder; placeholder.kind = MK_BUTTON; placeholder.label = "NOT YET AVAILABLE";
+        placeholder.disabled = true;
+        customize.items.push_back(placeholder);
+    }
+    m.push_back(customize);
+
+    // ABOUT (bottom) --------------------------------------------------------
     MenuCategory about; about.name = "ABOUT";
     {
         MenuItem info; info.kind = MK_BUTTON; info.label = "WIVRN FOR PICO NEO 2";
@@ -351,12 +328,24 @@ static void buildCoreModel(MenuModel &m) {
     }
     m.push_back(about);
 
-    // EXIT ------------------------------------------------------------------
+    // LICENSES (bottom) -----------------------------------------------------
+    MenuCategory licenses; licenses.name = "LICENSES";
+    {
+        MenuItem info; info.kind = MK_BUTTON; info.label = "GPL V3 OR LATER";
+        info.disabled = true;
+        licenses.items.push_back(info);
+
+        MenuItem note; note.kind = MK_BUTTON; note.label = "SEE WIVRN REPO FOR DETAILS";
+        note.disabled = true;
+        licenses.items.push_back(note);
+    }
+    m.push_back(licenses);
+
+    // EXIT (bottom) ---------------------------------------------------------
     MenuCategory exit; exit.name = "EXIT";
     {
         MenuItem quit; quit.kind = MK_BUTTON; quit.label = "QUIT WIVRN";
         quit.onClick = []{
-            // Request the activity to finish
             extern std::function<void()> gOnExit;
             if (gOnExit) gOnExit();
         };
@@ -377,7 +366,26 @@ int  settingsNumCats() { return (int)settingsModel().size(); }
 void settingsClampCat() { int n = settingsNumCats(); if (gSettingsCat < 0) gSettingsCat = 0; else if (gSettingsCat >= n) gSettingsCat = n-1; }
 float &settingsScroll() { settingsModel(); settingsClampCat(); return gSettingsScroll[gSettingsCat]; }
 
-UiRect settingsTabRect(int i) { return { -0.55f, 0.28f - 0.11f*i, 0.18f, 0.085f }; }
+// wiVRn-style sidebar: top group (SERVERS, SETTINGS, POST, CUSTOMIZE)
+// then gap, then bottom group (ABOUT, LICENSES, EXIT) anchored to bottom.
+UiRect settingsTabRect(int i) {
+    int nTop = 4;       // top group
+    float tabH = 0.085f;
+    float tabGap = 0.025f;
+    float sidebarX = -0.55f;
+    float tabW = 0.18f;
+    if (i < nTop) {
+        // top group: starts below header
+        float yTop = kSetPanelTop - 0.06f;
+        return { sidebarX, yTop - tabH*0.5f - i*(tabH + tabGap), tabW, tabH };
+    } else {
+        // bottom group: anchored to panel bottom
+        int bi = i - nTop;  // 0=ABOUT, 1=LICENSES, 2=EXIT
+        float yBot = kSetPanelBot + 0.06f;
+        int nBot = 3;
+        return { sidebarX, yBot + tabH*0.5f + (nBot-1-bi)*(tabH + tabGap), tabW, tabH };
+    }
+}
 
 // Signature of everything that can move the active category's geometry (item set,
 // kinds, dropdown-open states, EQ preset dropdown). Hover/scroll don't change
@@ -429,30 +437,25 @@ void buildSettingsPanel(std::vector<float> &v, float offX, float offY, float con
                         const MenuHover &content, int tabHover, bool closeHover) {
     MenuModel &m = settingsModel();
     int cat = gSettingsCat;
-    bool amber = gThemeAmber.load();
-    if (amber) {
-        appendQuad(v, kSetPanelL, kSetPanelTop, kSetPanelR, kSetPanelBot, 0.09f, 0.06f, 0.03f);
-        appendQuad(v, kSetPanelL, kSetPanelTop, -0.45f, kSetPanelBot, 0.15f, 0.10f, 0.04f);
-    } else {
-        // WiVRn dark: near-black panel, dark sidebar.
-        appendQuad(v, kSetPanelL, kSetPanelTop, kSetPanelR, kSetPanelBot, 0.08f, 0.08f, 0.08f);
-        appendQuad(v, kSetPanelL, kSetPanelTop, -0.45f, kSetPanelBot, 0.10f, 0.10f, 0.10f);
-    }
-    // Header: "WIVRN" title (wiVRn-style, always visible)
-    uiTextC(v, "WIVRN", (kCtX0 + kCtX1) * 0.5f, kSetHdrY, 0.007f,
-            kUiFill[0], kUiFill[1], kUiFill[2]);
-    // Close button removed: panel is always open.
+    // wiVRn-style: pure black sidebar, grey semi-transparent content area.
+    // Sidebar: pure black (0,0,0)
+    appendQuad(v, kSetPanelL, kSetPanelTop, -0.45f, kSetPanelBot, 0.0f, 0.0f, 0.0f);
+    // Content area: dark grey semi-transparent (wiVRn uses 8,8,8,224)
+    appendQuad(v, -0.45f, kSetPanelTop, kSetPanelR, kSetPanelBot, 0.03f, 0.03f, 0.03f);
 
-    // sidebar tabs (one per category, auto-stacked)
+    // Header removed - wiVRn doesn't show a title in the content area.
+
+    // sidebar tabs: blue buttons (wiVRn style)
     for (int i = 0; i < (int)m.size(); i++) {
         bool active = (i == cat);
         UiRect r = settingsTabRect(i);
         float xL = r.cx - r.w*0.5f, xR = r.cx + r.w*0.5f;
         float yT = r.cy + r.h*0.5f, yB = r.cy - r.h*0.5f;
         float c0,c1,c2;
-        if (active)            { c0=kUiFill[0]*0.35f; c1=kUiFill[1]*0.35f; c2=kUiFill[2]*0.35f; }
-        else if (tabHover==i)  { c0=0.18f; c1=0.22f; c2=0.30f; }
-        else                   { c0=0.10f; c1=0.10f; c2=0.10f; }
+        // Active: bright blue, hover: medium blue, inactive: dark blue
+        if (active)           { c0=0.10f; c1=0.35f; c2=0.70f; }
+        else if (tabHover==i) { c0=0.08f; c1=0.22f; c2=0.45f; }
+        else                  { c0=0.04f; c1=0.10f; c2=0.22f; }
         appendQuad(v, xL, yT, xR, yB, c0, c1, c2);
         const float *tc = active ? kUiWhite : kUiTitle;
         uiTextC(v, m[i].name, r.cx, r.cy + 3.0f*0.005f, 0.005f, tc[0], tc[1], tc[2]);
