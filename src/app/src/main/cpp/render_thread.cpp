@@ -18,6 +18,7 @@
 #include <atomic>
 #include <mutex>
 #include <vector>
+#include <string>
 #include <cstdio>
 #include <time.h>
 
@@ -321,12 +322,15 @@ static void buildGazeMarker() {
 static GLuint gCtrlVao[2] = {0,0}, gCtrlVbo[2] = {0,0};
 static int    gCtrlVertCount[2] = {0,0};
 static std::vector<float> gCtrlPos[2];   // line-endpoint positions (xyz), in metres
-// The system OBJ filenames don't match the hand they look correct on in our
-// frame: r.obj reads right on the LEFT hand, controller2s.obj on the RIGHT.
-static const char *kCtrlObjPath[2] = {
-    "/system/pre_resource/data/misc/user/controller/r.obj",            // 0 = left hand
-    "/system/pre_resource/data/misc/user/controller/controller2s.obj", // 1 = right hand
-};
+// Controller OBJ models bundled in assets, extracted to HOME/controller/.
+// r.obj reads right on the LEFT hand, controller2s.obj on the RIGHT.
+static std::string kCtrlObjPath[2];
+static void initCtrlObjPaths() {
+    const char *home = getenv("HOME");
+    if (!home) home = "/data/data/org.meumeu.wivrn.neo2.pvr/files";
+    kCtrlObjPath[0] = std::string(home) + "/controller/r.obj";
+    kCtrlObjPath[1] = std::string(home) + "/controller/controller2s.obj";
+}
 static void loadCtrlObjLines(const char *path, std::vector<float> &out) {
     out.clear();
     FILE *f = fopen(path, "r");
@@ -358,10 +362,11 @@ static void loadCtrlObjLines(const char *path, std::vector<float> &out) {
     LOGI("ctrl obj %s -> %d line verts", path, (int)(out.size()/3));
 }
 static void buildControllerMeshes() {
+    if (kCtrlObjPath[0].empty()) initCtrlObjPaths();
     bool amber = gThemeAmber.load();
-    const float cr = amber?0.98f:0.35f, cg = amber?0.80f:0.65f, cb = amber?0.45f:0.95f;  // WiVRn blue accent
+    const float cr = amber?0.98f:0.35f, cg = amber?0.80f:0.65f, cb = amber?0.45f:0.95f;
     for (int h=0; h<2; h++) {
-        if (gCtrlPos[h].empty()) loadCtrlObjLines(kCtrlObjPath[h], gCtrlPos[h]);
+        if (gCtrlPos[h].empty()) loadCtrlObjLines(kCtrlObjPath[h].c_str(), gCtrlPos[h]);
         std::vector<float> v; v.reserve(gCtrlPos[h].size()*2);
         for (size_t i=0; i+3<=gCtrlPos[h].size(); i+=3)
             v.insert(v.end(), { gCtrlPos[h][i], gCtrlPos[h][i+1], gCtrlPos[h][i+2], cr,cg,cb });

@@ -24,6 +24,10 @@ import android.view.SurfaceView;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import java.util.List;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 import com.unity3d.player.UnityPlayer;
 
@@ -60,6 +64,24 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private SurfaceView mRenderView;
 
     private native void nativeStart(Activity activity);
+
+    private void extractAsset(String assetPath, File outFile) {
+        if (outFile.exists()) return;
+        outFile.getParentFile().mkdirs();
+        try (InputStream in = getAssets().open(assetPath);
+             OutputStream out = new FileOutputStream(outFile)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        } catch (Exception e) {
+            Log.e(TAG, "extractAsset " + assetPath, e);
+        }
+    }
+    private void extractControllerModels() {
+        File dir = getFilesDir();
+        extractAsset("controller/r.obj", new File(dir, "controller/r.obj"));
+        extractAsset("controller/controller2s.obj", new File(dir, "controller/controller2s.obj"));
+    }
     private native void nativeSurfaceChanged(android.view.Surface surface);
     private native void nativeSurfaceDestroyed();
     private native void nativeStop();
@@ -256,6 +278,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
 
         acquireWifiLocks();
+
+        extractControllerModels();
 
         mUnityPlayer = new UnityPlayer(this);
         setContentView(mUnityPlayer);
