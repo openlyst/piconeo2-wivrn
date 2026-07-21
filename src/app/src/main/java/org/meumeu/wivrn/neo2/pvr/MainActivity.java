@@ -85,7 +85,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private native void nativeDisconnect();
     private native void nativeSetPin(String pin);
     public native void nativeSetBitrate(int bitrateMbps);
-    public native void nativeSetDynamicBitrate(boolean enabled);
     public native void nativeSetPassthrough(boolean enabled);
     private native void nativeSetIpd(float ipdMm);
     private native void nativeSetMicrophone(boolean enabled);
