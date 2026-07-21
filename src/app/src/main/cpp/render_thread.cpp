@@ -3089,6 +3089,9 @@ void *renderThread(void *) {
                         static std::vector<float> sverts; sverts.clear();
                         int sliderVertCount = 0;
                         float setContentH = 0;
+                        float cursorLx = 0, cursorLy = 0;
+                        bool  cursorOnPanel = false;
+                        bool  cursorPressed = false;
                         {
                             float setOffX = 0, setOffY = 0;
                             settingsMeasure(setOffX, setOffY, setContentH);
@@ -3100,6 +3103,8 @@ void *renderThread(void *) {
                             bool onPanel = rayPanel(setHit, lx, ly, t);
                             bool inContent = onPanel && lx >= kCtX0 && lx <= kCtX1 && ly <= kCtTop && ly >= kCtBot;
                             float cx = lx - setOffX, cy = ly - setOffY;
+
+                            if (onPanel) { cursorLx = lx; cursorLy = ly; cursorOnPanel = true; cursorPressed = ptrGrab; }
 
                             if (onPanel) {
                                 if (uiHit(kSetClose, lx, ly)) { setCloseHover = true; lobbyHover = true; }
@@ -3248,6 +3253,51 @@ void *renderThread(void *) {
                                 glBindVertexArray(gSliderVao);
                                 glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, setMvp.m);
                                 glDrawArrays(GL_TRIANGLES, 0, sliderVertCount);
+                                glBindVertexArray(0);
+                            }
+
+                            // Pointer cursor on the panel.
+                            if (cursorOnPanel) {
+                                const int kSegs = 24;
+                                const float r = 0.018f;
+                                const float rz = 0.005f;
+                                float cr = 0.85f, cg = 0.92f, cb = 1.0f;
+                                if (cursorPressed) { cr = 0.3f; cg = 0.6f; cb = 1.0f; }
+                                float cv[kSegs * 2 * 6 * 3];
+                                int vi = 0;
+                                if (cursorPressed) {
+                                    for (int i = 0; i < kSegs; i++) {
+                                        float a0 = (float)i       / kSegs * 2.0f * (float)M_PI;
+                                        float a1 = (float)(i + 1) / kSegs * 2.0f * (float)M_PI;
+                                        cv[vi++] = cursorLx;            cv[vi++] = cursorLy;            cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+                                        cv[vi++] = cursorLx+cosf(a0)*r; cv[vi++] = cursorLy+sinf(a0)*r; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+                                        cv[vi++] = cursorLx+cosf(a1)*r; cv[vi++] = cursorLy+sinf(a1)*r; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+                                    }
+                                } else {
+                                    const float ri = r * 0.6f;
+                                    for (int i = 0; i < kSegs; i++) {
+                                        float a0 = (float)i       / kSegs * 2.0f * (float)M_PI;
+                                        float a1 = (float)(i + 1) / kSegs * 2.0f * (float)M_PI;
+                                        float ox0 = cosf(a0)*r,  oy0 = sinf(a0)*r;
+                                        float ox1 = cosf(a1)*r,  oy1 = sinf(a1)*r;
+                                        float ix0 = cosf(a0)*ri, iy0 = sinf(a0)*ri;
+                                        float ix1 = cosf(a1)*ri, iy1 = sinf(a1)*ri;
+                                        cv[vi++] = cursorLx+ox0; cv[vi++] = cursorLy+oy0; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+                                        cv[vi++] = cursorLx+ox1; cv[vi++] = cursorLy+oy1; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+                                        cv[vi++] = cursorLx+ix1; cv[vi++] = cursorLy+iy1; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+                                        cv[vi++] = cursorLx+ox0; cv[vi++] = cursorLy+oy0; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+                                        cv[vi++] = cursorLx+ix1; cv[vi++] = cursorLy+iy1; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+                                        cv[vi++] = cursorLx+ix0; cv[vi++] = cursorLy+iy0; cv[vi++] = rz; cv[vi++] = cr; cv[vi++] = cg; cv[vi++] = cb;
+                                    }
+                                }
+                                int cursorVerts = vi / 6;
+                                glBindBuffer(GL_ARRAY_BUFFER, gCursorVbo);
+                                glBufferData(GL_ARRAY_BUFFER, vi * sizeof(float), cv, GL_DYNAMIC_DRAW);
+                                Mat4 cMvp = mat4Mul(sproj, mat4Mul(view, settingsWorld));
+                                glUseProgram(gProg);
+                                glBindVertexArray(gCursorVao);
+                                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, cMvp.m);
+                                glDrawArrays(GL_TRIANGLES, 0, cursorVerts);
                                 glBindVertexArray(0);
                             }
                         }
