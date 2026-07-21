@@ -1,5 +1,6 @@
 #include "device_info.h"
 #include "log.h"
+#include <cstdio>
 #include <cstring>
 #include <sys/system_properties.h>
 #include <ifaddrs.h>
@@ -25,7 +26,7 @@ void readHeadsetModel(JNIEnv *env) {
         strncpy(gModelText, buf, sizeof(gModelText)-1);
         gModelText[sizeof(gModelText)-1] = 0;
     } else {
-        strcpy(gModelText, "PICO NEO 2");
+        snprintf(gModelText, sizeof(gModelText), "PICO NEO 2");
     }
     toUpperAscii(gModelText);
     char eb[PROP_VALUE_MAX] = {0};

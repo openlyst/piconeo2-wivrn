@@ -9,6 +9,7 @@
 - Fix passthrough stuttering when moving your head
 - Fix race conditions on stream lifecycle flags causing occasional lobby/stream state desync
 - Fix lobby status text mislabeling "Disconnected" as "Connecting" due to loose substring matching
+- Replace unbounded strcpy into fixed status buffers with bounded copies
 
 # [Beta 1.0](https://github.com/openlyst/piconeo2-wivrn/releases/download/Beta-1.0/wivrn-pvr-Beta-1.0.apk)
 
