@@ -52,6 +52,16 @@ static inline void sleepUntilMonoNs(uint64_t deadlineNs) {
     clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, nullptr);
 }
 
+// Bounded copy into a fixed-size status/text buffer. Today every caller passes
+// a string literal, but the helper future-proofs the pattern against later
+// server/user-controlled input landing in the same buffers.
+static inline void setStrBounded(char *dst, const char *src, size_t cap) {
+    if (cap == 0) return;
+    size_t i = 0;
+    while (i + 1 < cap && src[i]) { dst[i] = src[i]; i++; }
+    dst[i] = 0;
+}
+
 static const char *alvrEventName(AlvrEvent_Tag t) {
     switch (t) {
         case ALVR_EVENT_HUD_MESSAGE_UPDATED: return "HUD_MESSAGE_UPDATED";
