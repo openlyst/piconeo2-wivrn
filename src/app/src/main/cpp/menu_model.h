@@ -48,6 +48,8 @@ struct MenuCategory {
     const char *name = "";
     std::vector<MenuItem> items;
     bool custom = false;            // true => items[0] is a self-positioning MK_CUSTOM
+    bool streamingOnly = false;     // only visible while streaming
+    bool hideWhileStreaming = false; // hidden while streaming
 };
 using MenuModel = std::vector<MenuCategory>;
 

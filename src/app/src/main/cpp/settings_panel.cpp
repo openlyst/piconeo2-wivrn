@@ -5,15 +5,18 @@
 #include "passthrough.h"
 #include "eye_tracking.h"   // gEyeSupported (disable toggle on non-EYE hw)
 #include "server_list.h"    // wiVRn server list tab
+#include "stream_panel.h"   // streaming-only categories (Stats, Apps, Launch)
 #include "log.h"        // nowNs()
 #include "streaming/streaming_client.h"
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <string>
 
 // session state
 bool gSettingsOpen = true;   // always open: unified lobby panel
 int  gSettingsCat  = 0;
+bool gStreamingMode = false;
 std::vector<float> gSettingsScroll;
 
 static inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -112,7 +115,7 @@ static inline MenuItem wivrnToggle(const char *label, std::atomic<bool> &val) {
 //   Bottom: ABOUT, LICENSES, EXIT
 static void buildCoreModel(MenuModel &m) {
     // SERVERS (wiVRn-style server list, first tab) --------------------------
-    MenuCategory servers; servers.name = "Servers"; servers.custom = true;
+    MenuCategory servers; servers.name = "Servers"; servers.custom = true; servers.hideWhileStreaming = true;
     {
         MenuItem srv; srv.kind = MK_CUSTOM;
         srv.customH = 0.8f;
@@ -265,6 +268,9 @@ static void buildCoreModel(MenuModel &m) {
     }
     m.push_back(settings);
 
+    // STREAMING-ONLY categories: Stats, Apps, Launch (hidden unless streaming)
+    buildStreamCategories(m);
+
     // ABOUT (bottom) --------------------------------------------------------
     MenuCategory about; about.name = "About"; about.custom = true;
     {
@@ -397,24 +403,101 @@ int  settingsNumCats() { return (int)settingsModel().size(); }
 void settingsClampCat() { int n = settingsNumCats(); if (gSettingsCat < 0) gSettingsCat = 0; else if (gSettingsCat >= n) gSettingsCat = n-1; }
 float &settingsScroll() { settingsModel(); settingsClampCat(); return gSettingsScroll[gSettingsCat]; }
 
-// wiVRn-style sidebar: top group (SERVERS, SETTINGS)
+// wiVRn-style sidebar: top group (SERVERS, SETTINGS, [STATS, APPS, LAUNCH])
 // then gap, then bottom group (ABOUT, LICENSES, EXIT) anchored to bottom.
+// Streaming-only tabs are skipped when gStreamingMode is false.
+static bool tabVisible(int i) {
+    if (i < 0 || i >= (int)settingsModel().size()) return false;
+    if (settingsModel()[i].streamingOnly && !gStreamingMode) return false;
+    if (settingsModel()[i].hideWhileStreaming && gStreamingMode) return false;
+    return true;
+}
+
+// Map a visible-tab index to the actual model index (skipping hidden tabs).
+static int visibleToModel(int visIdx) {
+    int vis = 0;
+    for (int i = 0; i < (int)settingsModel().size(); i++) {
+        if (!tabVisible(i)) continue;
+        if (vis == visIdx) return i;
+        vis++;
+    }
+    return -1;
+}
+
+// Count visible tabs in the top group (non-streamingOnly before the bottom group).
+static int countTopTabs() {
+    int n = 0;
+    for (int i = 0; i < (int)settingsModel().size(); i++) {
+        if (settingsModel()[i].streamingOnly) break;
+        if (i < 2) n++;  // Servers, Settings are always top
+        else break;
+    }
+    // Add streaming tabs if visible
+    if (gStreamingMode) {
+        for (int i = 2; i < (int)settingsModel().size(); i++) {
+            if (settingsModel()[i].streamingOnly) n++;
+            else break;
+        }
+    }
+    return n;
+}
+
+// Count visible tabs in the bottom group (About, Licenses, Exit).
+static int countBottomTabs() {
+    int n = 0;
+    for (int i = (int)settingsModel().size() - 1; i >= 0; i--) {
+        if (settingsModel()[i].streamingOnly) continue;
+        n++;
+        if (n >= 3) break;
+    }
+    return n;
+}
+
 UiRect settingsTabRect(int i) {
-    int nTop = 2;       // top group
+    if (!tabVisible(i)) return {0, 0, 0, 0};
+
     float tabH = 0.09f;
     float tabGap = 0.02f;
     float sidebarL = kSetPanelL + 0.02f;
     float sidebarR = kSidebarR - 0.02f;
     float tabW = sidebarR - sidebarL;
     float sidebarX = (sidebarL + sidebarR) * 0.5f;
-    if (i < nTop) {
+
+    // Determine if this tab is in the top group or bottom group.
+    // Top: Servers, Settings, [Stats, Apps, Launch]
+    // Bottom: About, Licenses, Exit
+    bool isBottom = false;
+    int bottomCount = countBottomTabs();
+    // The bottom group is the last `bottomCount` visible tabs.
+    int visIdx = 0;
+    for (int j = 0; j < i; j++) if (tabVisible(j)) visIdx++;
+    int totalVisible = 0;
+    for (int j = 0; j < (int)settingsModel().size(); j++) if (tabVisible(j)) totalVisible++;
+    isBottom = (visIdx >= totalVisible - bottomCount);
+
+    if (!isBottom) {
+        // Top group: stack from the top
+        int topIdx = 0;
+        for (int j = 0; j < i; j++) if (tabVisible(j) && j < i) {
+            // Check j is also top group
+            int vj = 0;
+            for (int k = 0; k < j; k++) if (tabVisible(k)) vj++;
+            if (vj < totalVisible - bottomCount) topIdx++;
+        }
         float yTop = kSetPanelTop - 0.02f;
-        return { sidebarX, yTop - tabH*0.5f - i*(tabH + tabGap), tabW, tabH };
+        return { sidebarX, yTop - tabH*0.5f - topIdx*(tabH + tabGap), tabW, tabH };
     } else {
-        int bi = i - nTop;  // 0=ABOUT, 1=LICENSES, 2=EXIT
+        // Bottom group: stack from the bottom
+        int botIdx = 0;
+        for (int j = i + 1; j < (int)settingsModel().size(); j++) {
+            if (tabVisible(j)) {
+                int vj = 0;
+                for (int k = 0; k < j; k++) if (tabVisible(k)) vj++;
+                if (vj >= totalVisible - bottomCount) botIdx++;
+            }
+        }
         float yBot = kSetPanelBot + 0.02f;
-        int nBot = 3;
-        return { sidebarX, yBot + tabH*0.5f + (nBot-1-bi)*(tabH + tabGap), tabW, tabH };
+        return { sidebarX, yBot + tabH*0.5f + botIdx*(tabH + tabGap), tabW, tabH };
     }
 }
 
@@ -468,6 +551,28 @@ void buildSettingsPanel(std::vector<float> &v, float offX, float offY, float con
                         const MenuHover &content, int tabHover, bool closeHover) {
     MenuModel &m = settingsModel();
     int cat = gSettingsCat;
+
+    // Update the Exit tab: "Disconnect" while streaming, "Quit WiVRn" otherwise.
+    for (auto &c : m) {
+        if (c.name == std::string("Exit") && !c.items.empty()) {
+            if (gStreamingMode) {
+                c.items[0].label = "Disconnect";
+                c.items[0].onClick = []{
+                    if (g_stream) {
+                        g_stream->shutdown = true;
+                        g_stream->auto_reconnect.store(false);
+                        LOGI("disconnect requested from streaming UI");
+                    }
+                };
+            } else {
+                c.items[0].label = "Quit WiVRn";
+                c.items[0].onClick = []{
+                    extern std::function<void()> gOnExit;
+                    if (gOnExit) gOnExit();
+                };
+            }
+        }
+    }
     // wiVRn-style: pure black sidebar, grey semi-transparent content area.
     // Sidebar: pure black (0,0,0)
     appendQuad(v, kSetPanelL, kSetPanelTop, kSidebarR, kSetPanelBot, 0.0f, 0.0f, 0.0f);
@@ -478,6 +583,8 @@ void buildSettingsPanel(std::vector<float> &v, float offX, float offY, float con
 
     // sidebar tabs: blue buttons (wiVRn style)
     for (int i = 0; i < (int)m.size(); i++) {
+        if (m[i].streamingOnly && !gStreamingMode) continue;
+        if (m[i].hideWhileStreaming && gStreamingMode) continue;
         bool active = (i == cat);
         UiRect r = settingsTabRect(i);
         float xL = r.cx - r.w*0.5f, xR = r.cx + r.w*0.5f;
