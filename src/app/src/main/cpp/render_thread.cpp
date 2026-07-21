@@ -2054,9 +2054,9 @@ void *renderThread(void *) {
                 auto startsWith = [](const char *s, const char *pre) {
                     while (*pre) { if (*s++ != *pre++) return false; } return true;
                 };
-                if (startsWith(msg, "Connect"))     strcpy(gStatusText, "CONNECTING");
-                else if (startsWith(msg, "Search")) strcpy(gStatusText, "SEARCHING");
-                else if (msg[0] == 0)               strcpy(gStatusText, "DISCONNECTED");
+                if (startsWith(msg, "Connect"))     setStrBounded(gStatusText, "CONNECTING", sizeof(gStatusText));
+                else if (startsWith(msg, "Search")) setStrBounded(gStatusText, "SEARCHING", sizeof(gStatusText));
+                else if (msg[0] == 0)               setStrBounded(gStatusText, "DISCONNECTED", sizeof(gStatusText));
                 // ALVR prints "hostname: XXXX.client", parse it for the lobby HUD.
                 const char *hn = strstr(msg, "hostname:");
                 if (hn) {
