@@ -4,6 +4,7 @@
 #include "menu_model.h"
 #include "passthrough.h"
 #include "eye_tracking.h"   // gEyeSupported (disable toggle on non-EYE hw)
+#include "server_list.h"    // wiVRn server list tab
 #include "log.h"        // nowNs()
 #include "streaming/streaming_client.h"
 #include <cstdio>
@@ -11,7 +12,7 @@
 #include <cmath>
 
 // session state
-bool gSettingsOpen = false;
+bool gSettingsOpen = true;   // always open: unified lobby panel
 int  gSettingsCat  = 0;
 std::vector<float> gSettingsScroll;
 
@@ -107,6 +108,29 @@ static inline MenuItem wivrnToggle(const char *label, std::atomic<bool> &val) {
 
 // ---- model assembly --------------------------------------------------------
 static void buildCoreModel(MenuModel &m) {
+    // SERVERS (wiVRn-style server list, first tab) --------------------------
+    MenuCategory servers; servers.name = "SERVERS"; servers.custom = true;
+    {
+        MenuItem srv; srv.kind = MK_CUSTOM;
+        srv.customH = 0.8f;  // dynamic, but give it a default
+        srv.cBuild = [](std::vector<float> &v, const MenuHover &h) {
+            int hoverItem = (h.item >= 0) ? h.item : -1;
+            int connectHot = (h.item >= 0 && h.part == 1) ? h.item : -1;
+            float scrollY = settingsScroll();
+            buildServerContent(v, scrollY, hoverItem, connectHot);
+        };
+        srv.cHit = [](float cx, float cy, MenuHover &h) {
+            float scrollY = settingsScroll();
+            SrvHover sh = hitServerContent(cx, cy, scrollY);
+            h.item = sh.item; h.part = sh.part; h.grab = sh.grab;
+        };
+        srv.cAct = [](const MenuHover &h, bool click, bool grab, float cx, float cy) {
+            applyServerClick(h, click);
+        };
+        servers.items.push_back(srv);
+    }
+    m.push_back(servers);
+
     // CONNECTION ------------------------------------------------------------
     MenuCategory conn; conn.name = "CONNECT";
     {
@@ -308,6 +332,36 @@ static void buildCoreModel(MenuModel &m) {
         lobby.items.push_back(theme);
     }
     m.push_back(lobby);
+
+    // ABOUT -----------------------------------------------------------------
+    MenuCategory about; about.name = "ABOUT";
+    {
+        MenuItem info; info.kind = MK_BUTTON; info.label = "WIVRN FOR PICO NEO 2";
+        info.disabled = true;
+        about.items.push_back(info);
+
+        MenuItem ver; ver.kind = MK_BUTTON; ver.label = "VERSION: POC";
+        ver.disabled = true;
+        about.items.push_back(ver);
+
+        MenuItem url; url.kind = MK_BUTTON; url.label = "GITHUB.COM/WIVRN/WIVRN";
+        url.disabled = true;
+        about.items.push_back(url);
+    }
+    m.push_back(about);
+
+    // EXIT ------------------------------------------------------------------
+    MenuCategory exit; exit.name = "EXIT";
+    {
+        MenuItem quit; quit.kind = MK_BUTTON; quit.label = "QUIT WIVRN";
+        quit.onClick = []{
+            // Request the activity to finish
+            extern std::function<void()> gOnExit;
+            if (gOnExit) gOnExit();
+        };
+        exit.items.push_back(quit);
+    }
+    m.push_back(exit);
 }
 
 MenuModel &settingsModel() {

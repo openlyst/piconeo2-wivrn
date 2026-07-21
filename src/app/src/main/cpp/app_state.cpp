@@ -5,6 +5,8 @@
 #include <cstdlib>   // getenv
 #include <cstring>   // strncmp, strstr
 
+std::function<void()> gOnExit;
+
 std::atomic<float>    gSoftIpdMm{65.0f};
 std::atomic<bool>     gIpdDirty{false};
 std::atomic<uint64_t> gIpdChangeNs{0};

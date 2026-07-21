@@ -79,6 +79,22 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
         env->DeleteLocalRef(jhost);
         if (attached) gVM->DetachCurrentThread();
     };
+
+    // Wire the EXIT tab to finish the activity.
+    gOnExit = []() {
+        if (!gVM || !gActivity) return;
+        JNIEnv *env = nullptr;
+        bool attached = false;
+        if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+            if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+        }
+        if (!env) return;
+        jclass clazz = env->GetObjectClass(gActivity);
+        jmethodID finishMethod = env->GetMethodID(clazz, "finish", "()V");
+        if (finishMethod) env->CallVoidMethod(gActivity, finishMethod);
+        env->DeleteLocalRef(clazz);
+        if (attached) gVM->DetachCurrentThread();
+    };
     // VrActivity ships in the Pico system runtime; guard against a firmware that
     // lacks it so callVrStatic() degrades to a no-op instead of crashing.
     jclass localVr = env->FindClass("com/psmart/vrlib/VrActivity");

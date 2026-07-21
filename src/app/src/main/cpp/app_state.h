@@ -4,6 +4,10 @@
 // threads differ.
 #include <atomic>
 #include <cstdint>
+#include <functional>
+
+// Exit callback (set by JNI, triggered by the EXIT tab)
+extern std::function<void()> gOnExit;
 
 // ---- Software IPD (lobby-adjustable, persisted) ----------------------------
 // Per-eye optical-centre offset for lobby render, warp submit pose, and ALVR
