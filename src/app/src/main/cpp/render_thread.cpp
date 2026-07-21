@@ -331,42 +331,44 @@ static void initCtrlObjPaths() {
     kCtrlObjPath[0] = std::string(home) + "/controller/r.obj";
     kCtrlObjPath[1] = std::string(home) + "/controller/controller2s.obj";
 }
-static void loadCtrlObjLines(const char *path, std::vector<float> &out) {
+static void loadCtrlObjTris(const char *path, std::vector<float> &out) {
     out.clear();
     FILE *f = fopen(path, "r");
     if (!f) { LOGE("ctrl obj missing: %s", path); return; }
     std::vector<float> vx, vy, vz;
-    char line[256];
+    char line[512];
     while (fgets(line, sizeof(line), f)) {
         if (line[0]=='v' && line[1]==' ') {
             float x,y,z;
             if (sscanf(line+2, "%f %f %f", &x,&y,&z)==3) { vx.push_back(x); vy.push_back(y); vz.push_back(z); }
-        } else if (line[0]=='f' && line[1]==' ') {
-            int idx[8]; int n=0;
+        } else if (line[0]=='f' && (line[1]==' '||line[1]=='\t')) {
+            int idx[16]; int n=0;
             char *tok = strtok(line+2, " \t\r\n");
-            while (tok && n<8) {
-                int vi = atoi(tok);          // 1-based; neg = relative
+            while (tok && n<16) {
+                int vi = atoi(tok);
                 if (vi != 0) idx[n++] = (vi > 0) ? vi-1 : (int)vx.size()+vi;
                 tok = strtok(nullptr, " \t\r\n");
             }
-            auto edge = [&](int a, int b){
-                if (a<0||b<0||a>=(int)vx.size()||b>=(int)vx.size()) return;
+            // fan triangulation
+            for (int i=1; i+1<n; i++) {
+                int a=idx[0], b=idx[i], c=idx[i+1];
+                if (a<0||b<0||c<0||a>=(int)vx.size()||b>=(int)vx.size()||c>=(int)vx.size()) continue;
                 out.insert(out.end(), { vx[a],vy[a],vz[a] });
                 out.insert(out.end(), { vx[b],vy[b],vz[b] });
-            };
-            for (int i=0;i<n;i++) edge(idx[i], idx[(i+1)%n]);
+                out.insert(out.end(), { vx[c],vy[c],vz[c] });
+            }
         }
     }
     fclose(f);
-    for (auto &c : out) c *= 0.01f;          // centimetres -> metres
-    LOGI("ctrl obj %s -> %d line verts", path, (int)(out.size()/3));
+    for (auto &c : out) c *= 0.01f;
+    LOGI("ctrl obj %s -> %d tri verts", path, (int)(out.size()/3));
 }
 static void buildControllerMeshes() {
     if (kCtrlObjPath[0].empty()) initCtrlObjPaths();
     bool amber = gThemeAmber.load();
     const float cr = amber?0.98f:0.35f, cg = amber?0.80f:0.65f, cb = amber?0.45f:0.95f;
     for (int h=0; h<2; h++) {
-        if (gCtrlPos[h].empty()) loadCtrlObjLines(kCtrlObjPath[h].c_str(), gCtrlPos[h]);
+        if (gCtrlPos[h].empty()) loadCtrlObjTris(kCtrlObjPath[h].c_str(), gCtrlPos[h]);
         std::vector<float> v; v.reserve(gCtrlPos[h].size()*2);
         for (size_t i=0; i+3<=gCtrlPos[h].size(); i+=3)
             v.insert(v.end(), { gCtrlPos[h][i], gCtrlPos[h][i+1], gCtrlPos[h][i+2], cr,cg,cb });
@@ -3358,8 +3360,10 @@ void *renderThread(void *) {
                 glDrawArrays(GL_LINES, 0, 2);
                 glBindVertexArray(0);
             }
-            // Controller models: wireframe meshes attached to each live
+            // Controller models: solid meshes attached to each live
             // controller pose. Mesh is pre-scaled to metres and centred at origin.
+            glEnable(GL_DEPTH_TEST);
+            glDepthFunc(GL_LEQUAL);
             for (int h = 0; h < 2; h++) {
                 if (!ctrlConn[h] || gCtrlVertCount[h] <= 0) continue;
                 Mat4 M = quatToMat4(ctrlQuat[h][0], ctrlQuat[h][1], ctrlQuat[h][2], ctrlQuat[h][3]);
@@ -3368,9 +3372,10 @@ void *renderThread(void *) {
                 glUseProgram(gProg);
                 glBindVertexArray(gCtrlVao[h]);
                 glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, cMvp.m);
-                glDrawArrays(GL_LINES, 0, gCtrlVertCount[h]);
+                glDrawArrays(GL_TRIANGLES, 0, gCtrlVertCount[h]);
                 glBindVertexArray(0);
             }
+            glDisable(GL_DEPTH_TEST);
             // Eye-gaze debug marker: the green disc at the live RAW Tobii gaze
             // point. Gated by the persisted EYE DEBUG toggle.
             if (gEyeDebugOn.load() && gEyeOnline.load() && gGazeValid.load() && gGazeVertCount > 0) {
