@@ -3,6 +3,7 @@
 #include "log.h"
 #include <cstdio>
 #include <cstdlib>   // getenv
+#include <cstring>   // strncmp, strstr
 
 std::atomic<float>    gSoftIpdMm{65.0f};
 std::atomic<bool>     gIpdDirty{false};
@@ -49,10 +50,12 @@ std::atomic<int> gFenceTimeouts{0};   // warp-submit fence-wait timeouts/sec
 std::atomic<uint64_t> gBattWarnStartNs{0};
 std::atomic<int>      gBattWarnPct{0};
 
-// Unified persistence: one $HOME/config.txt, positional raw values (not meant
-// to be hand-edited). saveAllConfig() rewrites the whole file; saveX() wrappers
-// just call it. Line order: softIpd, eyeDebug, diagHud, theme, brightness(-1=unset),
-// eqPreset, eqCustom1[16], eqCustom2[16], then appended fields (backward compatible).
+// Unified persistence: one $HOME/config.txt in tagged key=value format with a
+// version header. saveAllConfig() rewrites the whole file; saveX() wrappers
+// just call it. Unknown keys on load are skipped so new fields can be inserted
+// anywhere without breaking older files, and a missing key keeps the default.
+static const int kConfigVersion = 2;
+
 static inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
 static bool configPath(char *out, size_t n) {
@@ -67,25 +70,26 @@ void saveAllConfig() {
     if (!configPath(path, sizeof(path))) return;
     FILE *f = fopen(path, "w");
     if (!f) { LOGE("config: save failed (%s)", path); return; }
-    fprintf(f, "%.2f\n", gSoftIpdMm.load());
-    fprintf(f, "%d\n",   gEyeDebugOn.load() ? 1 : 0);
-    fprintf(f, "%d\n",   gDiagHudMode.load());
-    fprintf(f, "%d\n",   gThemeAmber.load() ? 1 : 0);
-    fprintf(f, "%.3f\n", gBrightnessSaved.load() ? gBrightnessFrac.load() : -1.0f);
-    fprintf(f, "%d\n",   gEqPresetIdx);
+    fprintf(f, "version=%d\n", kConfigVersion);
+    fprintf(f, "softIpd=%.2f\n", gSoftIpdMm.load());
+    fprintf(f, "eyeDebug=%d\n",   gEyeDebugOn.load() ? 1 : 0);
+    fprintf(f, "diagHud=%d\n",   gDiagHudMode.load());
+    fprintf(f, "theme=%d\n",   gThemeAmber.load() ? 1 : 0);
+    fprintf(f, "brightness=%.3f\n", gBrightnessSaved.load() ? gBrightnessFrac.load() : -1.0f);
+    fprintf(f, "eqPreset=%d\n",   gEqPresetIdx);
+    fprintf(f, "eqCustom1=");
     for (int i = 0; i < kEqBands; i++) fprintf(f, "%.2f%c", gEqCustoms[0][i], i == kEqBands - 1 ? '\n' : ' ');
+    fprintf(f, "eqCustom2=");
     for (int i = 0; i < kEqBands; i++) fprintf(f, "%.2f%c", gEqCustoms[1][i], i == kEqBands - 1 ? '\n' : ' ');
-    // Appended last for backward compat (old files without them keep defaults).
-    fprintf(f, "%.2f\n", gStreamFovDeg.load());
-    // WiVRn settings (appended, backward compatible).
-    fprintf(f, "%d\n", gWivrnTcpOnly.load() ? 1 : 0);
-    fprintf(f, "%.2f\n", gWivrnResolutionScale.load());
-    fprintf(f, "%.0f\n", gWivrnBitrateMbps.load());
-    fprintf(f, "%d\n", gWivrnMicrophone.load() ? 1 : 0);
-    fprintf(f, "%.2f\n", gWivrnCtrlVibration.load());
-    fprintf(f, "%d\n", gWivrnEyeTracking.load() ? 1 : 0);
-    fprintf(f, "%d\n", gWivrnPassthrough.load() ? 1 : 0);
-    fprintf(f, "%d\n", gWivrnEyeFoveation.load() ? 1 : 0);
+    fprintf(f, "streamFov=%.2f\n", gStreamFovDeg.load());
+    fprintf(f, "wivrnTcpOnly=%d\n", gWivrnTcpOnly.load() ? 1 : 0);
+    fprintf(f, "wivrnResolutionScale=%.2f\n", gWivrnResolutionScale.load());
+    fprintf(f, "wivrnBitrateMbps=%.0f\n", gWivrnBitrateMbps.load());
+    fprintf(f, "wivrnMicrophone=%d\n", gWivrnMicrophone.load() ? 1 : 0);
+    fprintf(f, "wivrnCtrlVibration=%.2f\n", gWivrnCtrlVibration.load());
+    fprintf(f, "wivrnEyeTracking=%d\n", gWivrnEyeTracking.load() ? 1 : 0);
+    fprintf(f, "wivrnPassthrough=%d\n", gWivrnPassthrough.load() ? 1 : 0);
+    fprintf(f, "wivrnEyeFoveation=%d\n", gWivrnEyeFoveation.load() ? 1 : 0);
     fclose(f);
 }
 
