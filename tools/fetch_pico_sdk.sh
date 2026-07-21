@@ -8,17 +8,29 @@
 #
 # Usage:
 #   ./tools/fetch_pico_sdk.sh [DOWNLOAD_URL]
+#   ./tools/fetch_pico_sdk.sh --no-verify [DOWNLOAD_URL]
 #
 # If no URL is given, falls back to $PICO_SDK_DOWNLOAD_URL, then to the
-# default archive.org URL.
+# default archive.org URL. Hash verification is on by default; pass
+# --no-verify to skip it (e.g. when pointing at a different SDK version).
 set -euo pipefail
 
+VERIFY=1
+ARGS=()
+for a in "$@"; do
+    case "$a" in
+        --no-verify) VERIFY=0 ;;
+        *) ARGS+=("$a") ;;
+    esac
+done
+
 DEFAULT_URL="https://archive.org/download/pico-neo-2-sdks-exes.-7z/PicoNeo2-SDKs-EXEs.7z"
-URL="${1:-${PICO_SDK_DOWNLOAD_URL:-$DEFAULT_URL}}"
+URL="${ARGS[0]:-${PICO_SDK_DOWNLOAD_URL:-$DEFAULT_URL}}"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 JNILIBS="$REPO_ROOT/src/app/src/main/jniLibs/armeabi-v7a"
 LIBS_DIR="$REPO_ROOT/src/app/libs"
+HASH_FILE="$REPO_ROOT/tools/pico_sdk_hashes.txt"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -95,5 +107,23 @@ done
 
 cp -f "$TMP/aar/classes.jar" "$LIBS_DIR/pvr_classes.jar"
 echo "    $LIBS_DIR/pvr_classes.jar"
+
+if [ "$VERIFY" -eq 1 ]; then
+    if [ ! -f "$HASH_FILE" ]; then
+        echo "ERROR: hash file not found at $HASH_FILE" >&2
+        exit 1
+    fi
+    echo "==> Verifying SHA256 hashes against $HASH_FILE"
+    # The hash file uses paths relative to the repo root.
+    (cd "$REPO_ROOT" && sha256sum -c "$HASH_FILE")
+    if [ $? -ne 0 ]; then
+        echo "ERROR: SDK file hash verification failed" >&2
+        echo "    The extracted files do not match the expected hashes." >&2
+        echo "    If you intentionally pointed at a different SDK version," >&2
+        echo "    re-run with --no-verify and update tools/pico_sdk_hashes.txt." >&2
+        exit 1
+    fi
+    echo "    All hashes match."
+fi
 
 echo "==> Done. Pico Neo 2 SDK placed for build."
