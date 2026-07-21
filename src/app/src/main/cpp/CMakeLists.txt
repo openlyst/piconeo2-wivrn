@@ -120,6 +120,7 @@ add_library(p2wivrn SHARED
     lobby_panels.cpp
     menu_model.cpp
     settings_panel.cpp
+    server_list.cpp
     lobby.cpp
     passthrough.cpp
     input.cpp
