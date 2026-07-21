@@ -34,6 +34,7 @@
 #include "ui_kit.h"      // font + appendTextLine/Quad + immediate-mode widget kit
 #include "eq_panel.h"    // 16-band audio EQ: state + persistence + buildEqVerts
 #include "settings_panel.h"  // unified lobby SETTINGS window (sidebar + scroll)
+#include "server_list.h"     // wiVRn-style server list panel
 #include "app_state.h"   // shared lobby/render knobs: IPD, input edges, toggles, diag
 #include "lobby.h"       // ported pico_oxr WiVRn lobby UI panel
 #include "passthrough.h" // passthrough camera background for the lobby
@@ -383,8 +384,10 @@ static void buildControllerMeshes() {
 
 // 3D HUD text + lobby UI kit (font, appendTextLine/Quad, ui* widgets) live in
 // ui_kit.h/.cpp. The dynamic VBOs they fill are still owned here.
+static bool gServersOpen = false;              // server list panel shown
 static GLuint gTextVao = 0, gTextVbo = 0;
 static GLuint gSliderVao = 0, gSliderVbo = 0;   // lobby SETTINGS panel (dynamic)
+static GLuint gSrvVao = 0, gSrvVbo = 0;         // lobby SERVER LIST panel (dynamic)
 static GLuint gReticleVao = 0, gReticleVbo = 0; // head-gaze crosshair (static "+")
 static int    gReticleVertCount = 0;
 static GLuint gEqVao = 0, gEqVbo = 0;           // lobby 16-band audio EQ panel (dynamic)
@@ -407,6 +410,15 @@ static void buildTextBuffers() {
     glBindVertexArray(gSliderVao);
     glGenBuffers(1, &gSliderVbo);
     glBindBuffer(GL_ARRAY_BUFFER, gSliderVbo);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    // server list panel
+    glGenVertexArrays(1, &gSrvVao);
+    glBindVertexArray(gSrvVao);
+    glGenBuffers(1, &gSrvVbo);
+    glBindBuffer(GL_ARRAY_BUFFER, gSrvVbo);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
@@ -3032,11 +3044,14 @@ void *renderThread(void *) {
         float yTopI = yTopM - hM - gap;
         float yTopH = yTopI - hI - gap;                       // hostname (if shown)
         float yTopS = (haveHost ? yTopH - hH - gap : yTopI - hI - gap);
-        // SETTINGS button below the info text -> opens the unified settings window.
-        // Rect is recomputed each frame and reused for both geometry and hit-test.
-        UiRect settingsBtn = { 0.0f, yTopS - hS - 0.07f, 0.34f, 0.085f };
-        static bool sSettingsBtnHot = false;   // hover carried from the prev frame's hit-test
-        bool setBtnHot = sSettingsBtnHot && !gSettingsOpen;
+        // SETTINGS + SERVERS buttons below the info text.
+        // Rects are recomputed each frame and reused for both geometry and hit-test.
+        UiRect settingsBtn = { -0.18f, yTopS - hS - 0.07f, 0.30f, 0.085f };
+        UiRect serversBtn  = {  0.18f, yTopS - hS - 0.07f, 0.30f, 0.085f };
+        static bool sSettingsBtnHot = false;
+        static bool sServersBtnHot  = false;
+        bool setBtnHot = sSettingsBtnHot && !gSettingsOpen && !gServersOpen;
+        bool srvBtnHot = sServersBtnHot  && !gServersOpen  && !gSettingsOpen;
         // THROTTLE the HUD text rebuild+upload. The 4 lines + SETTINGS button
         // only change when the strings, button hover, or theme change, not
         // every frame, so regenerate the glyph quads and re-upload the VBO
@@ -3048,6 +3063,7 @@ void *renderThread(void *) {
         { const char *ss[4] = { gModelText, gIpText, gHostnameText, gStatusText };
           for (int k = 0; k < 4; k++) for (const char *p = ss[k]; *p; ++p) hudSig = (hudSig ^ (unsigned char)*p) * 16777619u; }
         hudSig = (hudSig ^ (setBtnHot ? 0x9E3779B9u : 0u)) * 16777619u;
+        hudSig = (hudSig ^ (srvBtnHot ? 0x1234567u : 0u)) * 16777619u;
         hudSig = (hudSig ^ (gThemeAmber.load() ? 0x85EBCA77u : 0u)) * 16777619u;
         if (!sHudHave || hudSig != sHudSig) {
             static std::vector<float> tverts; tverts.clear();   // reuse capacity
@@ -3059,6 +3075,7 @@ void *renderThread(void *) {
                 appendTextLine(tverts, gHostnameText, yTopH, pxH, 1.0f, 0.8f, 0.4f);  // hostname: amber
             appendTextLine(tverts, gStatusText, yTopS, pxS, sr, sg, sb);        // status: state colour
             uiButton(tverts, settingsBtn, "SETTINGS", setBtnHot);
+            uiButton(tverts, serversBtn,  "SERVERS",  srvBtnHot);
             sTextVertCount = (int)(tverts.size() / 6);
             if (sTextVertCount > 0) uploadDynamicVbo(gTextVbo, tverts, sTextCap);
             sHudSig = hudSig; sHudHave = true;
