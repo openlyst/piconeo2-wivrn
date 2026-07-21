@@ -11,6 +11,10 @@
 - Fix lobby status text mislabeling "Disconnected" as "Connecting" due to loose substring matching
 - Replace unbounded strcpy into fixed status buffers with bounded copies
 - Switch config file format to tagged key=value with version header (old positional files auto-migrate on first load)
+- Fix controllers not tracking when only one is connected (the 6DoF thread required both)
+- Fix a broken/missing controller leaving a ghost parked at the floor (stale pose at origin now suppressed)
+- Fix one-handed 6DoF tracking by falling back to the raw CV pose when the VR Shell breaks the head-aligned transform
+- Fix the right controller disconnecting when both were connected (stop+restart only runs in the single-controller path now)
 
 # [Beta 1.0](https://github.com/openlyst/piconeo2-wivrn/releases/download/Beta-1.0/wivrn-pvr-Beta-1.0.apk)
 

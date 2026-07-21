@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.5
+- Fix controllers not tracking when only one is connected (6DoF thread no longer requires both)
+- Suppress ghost controllers stuck at the floor
+- Fix one-handed 6DoF tracking
+- Fix the right controller disconnecting when both were connected
+
 ## v0.1.4
 - New: Trade field of view for clarity with the FOV slider in video settings
 - New: In-app low battery warning at 15% and 5%
