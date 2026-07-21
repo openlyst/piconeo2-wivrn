@@ -2,7 +2,7 @@
 
 ## v0.1.5
 - Remove dynamic bitrate
-- Remove "lower resolution for wireless" option (use the resolution slider instead)
+- Remove "lower resolution for wireless" option
 - Fix controllers not tracking when only one is connected (6DoF thread no longer requires both)
 - Suppress ghost controllers stuck at the floor
 - Fix one-handed 6DoF tracking
