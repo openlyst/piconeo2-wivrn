@@ -42,6 +42,7 @@ public:
 	void set_servers(const std::vector<server_entry> & servers);
 
 	// Render the ImGui UI to the given texture.
+	// Lazily inits on first call (requires a current GL context).
 	// hit_u/hit_v: ray-cast hit in -1..1 panel space, or NaN if no hit.
 	// trigger_down: trigger just pressed this frame.
 	// trigger_held: trigger held down.

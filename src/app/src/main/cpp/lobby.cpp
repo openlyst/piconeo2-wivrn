@@ -1044,7 +1044,8 @@ void pico_lobby::enable_imgui(bool enable)
 		if (!imgui_ui)
 		{
 			imgui_ui = new imgui_lobby();
-			imgui_ui->init();
+			// init() is deferred to the first render() call, which runs on
+			// the render thread with a current EGL context.
 		}
 		// Wire the Connect button to call back into Java via JNI.
 		imgui_ui->on_connect = [](const imgui_lobby::server_entry & s) {

@@ -188,7 +188,7 @@ void imgui_lobby::render(GLuint target_texture, int width, int height,
                          float thumbstick_y)
 {
 	if (!initialized)
-		return;
+		init();
 
 	// Recreate font texture if needed (ImGui marks it dirty after init)
 	ImGuiIO & io = ImGui::GetIO();
