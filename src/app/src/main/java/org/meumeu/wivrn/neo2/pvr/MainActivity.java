@@ -23,6 +23,7 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import java.util.List;
 
 import com.unity3d.player.UnityPlayer;
 
@@ -79,6 +80,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     // Ported WiVRn lobby UI (matches pico_oxr).
     private native void nativeUpdateLobbyTexture(int[] pixels, int width, int height);
+    private native void nativeSetServerList(String[] names, String[] hosts, int[] ports, boolean[] tcpOnly);
     public native void nativeSetFov(float fovDeg);
     private native boolean nativeReady();
     private native void nativeConnect(String hostname, int port, boolean tcpOnly);
@@ -813,29 +815,32 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (mUiRenderRunning) return;
         mUiRenderRunning = true;
         mUiRenderThread = new Thread(() -> {
-            final int w = 1400;
-            final int h = 900;
-            int[] pixels = new int[w * h];
-            int frameCount = 0;
+            int syncCount = 0;
             while (mUiRenderRunning) {
                 try {
-                    if (lobbyView.isDirty()) {
-                        lobbyView.render();
-                        Bitmap bmp = lobbyView.getBitmap();
-                        bmp.getPixels(pixels, 0, w, 0, 0, w, h);
-                        nativeUpdateLobbyTexture(pixels, w, h);
-                        lobbyView.markClean();
-                        if (++frameCount % 60 == 0)
-                            Log.i(TAG, "lobby UI frame " + frameCount + " uploaded");
+                    List<WivrnLobbyView.ServerEntry> all = lobbyView.getAllServersPublic();
+                    String[] names = new String[all.size()];
+                    String[] hosts = new String[all.size()];
+                    int[] ports = new int[all.size()];
+                    boolean[] tcpOnly = new boolean[all.size()];
+                    for (int i = 0; i < all.size(); i++) {
+                        WivrnLobbyView.ServerEntry s = all.get(i);
+                        names[i] = s.name;
+                        hosts[i] = s.hostname;
+                        ports[i] = s.port;
+                        tcpOnly[i] = s.tcpOnly;
                     }
+                    nativeSetServerList(names, hosts, ports, tcpOnly);
+                    if (++syncCount % 60 == 0)
+                        Log.i(TAG, "server list synced " + syncCount + " (" + all.size() + " servers)");
                 } catch (Throwable t) {
-                    Log.e(TAG, "lobby UI render thread error", t);
+                    Log.e(TAG, "server list sync error", t);
                 }
-                try { Thread.sleep(8); } catch (InterruptedException e) { break; }
+                try { Thread.sleep(500); } catch (InterruptedException e) { break; }
             }
         }, "ui-render");
         mUiRenderThread.start();
-        Log.i(TAG, "lobby UI render thread started");
+        Log.i(TAG, "server list sync thread started");
     }
 
     private void stopUiRenderThread() {
