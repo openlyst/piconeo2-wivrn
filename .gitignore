@@ -25,10 +25,11 @@ local.properties
 compile_commands.json
 !libopenxr_loader.so
 !libPvr_NativeSDK.so
-!libPvr_UnitySDK.so
-!libnative.so
-!libtracking_module.so
 .alvr-ref/
+
+# Pico Neo 2 SDK - fetched by tools/fetch_pico_sdk.sh or CI, not bundled
+src/app/libs/pvr_classes.jar
+src/app/src/main/jniLibs/
 .wivrn-ref/
 tools/keyframe_tool.html
 *.log
