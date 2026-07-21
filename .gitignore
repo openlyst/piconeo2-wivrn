@@ -28,7 +28,6 @@ compile_commands.json
 !libPvr_UnitySDK.so
 !libnative.so
 !libtracking_module.so
-.alvr-ref/
 .wivrn-ref/
 tools/keyframe_tool.html
 *.log
