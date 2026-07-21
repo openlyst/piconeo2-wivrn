@@ -30,12 +30,17 @@ This client is compatible with WiVRn server version **26.6.2**.
 
 ### Get the Pico SDK
 
-The Pico Neo 2 SDK is not bundled due to licensing.
+The Pico Neo 2 SDK is not bundled due to licensing. A helper script downloads and extracts it from the [Internet Archive](https://archive.org/details/pico-neo-2-sdks-exes.-7z) bundle.
 
-1. Sign up at [https://developer.picoxr.com/](https://developer.picoxr.com/) or download from [Internet Archive](https://archive.org/details/pico-neo-2-sdks-exes.-7z)
-2. Get the Pico Native SDK (the one with `libPvr_UnitySDK.so`, `libtracking_module.so`, `libnative.so`)
-3. Copy the prebuilt `.so` files to `src/app/src/main/jniLibs/armeabi-v7a/`
-4. Copy `pvr_classes.jar` to `src/app/libs/`
+```bash
+./tools/fetch_pico_sdk.sh
+```
+
+This places `libPvr_UnitySDK.so`, `libtracking_module.so`, `libnative.so` into `src/app/src/main/jniLibs/armeabi-v7a/` and `pvr_classes.jar` into `src/app/libs/`.
+
+Requires `curl`, `7z` (p7zip-full), `unzip`, and `tar`. On Debian/Ubuntu: `sudo apt install p7zip-full unzip`.
+
+CI does this automatically using a `PICO_SDK_DOWNLOAD_URL` secret. If you want to point at a different mirror, pass the URL as the first argument or set `PICO_SDK_DOWNLOAD_URL` in your environment.
 
 If you skip this step, the build will fail with a message telling you exactly what's missing.
 
@@ -44,6 +49,7 @@ If you skip this step, the build will fail with a message telling you exactly wh
 - Android SDK with NDK 26.3.11579264
 - JDK 17
 - CMake 3.22.1
+- `p7zip-full`, `unzip`, `curl` (for the SDK fetch script)
 - Pico Neo 2 with USB debugging enabled
 
 ## Building
@@ -55,6 +61,7 @@ export ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/26.3.11579264
 export JAVA_HOME=/path/to/jdk-17
 export PATH="$JAVA_HOME/bin:$PATH"
 
+./tools/fetch_pico_sdk.sh
 cd src
 ./gradlew assembleDebug
 ```
