@@ -168,13 +168,8 @@ struct streaming_client
 	std::atomic<bool> auto_reconnect{false};
 	std::atomic<int64_t> time_offset_ns{0};
 	std::atomic<int> bitrate_mbps{50};
-	std::atomic<bool> dynamic_bitrate_enabled{true};
 	std::atomic<int> max_bitrate_mbps{50};
 	std::atomic<int> current_bitrate_mbps{50};
-
-	int64_t db_last_check_ns = 0;
-	int64_t db_prev_shard_ns = 0;
-	std::atomic<int> db_shard_count{0};
 
 	std::string server_host;
 	int server_port = 0;
@@ -203,7 +198,6 @@ struct streaming_client
 	void send_headset_info();
 	void network_loop();
 	void reset_stream_state();
-	void update_dynamic_bitrate();
 	void send_bitrate_change(int mbps);
 	// Push the current eye-foveation preference to the server as an
 	// override_foveation_center packet. enabled=false tells the server to
