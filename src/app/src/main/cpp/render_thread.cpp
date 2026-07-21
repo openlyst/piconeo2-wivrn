@@ -366,7 +366,7 @@ static void loadCtrlObjTris(const char *path, std::vector<float> &out) {
 static void buildControllerMeshes() {
     if (kCtrlObjPath[0].empty()) initCtrlObjPaths();
     bool amber = gThemeAmber.load();
-    const float cr = amber?0.98f:0.35f, cg = amber?0.80f:0.65f, cb = amber?0.45f:0.95f;
+    const float cr = amber?0.98f:0.50f, cg = amber?0.80f:0.50f, cb = amber?0.45f:0.50f;
     for (int h=0; h<2; h++) {
         if (gCtrlPos[h].empty()) loadCtrlObjTris(kCtrlObjPath[h].c_str(), gCtrlPos[h]);
         std::vector<float> v; v.reserve(gCtrlPos[h].size()*2);
