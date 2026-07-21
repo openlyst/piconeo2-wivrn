@@ -3577,7 +3577,15 @@ void *renderThread(void *) {
                     lobbyEyeIdx = (lobbyEyeIdx + 1) % kLobbyRing;
                     // Submit the PREVIOUS frame's slot; the very first frame has
                     // none, so fall back to the slot we just rendered.
-                    lobbySubmitIdx = (lastRenderedIdx >= 0) ? lastRenderedIdx : thisIdx;
+                    // When the passthrough camera is on, skip the pipeline and
+                    // submit THIS frame's slot instead. The 1-frame pipeline
+                    // latency is invisible for the world-locked lobby UI, but
+                    // the passthrough camera image is screen-locked and the
+                    // extra frame of staleness shows up as visible judder when
+                    // the head moves. The glClientWaitSync stall below is
+                    // acceptable because the lobby only runs pre/between streams.
+                    bool cam_on = gPassthrough && gPassthrough->is_camera_on();
+                    lobbySubmitIdx = (cam_on || lastRenderedIdx < 0) ? thisIdx : lastRenderedIdx;
                     lastRenderedIdx = thisIdx;
                     // Make sure the slot we're about to hand the warp is
                     // GPU-complete. The pipelined slot's fence was created last
