@@ -22,7 +22,7 @@ extern "C" {
     // Eye tracking (Neo 2 EYE only; returns false on non-Eye units).
     // 35 out pointers: per-eye + combined gaze point/vector, eye openness,
     // pupil dilation, eye position guide, foveated gaze. We forward only the
-    // per-eye gaze vector (consumed via alvr_send_tracking's eye_gazes).
+    // per-eye gaze vector (consumed via the tracking uplink's eye_gazes).
     bool  Pvr_GetEyeTrackingData(
         int *lStatus, int *rStatus, int *cStatus,
         float *lPx, float *lPy, float *lPz,   // left gaze point

@@ -13,8 +13,7 @@
     <!-- WifiLock(HIGH_PERF).acquire() requires WAKE_LOCK -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Mic-to-PC streaming. Dangerous permission: requested at runtime during
-         init via alvr_try_get_permission(RECORD_AUDIO), which surfaces the system
-         grant dialog through the activity. -->
+         init, which surfaces the system grant dialog through the activity. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Eye tracking (Neo 2 EYE); harmless on non-Eye units. Legacy Pico eye
          tracking also needs the service enabled via the SDK before

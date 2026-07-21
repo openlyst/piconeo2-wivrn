@@ -46,8 +46,8 @@ android {
     }
 
     // Don't strip/re-compress the PREBUILT vendor .so files (we can't rebuild them).
-    // NB: intentionally NOT '**/*.so' -- that also kept OUR libp2alvr.so unstripped,
-    // bloating the APK. Listing only the imported blobs lets gradle strip libp2alvr.so.
+    // NB: intentionally NOT '**/*.so' -- that also kept OUR libp2wivrn.so unstripped,
+    // bloating the APK. Listing only the imported blobs lets gradle strip libp2wivrn.so.
     packaging {
         jniLibs {
             useLegacyPackaging true
