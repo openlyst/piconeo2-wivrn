@@ -1818,7 +1818,6 @@ void *renderThread(void *) {
     // distortion mesh with the right texture FOV. Runs after Pvr_Init so it isn't
     // clobbered.
     writeSdkFov(gStreamFovDeg.load());
-    applyUiTheme(gThemeAmber.load());
     if (gBrightnessSaved.load()) {
         applyHmdBrightness(gBrightnessFrac.load(), env);   // re-apply the saved level
     } else {
@@ -3431,11 +3430,11 @@ void *renderThread(void *) {
             // THROTTLE the settings-panel rebuild+upload. settingsMeasure / hit-test
             // / menuApply still run every frame so dragging stays responsive, but
             // the geometry build + VBO upload only happen when something that
-            // affects the drawn pixels changed. The signature covers category/theme/
+            // affects the drawn pixels changed. The signature covers category/
             // hover/scroll-offset + the menu's get() values + dropdown-open + EQ state.
             uint32_t panelSig = 2166136261u;
             auto pmix = [&](long x){ for (int b = 0; b < 8; b++) { panelSig = (panelSig ^ (unsigned char)(x & 0xff)) * 16777619u; x >>= 8; } };
-            pmix(gSettingsCat); pmix(gThemeAmber.load() ? 1 : 0);
+            pmix(gSettingsCat);
             pmix(setTabHover); pmix(setCloseHover ? 1 : 0);
             pmix(mh.item); pmix(mh.part); pmix(mh.grab ? 1 : 0);
             pmix(lroundf(setOffX * 2000.0f)); pmix(lroundf(setOffY * 2000.0f)); pmix(lroundf(setContentH * 2000.0f));

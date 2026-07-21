@@ -257,12 +257,6 @@ static void buildCoreModel(MenuModel &m) {
         diag.set = [](float v){ gDiagHudMode.store((int)(v+0.5f)); };
         diag.onChange = []{ saveDiagHud(); };
         settings.items.push_back(diag);
-
-        MenuItem theme; theme.kind = MK_TOGGLE; theme.label = "AMBER THEME";
-        theme.get = []{ return gThemeAmber.load()?1.0f:0.0f; };
-        theme.set = [](float v){ bool a=v>0.5f; gThemeAmber.store(a); applyUiTheme(a); };
-        theme.onChange = []{ saveTheme(); gGridThemeDirty.store(true); };
-        settings.items.push_back(theme);
     }
     m.push_back(settings);
 

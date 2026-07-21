@@ -30,7 +30,6 @@ extern std::atomic<bool> gManualLobby;
 // ---- persisted toggles -----------------------------------------------------
 extern std::atomic<bool> gEyeDebugOn;   // eye-gaze debug marker on/off
 extern std::atomic<int>  gDiagHudMode;  // streaming diagnostics HUD: 0=off, 1=pipeline, 2=system (CPU/GPU/heat)
-extern std::atomic<bool>  gThemeAmber;   // lobby UI theme: false=cold blue, true=amber terminal
 extern std::atomic<float> gBrightnessFrac; // HMD panel brightness 0..1 (VIDEO tab slider)
 extern std::atomic<bool>  gBrightnessSaved; // a brightness value was persisted (vs. panel default)
 
@@ -105,5 +104,4 @@ void saveAllConfig();
 void saveSoftIpd();
 void saveEyeDebug();
 void saveDiagHud();
-void saveTheme();
 void saveBrightness();
