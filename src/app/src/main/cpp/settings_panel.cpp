@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <string>
 
 // session state
 bool gSettingsOpen = true;   // always open: unified lobby panel
@@ -114,7 +115,7 @@ static inline MenuItem wivrnToggle(const char *label, std::atomic<bool> &val) {
 //   Bottom: ABOUT, LICENSES, EXIT
 static void buildCoreModel(MenuModel &m) {
     // SERVERS (wiVRn-style server list, first tab) --------------------------
-    MenuCategory servers; servers.name = "Servers"; servers.custom = true;
+    MenuCategory servers; servers.name = "Servers"; servers.custom = true; servers.hideWhileStreaming = true;
     {
         MenuItem srv; srv.kind = MK_CUSTOM;
         srv.customH = 0.8f;
@@ -408,6 +409,7 @@ float &settingsScroll() { settingsModel(); settingsClampCat(); return gSettingsS
 static bool tabVisible(int i) {
     if (i < 0 || i >= (int)settingsModel().size()) return false;
     if (settingsModel()[i].streamingOnly && !gStreamingMode) return false;
+    if (settingsModel()[i].hideWhileStreaming && gStreamingMode) return false;
     return true;
 }
 
@@ -549,6 +551,28 @@ void buildSettingsPanel(std::vector<float> &v, float offX, float offY, float con
                         const MenuHover &content, int tabHover, bool closeHover) {
     MenuModel &m = settingsModel();
     int cat = gSettingsCat;
+
+    // Update the Exit tab: "Disconnect" while streaming, "Quit WiVRn" otherwise.
+    for (auto &c : m) {
+        if (c.name == std::string("Exit") && !c.items.empty()) {
+            if (gStreamingMode) {
+                c.items[0].label = "Disconnect";
+                c.items[0].onClick = []{
+                    if (g_stream) {
+                        g_stream->shutdown = true;
+                        g_stream->auto_reconnect.store(false);
+                        LOGI("disconnect requested from streaming UI");
+                    }
+                };
+            } else {
+                c.items[0].label = "Quit WiVRn";
+                c.items[0].onClick = []{
+                    extern std::function<void()> gOnExit;
+                    if (gOnExit) gOnExit();
+                };
+            }
+        }
+    }
     // wiVRn-style: pure black sidebar, grey semi-transparent content area.
     // Sidebar: pure black (0,0,0)
     appendQuad(v, kSetPanelL, kSetPanelTop, kSidebarR, kSetPanelBot, 0.0f, 0.0f, 0.0f);
@@ -560,6 +584,7 @@ void buildSettingsPanel(std::vector<float> &v, float offX, float offY, float con
     // sidebar tabs: blue buttons (wiVRn style)
     for (int i = 0; i < (int)m.size(); i++) {
         if (m[i].streamingOnly && !gStreamingMode) continue;
+        if (m[i].hideWhileStreaming && gStreamingMode) continue;
         bool active = (i == cat);
         UiRect r = settingsTabRect(i);
         float xL = r.cx - r.w*0.5f, xR = r.cx + r.w*0.5f;

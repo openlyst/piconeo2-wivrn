@@ -2587,6 +2587,8 @@ void *renderThread(void *) {
         // The overlay (gManualLobby) draws on top of the video below.
         if (gStreaming && gDecoderReady) {
             gStreamingMode = true;
+            // Servers tab is hidden while streaming; fall back to Settings.
+            if (gSettingsCat == 0) gSettingsCat = 1;
             hudAnchored = false;   // re-anchor the lobby HUD next time we return to it
             // Free the lobby eye-texture ring (~94 MB) while streaming; rebuilt
             // lazily when we next return to the lobby. DEFER the free, arm a
@@ -3093,6 +3095,7 @@ void *renderThread(void *) {
                                 if (uiHit(kSetClose, lx, ly)) { setCloseHover = true; lobbyHover = true; }
                                 for (int i = 0; i < (int)model.size(); i++) {
                                     if (model[i].streamingOnly && !gStreamingMode) continue;
+                                    if (model[i].hideWhileStreaming && gStreamingMode) continue;
                                     if (uiHit(settingsTabRect(i), lx, ly)) { setTabHover = i; lobbyHover = true; }
                                 }
                             }
@@ -3148,6 +3151,7 @@ void *renderThread(void *) {
                             uint32_t panelSig = 2166136261u;
                             auto pmix = [&](long x){ for (int b = 0; b < 8; b++) { panelSig = (panelSig ^ (unsigned char)(x & 0xff)) * 16777619u; x >>= 8; } };
                             pmix(gSettingsCat);
+                            pmix(gStreamingMode ? 1 : 0);
                             pmix(setTabHover); pmix(setCloseHover ? 1 : 0);
                             pmix(mh.item); pmix(mh.part); pmix(mh.grab ? 1 : 0);
                             pmix(lroundf(setOffX * 2000.0f)); pmix(lroundf(setOffY * 2000.0f)); pmix(lroundf(setContentH * 2000.0f));
@@ -3675,6 +3679,7 @@ void *renderThread(void *) {
                 if (uiHit(kSetClose, lx, ly)) { setCloseHover = true; lobbyHover = true; }
                 for (int i = 0; i < (int)model.size(); i++) {
                     if (model[i].streamingOnly && !gStreamingMode) continue;
+                    if (model[i].hideWhileStreaming && gStreamingMode) continue;
                     if (uiHit(settingsTabRect(i), lx, ly)) { setTabHover = i; lobbyHover = true; }
                 }
             }
@@ -3732,6 +3737,7 @@ void *renderThread(void *) {
             uint32_t panelSig = 2166136261u;
             auto pmix = [&](long x){ for (int b = 0; b < 8; b++) { panelSig = (panelSig ^ (unsigned char)(x & 0xff)) * 16777619u; x >>= 8; } };
             pmix(gSettingsCat);
+            pmix(gStreamingMode ? 1 : 0);
             pmix(setTabHover); pmix(setCloseHover ? 1 : 0);
             pmix(mh.item); pmix(mh.part); pmix(mh.grab ? 1 : 0);
             pmix(lroundf(setOffX * 2000.0f)); pmix(lroundf(setOffY * 2000.0f)); pmix(lroundf(setContentH * 2000.0f));
