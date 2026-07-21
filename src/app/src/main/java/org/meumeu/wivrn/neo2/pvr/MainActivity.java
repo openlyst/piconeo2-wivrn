@@ -520,6 +520,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             // with the wrong main-controller binding (callunityversion=false). When
             // only one controller is connected, explicitly set it as the main and
             // reset its sensor so 6DoF tracking (re)initializes for that hand.
+            // Also reset the head-controller frame relationship: without this the
+            // head-aligned pose transform (getControllerSensorState with head data)
+            // returns zero position, leaving the controller stuck at the origin.
+            try {
+                ControllerClient.resetHeadSensorForController();
+                Log.i(TAG, "resetHeadSensorForController() called");
+            } catch (Throwable t) { Log.w(TAG, "resetHeadSensorForController failed", t); }
             if (mConn0 && !mConn1) {
                 try {
                     ControllerClient.setMainController(0);
@@ -581,8 +588,20 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                                 String p6s = pose6dof != null
                                     ? String.format("(%.1f,%.1f,%.1f)", pose6dof[4], pose6dof[5], pose6dof[6])
                                     : "null";
+                                // Also log what each sensor state variant returns
+                                float[] ss1 = null, ss2 = null;
+                                try { ss1 = ControllerClient.getControllerSensorState(h, mHeadData); } catch (Throwable e) {}
+                                try { ss2 = ControllerClient.getControllerSensorStateBySharmem(h, mHeadData); } catch (Throwable e) {}
+                                String ss1s = ss1 != null
+                                    ? String.format("(%.1f,%.1f,%.1f)", ss1[4], ss1[5], ss1[6]) : "null";
+                                String ss2s = ss2 != null
+                                    ? String.format("(%.1f,%.1f,%.1f)", ss2[4], ss2[5], ss2[6]) : "null";
                                 Log.i(TAG, "DIAG h=" + h + " conn=" + conn
-                                    + " sensorStatus=" + sstat + " 6dofPose=" + p6s);
+                                    + " sensorStatus=" + sstat
+                                    + " 6dofPose=" + p6s
+                                    + " sensorState=" + ss1s
+                                    + " sharmem=" + ss2s
+                                    + " head=(" + mHeadData[4] + "," + mHeadData[5] + "," + mHeadData[6] + ")");
                             } catch (Throwable dt) { /* diagnostic only */ }
                         }
                         // Head-aligned pose: feed the live head pose so the CV service
@@ -590,7 +609,26 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                         // what the legacy SDK does when enablehand6dofbyhead==1). Keeps
                         // controllers locked to the head instead of a separate universe.
                         nativeGetHeadData(mHeadData);
-                        float[] sensor = ControllerClient.getControllerSensorState(h, mHeadData);
+                        // Try the head-data + pre-time variant first: it uses a
+                        // different code path that may work when the plain
+                        // getControllerSensorState(h, head) returns zero position
+                        // (broken by the VR Shell's stale CV service state).
+                        float[] sensor = null;
+                        try {
+                            ControllerClient.SetHeadDataAndPreTime(mHeadData, 0.0f);
+                            sensor = ControllerClient.getControllerSensorStateWithHeadDataAndPreTime(h);
+                        } catch (Throwable t) { /* fall through to next variant */ }
+                        if (sensor == null || (sensor.length >= 7
+                                && sensor[4] == 0.0f && sensor[5] == 0.0f && sensor[6] == 0.0f)) {
+                            try {
+                                sensor = ControllerClient.getControllerSensorStateBySharmem(h, mHeadData);
+                            } catch (Throwable t) { /* fall through */ }
+                        }
+                        if (sensor == null || (sensor.length >= 7
+                                && sensor[4] == 0.0f && sensor[5] == 0.0f && sensor[6] == 0.0f)) {
+                            try { sensor = ControllerClient.getControllerSensorState(h, mHeadData); }
+                            catch (Throwable t) { /* fall through */ }
+                        }
                         // Fallback: when the CV service's head-aligned transform is
                         // broken (e.g. the VR Shell left it in a bad state for the
                         // one-controller case), getControllerSensorState returns a zero
