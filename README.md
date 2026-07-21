@@ -66,9 +66,9 @@ The APK will be in `app/build/outputs/apk/debug/` (or `release/` for signed rele
 Release signing is configured via `keystore.properties` placed one directory above the gradle project (i.e. at the repo root):
 
 ```properties
-storeFile=wivrn-release.keystore
+storeFile=../pico2-wivrn-release.jks
 storePassword=your_store_password
-keyAlias=your_key_alias
+keyAlias=pico2-wivrn
 keyPassword=your_key_password
 ```
 
@@ -97,6 +97,6 @@ Listed on [NeoRevived](https://openlyst.github.io/neorevived/#/entry/streaming/g
 
 ## Acknowledgments
 
-- [WiVRn](https://github.com/Vrixyz/WiVRn) | The upstream project this client is based on
+- [WiVRn](https://github.com/WiVRn/WiVRn) | The upstream project this client is based on
 - [ALVR Pico Legacy](https://github.com/Juspertinry/alvr-pico-legacy) | Rendering reference for the Pico Neo 2
 - [Pico SDK](https://developer.picoxr.com/) | Pico Neo 2 SDK
