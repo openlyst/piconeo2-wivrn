@@ -26,6 +26,19 @@ jobs:
         with:
           packages: 'ndk;26.3.11579264 cmake;3.22.1'
 
+      - name: Install 7z (p7zip)
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full
+
+      - name: Fetch Pico Neo 2 SDK
+        run: ./tools/fetch_pico_sdk.sh "${{ secrets.PICO_SDK_DOWNLOAD_URL }}"
+
+      - name: Verify SDK files present
+        run: |
+          test -f src/app/src/main/jniLibs/armeabi-v7a/libPvr_UnitySDK.so
+          test -f src/app/src/main/jniLibs/armeabi-v7a/libnative.so
+          test -f src/app/src/main/jniLibs/armeabi-v7a/libtracking_module.so
+          test -f src/app/libs/pvr_classes.jar
+
       - name: Decode signing keystore
         working-directory: src
         run: |
