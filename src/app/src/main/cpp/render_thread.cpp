@@ -164,7 +164,7 @@ static bool   gPrevSwapValid = false;
 
 // The SDK warp thread owns the window: we hand it eye textures (HW lens
 // distortion + async reprojection + direct present) and never self-present.
-static bool   gWarpToWindow = false;  // warp thread was given the real window surface
+static std::atomic<bool>   gWarpToWindow{false};  // warp thread was given the real window surface
 static bool   gAtwEnabled = false;
 uint32_t gStreamW = 0, gStreamH = 0;
 // Foveation params currently APPLIED to the de-foveation pipeline. Cached so we
