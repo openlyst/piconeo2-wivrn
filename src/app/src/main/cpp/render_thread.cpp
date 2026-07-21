@@ -164,8 +164,8 @@ static bool   gPrevSwapValid = false;
 
 // The SDK warp thread owns the window: we hand it eye textures (HW lens
 // distortion + async reprojection + direct present) and never self-present.
-static bool   gWarpToWindow = false;  // warp thread was given the real window surface
-static bool   gAtwEnabled = false;
+static std::atomic<bool>   gWarpToWindow{false};  // warp thread was given the real window surface
+static std::atomic<bool>   gAtwEnabled{false};
 uint32_t gStreamW = 0, gStreamH = 0;
 // Foveation params currently APPLIED to the de-foveation pipeline. Cached so we
 // can detect a server-side foveation change mid-session and re-sync.
@@ -183,18 +183,18 @@ static const uint64_t kFovDebounceNs = 250000000ULL;   // 250ms settle window
 // decoder torn down) to save power, then resumes on wear. alvr_pause/resume must
 // run on THIS thread where the connection lives.
 std::atomic<bool> gSleepReq{false};
-static bool gSlept = false;
+static std::atomic<bool> gSlept{false};
 // Play-area extents (meters) from the Pico boundary; forwarded to SteamVR as
 // chaperone on each STREAMING_STARTED. 0 = none configured.
 static float gPlayspaceW = 0.0f, gPlayspaceD = 0.0f;
 // Negotiated stream refresh rate; fed to the decoder as frame-rate so the Venus
 // driver stops logging "Unable to convey fps info".
 static float gRefreshHint = 72.0f;
-// Stream-lifecycle flags touched ONLY on the render thread. gSleepReq /
-// gManualLobby / gWindowDirty ARE cross-thread and are atomic.
-static bool   gStreaming = false;
-static bool   gDecoderReady = false;
-static bool   gAlvrGlReady = false;
+// Stream-lifecycle flags. Read/written from the render loop and the ALVR
+// event handler thread, so they are atomic for cross-thread visibility.
+static std::atomic<bool>   gStreaming{false};
+static std::atomic<bool>   gDecoderReady{false};
+static std::atomic<bool>   gAlvrGlReady{false};
 // Set by STREAMING_STARTED, consumed by the video submit path: reset the frame
 // pacer + per-second video counters at the start of each stream.
 static bool   gResetPacer = false;

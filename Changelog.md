@@ -7,6 +7,7 @@
 - Passthrough is now off by default
 - Fix passthrough warping at the edges of the view
 - Fix passthrough stuttering when moving your head
+- Fix race conditions on stream lifecycle flags causing occasional lobby/stream state desync
 
 # [Beta 1.0](https://github.com/openlyst/piconeo2-wivrn/releases/download/Beta-1.0/wivrn-pvr-Beta-1.0.apk)
 
