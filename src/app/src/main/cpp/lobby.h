@@ -12,6 +12,8 @@
 // Shared with pico_native tracker (same layout).
 #include "pico_tracking.h"
 
+class imgui_lobby;
+
 class pico_lobby
 {
 	GLuint program = 0;
@@ -77,6 +79,10 @@ class pico_lobby
 	bool debug_trigger_down = false;
 	int debug_frame_count = 0;
 
+	// ImGui 3D UI (replaces Java Canvas texture upload)
+	imgui_lobby * imgui_ui = nullptr;
+	bool use_imgui = false;   // toggle: true = render ImGui, false = Java Canvas
+
 	static constexpr float panel_w = 0.8f;
 	static constexpr float panel_h = 0.51f;
 	static constexpr float kPanelDist = 0.8f;
@@ -123,6 +129,13 @@ public:
 	void update_texture_argb(int width, int height, const uint32_t * pixels);
 	void flush_pending_texture();
 	GLuint get_external_texture();
+
+	// Enable the ImGui 3D UI (replaces Java Canvas texture upload).
+	// When enabled, render_imgui() is called each frame to draw directly
+	// to the ui_texture via an FBO, and flush_pending_texture() is skipped.
+	void enable_imgui(bool enable);
+	bool imgui_enabled() const { return use_imgui; }
+	imgui_lobby * get_imgui() const { return imgui_ui; }
 };
 
 void push_lobby_touch_to_java(int hand, float x, float y, bool down, bool pressed, float thumbstickY);

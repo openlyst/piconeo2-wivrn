@@ -14,6 +14,7 @@
 #include "app_state.h"       // gOkHeld/gSideHeld/gOkClick
 #include "passthrough.h"     // gPassthrough (extern in render_thread.cpp)
 #include "lobby.h"
+#include "imgui_lobby.h"
 #include "log.h"
 #include "pico_sdk.h"        // Pvr_ResetSensor
 #include "streaming/streaming_client.h"
@@ -425,6 +426,69 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetPassthrough(JNIEnv *, jobje
     }
     saveAllConfig();
     LOGI("Passthrough %s", enabled == JNI_TRUE ? "enabled" : "disabled");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeEnableImGuiLobby(JNIEnv *, jobject, jboolean enabled) {
+    if (gLobby)
+        gLobby->enable_imgui(enabled == JNI_TRUE);
+}
+
+// Replace the ImGui lobby server list with the given entries.
+// Arrays are parallel: names[i], hosts[i], ports[i], etc.
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeImGuiSetServers(
+        JNIEnv *env, jobject,
+        jobjectArray jnames, jobjectArray jhosts, jintArray jports,
+        jbooleanArray jflags) {
+    if (!gLobby || !gLobby->get_imgui()) return;
+    jsize n = env->GetArrayLength(jnames);
+    if (n <= 0) {
+        gLobby->get_imgui()->set_servers({});
+        return;
+    }
+    jint * ports = env->GetIntArrayElements(jports, nullptr);
+    jboolean * flags = env->GetBooleanArrayElements(jflags, nullptr);
+    std::vector<imgui_lobby::server_entry> list;
+    list.reserve(n);
+    for (jsize i = 0; i < n; i++) {
+        jstring jn = (jstring) env->GetObjectArrayElement(jnames, i);
+        jstring jh = (jstring) env->GetObjectArrayElement(jhosts, i);
+        const char * cn = jn ? env->GetStringUTFChars(jn, nullptr) : nullptr;
+        const char * ch = jh ? env->GetStringUTFChars(jh, nullptr) : nullptr;
+        imgui_lobby::server_entry s;
+        s.name = cn ? cn : "";
+        s.hostname = ch ? ch : "";
+        s.port = ports[i];
+        s.tcp_only = flags[i * 3 + 0];
+        s.manual = flags[i * 3 + 1];
+        s.autoconnect = flags[i * 3 + 2];
+        s.visible = true;
+        s.compatible = true;
+        list.push_back(s);
+        if (cn) { env->ReleaseStringUTFChars(jn, cn); env->DeleteLocalRef(jn); }
+        if (ch) { env->ReleaseStringUTFChars(jh, ch); env->DeleteLocalRef(jh); }
+    }
+    env->ReleaseIntArrayElements(jports, ports, JNI_ABORT);
+    env->ReleaseBooleanArrayElements(jflags, flags, JNI_ABORT);
+    gLobby->get_imgui()->set_servers(list);
+}
+
+// ImGui lobby requests a connection (Connect button clicked).
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeImGuiConnectRequest(
+        JNIEnv *env, jobject, jstring jhost, jint port, jboolean tcpOnly) {
+    // Call back into Java's onServerConnect via the activity.
+    if (!gActivity) return;
+    const char * host = env->GetStringUTFChars(jhost, nullptr);
+    jmethodID mid = env->GetMethodID(gVrClass, "onServerConnect",
+                                     "(Ljava/lang/String;IZ)V");
+    if (mid && host) {
+        jstring jh = env->NewStringUTF(host);
+        env->CallVoidMethod(gActivity, mid, jh, port, tcpOnly);
+        env->DeleteLocalRef(jh);
+    }
+    if (host) env->ReleaseStringUTFChars(jhost, host);
 }
 
 extern "C" JNIEXPORT void JNICALL

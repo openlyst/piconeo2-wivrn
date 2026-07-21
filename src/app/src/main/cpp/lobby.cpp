@@ -1,4 +1,6 @@
 #include "lobby.h"
+#include "imgui_lobby.h"
+#include <jni.h>
 #include <android/log.h>
 #include <cstring>
 #include <cmath>
@@ -188,6 +190,12 @@ static Mat4 mat4_view(const float orient[4], const float pos[3])
 
 pico_lobby::~pico_lobby()
 {
+	if (imgui_ui)
+	{
+		imgui_ui->shutdown();
+		delete imgui_ui;
+		imgui_ui = nullptr;
+	}
 	if (controller_vao) glDeleteVertexArrays(1, &controller_vao);
 	if (ray_vao) glDeleteVertexArrays(1, &ray_vao);
 	if (quad_vao) glDeleteVertexArrays(1, &quad_vao);
@@ -375,6 +383,47 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 			}
 		}
 		update_interaction(head_orient, head_pos, controllers, head_trigger);
+
+		// Render ImGui UI directly to the ui_texture (replaces Java Canvas upload).
+		// Done once per frame on eye 0; draw_quad() below uses the texture per-eye.
+		if (use_imgui && imgui_ui)
+		{
+			// Find the active ray hit (prefer controller 0, then 1, then head)
+			float hu = 0, hv = 0;
+			bool has_hit = false;
+			bool trig_down = false, trig_held = false;
+			float thumb_y = 0;
+
+			for (int h = 0; h < 2; h++)
+			{
+				if (last_hit[h].valid && controllers[h].connected)
+				{
+					hu = last_hit[h].u;
+					hv = last_hit[h].v;
+					has_hit = true;
+					bool tp = controllers[h].trigger > 128;
+					if (tp && !prev_trigger[h])
+						trig_down = true;
+					trig_held = tp;
+					thumb_y = (controllers[h].touch[1] - 128) / 128.0f;
+					break;
+				}
+			}
+			if (!has_hit && head_hit.valid)
+			{
+				hu = head_hit.u;
+				hv = head_hit.v;
+				has_hit = true;
+				trig_held = head_trigger;
+				trig_down = head_trigger && !prev_head_trigger;
+			}
+
+			// Render at a fixed resolution for the UI texture
+			const int ui_w = 1400, ui_h = 900;
+			imgui_ui->render(ui_texture, ui_w, ui_h,
+			                 hu, hv, has_hit,
+			                 trig_down, trig_held, thumb_y);
+		}
 	}
 
 	glUseProgram(program);
@@ -493,6 +542,10 @@ void pico_lobby::update_texture_argb(int width, int height, const uint32_t * pix
 
 void pico_lobby::flush_pending_texture()
 {
+	// Skip Java Canvas texture upload when ImGui is rendering directly
+	if (use_imgui)
+		return;
+
 	std::lock_guard<std::mutex> lock(tex_mutex);
 	if (!tex_pending)
 		return;
@@ -881,7 +934,7 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 			lobby_touch_y[h] != prev_lobby_touch_y[h] ||
 			lobby_touch_down[h] != prev_lobby_touch_down[h] ||
 			lobby_touch_pressed[h] != prev_lobby_touch_pressed[h];
-		if (touch_changed) {
+		if (touch_changed && !use_imgui) {
 			push_lobby_touch_to_java(h, lobby_touch_x[h], lobby_touch_y[h],
 			                         lobby_touch_down[h], lobby_touch_pressed[h],
 			                         lobby_thumbstick_y[h]);
@@ -943,7 +996,7 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 			head_touch_y != prev_head_touch_y ||
 			head_touch_down != prev_head_touch_down ||
 			head_touch_pressed != prev_head_touch_pressed;
-		if (head_touch_changed) {
+		if (head_touch_changed && !use_imgui) {
 			push_lobby_touch_to_java(-1, head_touch_x, head_touch_y,
 			                         head_touch_down, head_touch_pressed, 0.0f);
 			prev_head_touch_x = head_touch_x;
@@ -956,7 +1009,7 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 	{
 		prev_head_trigger = false;
 		// Controllers took over: clear any stale head cursor on the Java side.
-		if (prev_head_touch_x >= -1 || prev_head_touch_down || prev_head_touch_pressed) {
+		if (!use_imgui && (prev_head_touch_x >= -1 || prev_head_touch_down || prev_head_touch_pressed)) {
 			push_lobby_touch_to_java(-1, -1, -1, false, false, 0.0f);
 			prev_head_touch_x = -2;
 			prev_head_touch_y = -2;
@@ -980,3 +1033,51 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 		     debug_hit_u, debug_hit_v, debug_touch_x, debug_touch_y, (int)debug_trigger_down);
 	}
 }
+
+void pico_lobby::enable_imgui(bool enable)
+{
+	if (enable == use_imgui)
+		return;
+
+	if (enable)
+	{
+		if (!imgui_ui)
+		{
+			imgui_ui = new imgui_lobby();
+			imgui_ui->init();
+		}
+		// Wire the Connect button to call back into Java via JNI.
+		imgui_ui->on_connect = [](const imgui_lobby::server_entry & s) {
+			// Defer to the Java side through the existing connect path.
+			// We use a simple env-attach via gVM.
+			extern JavaVM * gVM;
+			extern jobject gActivity;
+			extern jclass gVrClass;
+			if (!gVM || !gActivity || !gVrClass) return;
+			JNIEnv * env = nullptr;
+			bool attached = false;
+			if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+				if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK)
+					attached = true;
+				else
+					return;
+			}
+			jmethodID mid = env->GetMethodID(gVrClass, "onServerConnect",
+			                                 "(Ljava/lang/String;IZ)V");
+			if (mid) {
+				jstring jh = env->NewStringUTF(s.hostname.c_str());
+				env->CallVoidMethod(gActivity, mid, jh, s.port, s.tcp_only);
+				env->DeleteLocalRef(jh);
+			}
+			if (attached) gVM->DetachCurrentThread();
+		};
+		use_imgui = true;
+		LOGI("ImGui 3D lobby UI enabled");
+	}
+	else
+	{
+		use_imgui = false;
+		LOGI("ImGui 3D lobby UI disabled");
+	}
+}
+

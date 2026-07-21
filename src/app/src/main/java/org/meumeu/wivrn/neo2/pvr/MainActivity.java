@@ -23,6 +23,7 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import java.util.List;
 
 import com.unity3d.player.UnityPlayer;
 
@@ -86,6 +87,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private native void nativeSetPin(String pin);
     public native void nativeSetBitrate(int bitrateMbps);
     public native void nativeSetPassthrough(boolean enabled);
+    public native void nativeEnableImGuiLobby(boolean enabled);
+    public native void nativeImGuiSetServers(String[] names, String[] hosts, int[] ports, boolean[] flags);
+    public native void nativeImGuiConnectRequest(String host, int port, boolean tcpOnly);
     private native void nativeSetIpd(float ipdMm);
     private native void nativeSetMicrophone(boolean enabled);
     private native void nativeSetStreamResolution(int width, int height);
@@ -264,6 +268,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         nativeStart(this);
 
         lobbyView = new WivrnLobbyView(this);
+        // Enable the ImGui 3D lobby UI (renders directly to the panel texture,
+        // bypassing the Java Canvas upload path).
+        nativeEnableImGuiLobby(true);
         startUiRenderThread();
 
         setupControllers();
@@ -828,6 +835,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                         if (++frameCount % 60 == 0)
                             Log.i(TAG, "lobby UI frame " + frameCount + " uploaded");
                     }
+                    // Sync server list to ImGui lobby every ~2s
+                    if (frameCount % 240 == 0) {
+                        syncServersToImGui();
+                    }
                 } catch (Throwable t) {
                     Log.e(TAG, "lobby UI render thread error", t);
                 }
@@ -841,6 +852,30 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private void stopUiRenderThread() {
         mUiRenderRunning = false;
         if (mUiRenderThread != null) { mUiRenderThread.interrupt(); mUiRenderThread = null; }
+    }
+
+    private void syncServersToImGui() {
+        if (lobbyView == null) return;
+        try {
+            List<WivrnLobbyView.ServerEntry> all = lobbyView.getAllServersPublic();
+            if (all.isEmpty()) return;
+            String[] names = new String[all.size()];
+            String[] hosts = new String[all.size()];
+            int[] ports = new int[all.size()];
+            boolean[] flags = new boolean[all.size() * 3];
+            for (int i = 0; i < all.size(); i++) {
+                WivrnLobbyView.ServerEntry s = all.get(i);
+                names[i] = s.name;
+                hosts[i] = s.hostname;
+                ports[i] = s.port;
+                flags[i * 3 + 0] = s.tcpOnly;
+                flags[i * 3 + 1] = s.manual;
+                flags[i * 3 + 2] = s.autoconnect;
+            }
+            nativeImGuiSetServers(names, hosts, ports, flags);
+        } catch (Throwable t) {
+            Log.e(TAG, "syncServersToImGui failed", t);
+        }
     }
 
     // ---- WiVRn lobby view callbacks ----
