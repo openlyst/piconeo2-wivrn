@@ -20,7 +20,6 @@
 #include "streaming/streaming_client.h"
 #include <ctime>
 
-static jmethodID g_onLobbyTouchMethod = nullptr;
 static jmethodID g_onServerConnectMethod = nullptr;
 
 // HMD home button long-press tracking for recenter (mirrors pico_oxr).
@@ -61,9 +60,8 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
     env->GetJavaVM(&gVM);
     gActivity = env->NewGlobalRef(activity);
     jclass clazz = env->GetObjectClass(activity);
-    g_onLobbyTouchMethod = env->GetMethodID(clazz, "onLobbyTouch", "(FFZZF)V");
     g_onServerConnectMethod = env->GetMethodID(clazz, "onServerConnect", "(Ljava/lang/String;IZ)V");
-    LOGI("nativeStart: onLobbyTouch method=%p onServerConnect=%p", g_onLobbyTouchMethod, g_onServerConnectMethod);
+    LOGI("nativeStart: onServerConnect=%p", g_onServerConnectMethod);
 
     // Wire the native server list CONNECT button to Java's onServerConnect.
     gOnServerConnect = [](const ServerInfo &s) {
@@ -306,20 +304,6 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStop(JNIEnv *env, jobject thiz
     LOGI("nativeStop done");
 }
 
-// Update the lobby UI texture from Java-side Bitmap pixels (ARGB ints).
-// Per-pixel ARGB->RGBA conversion done in C++ instead of a slow Java loop.
-extern "C" JNIEXPORT void JNICALL
-Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeUpdateLobbyTexture(
-        JNIEnv *env, jobject thiz, jintArray pixels, jint width, jint height) {
-    (void) thiz;
-    if (!gLobby || !pixels) return;
-    jsize n = env->GetArrayLength(pixels);
-    if (n < width * height) return;
-    std::vector<uint32_t> argb(n);
-    env->GetIntArrayRegion(pixels, 0, n, (jint *)argb.data());
-    gLobby->update_texture_argb(width, height, argb.data());
-}
-
 // Sync the discovered server list from Java to the native 3D server list panel.
 extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetServerList(
@@ -349,28 +333,6 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetServerList(
     setServerList(servers);
 }
 
-// Push lobby pointer state to the Java UI thread so the cursor tracks the
-// controller/laser every native frame.
-void push_lobby_touch_to_java(int hand, float x, float y, bool down, bool pressed, float thumbstickY) {
-    (void) hand;
-    if (!gVM || !gActivity || !g_onLobbyTouchMethod) return;
-    JNIEnv *env = nullptr;
-    bool attached = false;
-    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
-        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK)
-            attached = true;
-    }
-    if (env) {
-        env->CallVoidMethod(gActivity, g_onLobbyTouchMethod,
-                            x, y,
-                            down ? JNI_TRUE : JNI_FALSE,
-                            pressed ? JNI_TRUE : JNI_FALSE,
-                            thumbstickY);
-    }
-    if (attached)
-        gVM->DetachCurrentThread();
-}
-
 // Set the ALVR stream FOV (per-eye degrees). Render thread picks up gFovDirty
 // and reapplies the warp mesh + view params.
 extern "C" JNIEXPORT void JNICALL
@@ -383,20 +345,6 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetFov(
     gStreamFovDeg.store(v);
     gFovDirty.store(true);
     LOGI("nativeSetFov: %.1f deg", v);
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeOnLobbyTouch(
-        JNIEnv *env, jobject thiz,
-        jint hand, jfloat x, jfloat y, jboolean down, jboolean pressed, jfloat thumbstickY) {
-    (void) env; (void) thiz;
-    if (!gLobby) return;
-    if (hand < 0 || hand > 1) return;
-    gLobby->lobby_touch_x[hand] = x;
-    gLobby->lobby_touch_y[hand] = y;
-    gLobby->lobby_touch_down[hand] = (down == JNI_TRUE);
-    gLobby->lobby_touch_pressed[hand] = (pressed == JNI_TRUE);
-    gLobby->lobby_thumbstick_y[hand] = thumbstickY;
 }
 
 // Recenter: tracker height + sensor reset + lobby panel re-anchor.

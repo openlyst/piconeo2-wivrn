@@ -703,7 +703,6 @@ void pvr_renderer::run()
 			if (elapsed >= 500000000LL)
 			{
 				float dt = elapsed * 1e-9f;
-				int fps = (int)(stream->stats_frame_count / dt);
 				stream->stats_frame_count = 0;
 				stream->stats_last_time = now_ns_val;
 
@@ -716,19 +715,6 @@ void pvr_renderer::run()
 
 				stream->stats_bandwidth_rx = 0.8f * stream->stats_bandwidth_rx + 0.2f * bw_rx;
 				stream->stats_bandwidth_tx = 0.8f * stream->stats_bandwidth_tx + 0.2f * bw_tx;
-
-				int latency_ms = 0;
-				if (stream->stats_last_encode_begin > 0)
-				{
-					int64_t latency = now_ns_val - stream->stats_last_encode_begin;
-					if (latency > 0 && latency < 1000000000LL)
-						latency_ms = (int)(latency / 1000000LL);
-				}
-
-				stream->notify_stream_stats(fps, latency_ms,
-					stream->stats_bandwidth_rx * 8,
-					stream->stats_bandwidth_tx * 8,
-					stream->current_bitrate_mbps.load());
 			}
 		}
 

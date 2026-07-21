@@ -3,8 +3,6 @@
 #include <GLES3/gl3.h>
 #include <GLES2/gl2ext.h>
 #include <openxr/openxr.h>
-#include <vector>
-#include <mutex>
 #include <atomic>
 #include <cmath>
 #include <cstring>
@@ -24,25 +22,9 @@ class pico_lobby
 	GLint mvp_uniform = -1;
 	GLint color_uniform = -1;
 
-	GLuint tex_program = 0;
-	GLuint ui_texture = 0;
-	GLuint quad_vbo = 0;
-	GLuint quad_vao = 0;
-	GLint tex_pos_attrib = -1;
-	GLint tex_uv_attrib = -1;
-	GLint tex_mvp_uniform = -1;
-	GLint tex_sampler_uniform = -1;
-
 	std::atomic<int> eye_width{0};
 	std::atomic<int> eye_height{0};
 	bool initialized = false;
-
-	std::mutex tex_mutex;
-
-	std::vector<uint8_t> pending_tex_data;
-	int pending_tex_w = 0;
-	int pending_tex_h = 0;
-	bool tex_pending = false;
 
 	float panel_pos[3] = {0, 0.0f, -2.5f};
 	float panel_yaw = 0.0f;
@@ -81,8 +63,6 @@ class pico_lobby
 	static constexpr float panel_h = 0.51f;
 	static constexpr float kPanelDist = 0.8f;
 
-	void draw_quad(const float head_orient[4], const float head_pos[3],
-	               const XrFovf & fov, float ipd, int eye);
 	void update_interaction(const float head_orient[4], const float head_pos[3],
 	                        const controller_sample controllers[2], bool head_trigger);
 
@@ -118,11 +98,4 @@ public:
 
 	void recenter(const float head_pos[3] = nullptr, float head_yaw = 0.0f);
 	void recenter_facing(const float head_pos[3], float fwd_x, float fwd_z);
-
-	void update_texture(int width, int height, const void * pixels);
-	void update_texture_argb(int width, int height, const uint32_t * pixels);
-	void flush_pending_texture();
-	GLuint get_external_texture();
 };
-
-void push_lobby_touch_to_java(int hand, float x, float y, bool down, bool pressed, float thumbstickY);
