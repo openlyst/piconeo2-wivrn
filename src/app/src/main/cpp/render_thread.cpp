@@ -193,7 +193,7 @@ static float gRefreshHint = 72.0f;
 // Stream-lifecycle flags touched ONLY on the render thread. gSleepReq /
 // gManualLobby / gWindowDirty ARE cross-thread and are atomic.
 static std::atomic<bool>   gStreaming{false};
-static bool   gDecoderReady = false;
+static std::atomic<bool>   gDecoderReady{false};
 static bool   gAlvrGlReady = false;
 // Set by STREAMING_STARTED, consumed by the video submit path: reset the frame
 // pacer + per-second video counters at the start of each stream.
