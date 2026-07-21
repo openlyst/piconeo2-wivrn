@@ -5,9 +5,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.Rect;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -22,7 +19,6 @@ import android.view.KeyEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.WindowManager;
-import android.widget.FrameLayout;
 import java.util.List;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -106,7 +102,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private final float[] mHaptic = new float[2];
 
     // Ported WiVRn lobby UI (matches pico_oxr).
-    private native void nativeUpdateLobbyTexture(int[] pixels, int width, int height);
     private native void nativeSetServerList(String[] names, String[] hosts, int[] ports, boolean[] tcpOnly);
     public native void nativeSetFov(float fovDeg);
     private native boolean nativeReady();
@@ -124,9 +119,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     public native void nativeRequestRunningApps();
     public native void nativeSetActiveApp(int appId);
     public native void nativeStopApp(int appId);
-    private WivrnLobbyView lobbyView;
-    private volatile boolean mUiRenderRunning = false;
-    private Thread mUiRenderThread;
+
+    private ServerDiscovery serverDiscovery;
+    private volatile boolean mServerSyncRunning = false;
+    private Thread mServerSyncThread;
 
     // Pending WiVRn dashboard connection (flushed once nativeReady() is true).
     private String pendingHost;
@@ -294,8 +290,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         // (so sleep/wake = surface destroy/recreate is handled gracefully).
         nativeStart(this);
 
-        lobbyView = new WivrnLobbyView(this);
-        startUiRenderThread();
+        serverDiscovery = new ServerDiscovery(this);
+        serverDiscovery.startDiscovery();
+        startServerSyncThread();
 
         setupControllers();
         setupProximitySleep();
@@ -363,9 +360,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             pendingTcpOnly = tcpOnly;
             pendingPin = pin;
             hasPendingConnection = true;
-            if (lobbyView != null) {
-                lobbyView.addOrUpdateServer(host, host, port, tcpOnly);
-                lobbyView.setConnectionState(WivrnLobbyView.STATE_CONNECTING, "Connecting...");
+            if (serverDiscovery != null) {
+                serverDiscovery.addOrUpdateServer(host, host, port, tcpOnly);
             }
             flushPendingConnection();
         }
@@ -385,10 +381,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
         Log.i(TAG, "flushing pending connection: " + pendingHost + ":" + pendingPort + " tcp=" + pendingTcpOnly);
         lastConnectFlushMs = System.currentTimeMillis();
-        if (lobbyView != null) {
-            nativeSetBitrate(lobbyView.getBitrate());
-            lobbyView.markAutoconnectAttempted();
-        }
         nativeConnect(pendingHost, pendingPort, pendingTcpOnly);
         nativeConnecting = true;
         if (pendingPin != null && !pendingPin.isEmpty()) {
@@ -401,13 +393,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     protected void onResume() {
         super.onResume();
         mForeground = true;
-        if (lobbyView != null) {
-            lobbyView.updateWifiStatus();
-            lobbyView.startDiscovery();
-        }
+        if (serverDiscovery != null) serverDiscovery.startDiscovery();
         flushPendingConnection();
-        if (!hasPendingConnection && lobbyView != null) {
-            lobbyView.tryAutoconnect();
+        if (!hasPendingConnection && serverDiscovery != null) {
+            serverDiscovery.tryAutoconnect(this);
         }
     }
 
@@ -415,7 +404,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     protected void onPause() {
         super.onPause();
         mForeground = false;
-        if (lobbyView != null) lobbyView.stopDiscovery();
+        if (serverDiscovery != null) serverDiscovery.stopDiscovery();
     }
 
     // Listen to the headset's proximity sensor for don/doff. "far" starts the
@@ -834,26 +823,27 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             try { mSensorManager.unregisterListener(mProximityListener); } catch (Throwable t) { /* ignore */ }
         }
         stopControllerPoll();
-        stopUiRenderThread();
+        stopServerSyncThread();
+        if (serverDiscovery != null) serverDiscovery.stopDiscovery();
         try { ControllerClient.unbindControllerService(this); } catch (Throwable t) { /* ignore */ }
         nativeStop();
         releaseWifiLocks();
     }
 
-    private void startUiRenderThread() {
-        if (mUiRenderRunning) return;
-        mUiRenderRunning = true;
-        mUiRenderThread = new Thread(() -> {
+    private void startServerSyncThread() {
+        if (mServerSyncRunning) return;
+        mServerSyncRunning = true;
+        mServerSyncThread = new Thread(() -> {
             int syncCount = 0;
-            while (mUiRenderRunning) {
+            while (mServerSyncRunning) {
                 try {
-                    List<WivrnLobbyView.ServerEntry> all = lobbyView.getAllServersPublic();
+                    List<ServerDiscovery.ServerEntry> all = serverDiscovery.getAllServers();
                     String[] names = new String[all.size()];
                     String[] hosts = new String[all.size()];
                     int[] ports = new int[all.size()];
                     boolean[] tcpOnly = new boolean[all.size()];
                     for (int i = 0; i < all.size(); i++) {
-                        WivrnLobbyView.ServerEntry s = all.get(i);
+                        ServerDiscovery.ServerEntry s = all.get(i);
                         names[i] = s.name;
                         hosts[i] = s.hostname;
                         ports[i] = s.port;
@@ -867,107 +857,28 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 }
                 try { Thread.sleep(500); } catch (InterruptedException e) { break; }
             }
-        }, "ui-render");
-        mUiRenderThread.start();
+        }, "server-sync");
+        mServerSyncThread.start();
         Log.i(TAG, "server list sync thread started");
     }
 
-    private void stopUiRenderThread() {
-        mUiRenderRunning = false;
-        if (mUiRenderThread != null) { mUiRenderThread.interrupt(); mUiRenderThread = null; }
+    private void stopServerSyncThread() {
+        mServerSyncRunning = false;
+        if (mServerSyncThread != null) { mServerSyncThread.interrupt(); mServerSyncThread = null; }
     }
 
-    // ---- WiVRn lobby view callbacks ----
+    // Called from C++ (jni.cpp) when the user clicks CONNECT in the native 3D UI.
     public void onServerConnect(String hostname, int port, boolean tcpOnly) {
         if (nativeConnecting) {
-            Log.i(TAG, "lobby: connect requested " + hostname + ":" + port + " tcp=" + tcpOnly + " ignored, already connecting");
+            Log.i(TAG, "connect requested " + hostname + ":" + port + " tcp=" + tcpOnly + " ignored, already connecting");
             return;
         }
-        Log.i(TAG, "lobby: connect requested " + hostname + ":" + port + " tcp=" + tcpOnly);
+        Log.i(TAG, "connect requested " + hostname + ":" + port + " tcp=" + tcpOnly);
         nativeConnecting = true;
         try { nativeConnect(hostname, port, tcpOnly); } catch (Throwable t) { Log.e(TAG, "nativeConnect failed", t); }
     }
-    public void onIpdChanged(float ipdMm) {
-        try { nativeSetIpd(ipdMm); } catch (Throwable t) { Log.e(TAG, "nativeSetIpd failed", t); }
-    }
-    public void onMicrophoneChanged(boolean enabled) {
-        try { nativeSetMicrophone(enabled); } catch (Throwable t) { Log.e(TAG, "nativeSetMicrophone failed", t); }
-    }
-    public void onPinCancelled() {}
-    public void onPinEntered(String pin) {
-        try { nativeSetPin(pin); } catch (Throwable t) { Log.e(TAG, "nativeSetPin failed", t); }
-    }
-    public void onDisconnectRequested() {
-        nativeConnecting = false;
-        try { nativeDisconnect(); } catch (Throwable t) { Log.e(TAG, "nativeDisconnect failed", t); }
-    }
-    public void onReconnectRequested() {}
-    public void onRenderResolutionChanged(int width, int height) {
-        try { nativeSetRenderResolution(width, height); } catch (Throwable t) { Log.e(TAG, "nativeSetRenderResolution failed", t); }
-    }
-    public void onStreamResolutionChanged(int width, int height) {
-        try { nativeSetStreamResolution(width, height); } catch (Throwable t) { Log.e(TAG, "nativeSetStreamResolution failed", t); }
-    }
-    public void onRequestAppList() {
-        try { nativeRequestAppList(); } catch (Throwable t) { Log.e(TAG, "nativeRequestAppList failed", t); }
-    }
-    public void onRequestRunningApps() {
-        try { nativeRequestRunningApps(); } catch (Throwable t) { Log.e(TAG, "nativeRequestRunningApps failed", t); }
-    }
-    public void onSetActiveApp(int appId) {
-        try { nativeSetActiveApp(appId); } catch (Throwable t) { Log.e(TAG, "nativeSetActiveApp failed", t); }
-    }
-    public void onStartApp(String appId) {
-        try { nativeStartApp(appId); } catch (Throwable t) { Log.e(TAG, "nativeStartApp failed", t); }
-    }
-    public void onStopApp(int appId) {
-        try { nativeStopApp(appId); } catch (Throwable t) { Log.e(TAG, "nativeStopApp failed", t); }
-    }
 
-    public void requestPinEntry() {
-        runOnUiThread(() -> {
-            if (lobbyView != null) lobbyView.setConnectionState(WivrnLobbyView.STATE_PIN_ENTRY, "Enter PIN");
-        });
-    }
-
-    // WiVRn streaming_client callbacks.
-    public void onConnectionStateChanged(int state, String message) {
-        if (state == WivrnLobbyView.STATE_DISCONNECTED || state == WivrnLobbyView.STATE_IDLE) {
-            nativeConnecting = false;
-        }
-        runOnUiThread(() -> {
-            if (lobbyView != null) lobbyView.setConnectionState(state, message);
-        });
-    }
-    public void onStreamStats(int fps, int latencyMs, int bandwidthRx, int bandwidthTx, int bitrateMbps) {
-        runOnUiThread(() -> {
-            if (lobbyView != null) lobbyView.updateStreamStats(fps, latencyMs, bandwidthRx, bandwidthTx, bitrateMbps);
-        });
-    }
-    public void onStreamStatsDetailed(float[] data) {
-        runOnUiThread(() -> {
-            if (lobbyView != null) lobbyView.updateStreamStatsDetailed(data);
-        });
-    }
-    public void onApplicationList(String[] ids, String[] names) {
-        runOnUiThread(() -> {
-            if (lobbyView != null) lobbyView.updateAvailableApps(ids, names);
-        });
-    }
-    public void onApplicationIcon(String appId, byte[] pngData) {
-        runOnUiThread(() -> {
-            if (lobbyView != null) lobbyView.updateAppIcon(appId, pngData);
-        });
-    }
-    public void onRunningApplications(String[] names, int[] ids, boolean[] overlays, boolean[] actives) {
-        runOnUiThread(() -> {
-            if (lobbyView != null) lobbyView.updateRunningApps(names, ids, overlays, actives);
-        });
-    }
-
-    public void onLobbyTouch(float x, float y, boolean down, boolean pressed, float thumbstickY) {
-        if (lobbyView != null) {
-            lobbyView.handleTouch(x, y, down, pressed, thumbstickY);
-        }
-    }
+    // Called from C++ (streaming_client.cpp) when the server requests a PIN.
+    // The native 3D UI doesn't have a PIN pad yet; PIN from URI still works.
+    public void requestPinEntry() {}
 }

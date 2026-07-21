@@ -3350,17 +3350,8 @@ void *renderThread(void *) {
                         int64_t total_ns = g_latency.get_avg_total_latency_ns();
                         float total_ms = total_ns / 1e6f;
                         float fps = (float)sDecoded / dtS;
+                        (void)fps; (void)total_ms;
 
-                        float stats[13] = {
-                            fps,
-                            total_ms,
-                            g_stream->stats_bandwidth_rx * 8,
-                            g_stream->stats_bandwidth_tx * 8,
-                            (float)g_stream->current_bitrate_mbps.load(),
-                            0, 0,  // cpu/gpu, not separately tracked
-                            bd[0], bd[1], bd[2], bd[3], bd[4], bd[5]
-                        };
-                        g_stream->notify_stream_stats_detailed(stats, 13);
                         LOGI("LATENCY: total=%.1fms enc=%.1f send=%.1f net=%.1f dec=%.1f wait=%.1f blit=%.1f",
                              total_ms, bd[0], bd[1], bd[2], bd[3], bd[4], bd[5]);
                     }

@@ -76,227 +76,6 @@ streaming_client::~streaming_client()
 		network_thread.join();
 }
 
-void streaming_client::notify_connection_state(int state, const std::string & msg)
-{
-	if (!vm || !activity)
-		return;
-
-	JNIEnv * env = nullptr;
-	bool attached = false;
-	if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
-	{
-		if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK)
-			attached = true;
-	}
-
-	if (env && activity)
-	{
-		jclass clazz = env->GetObjectClass(activity);
-		jmethodID method = env->GetMethodID(clazz, "onConnectionStateChanged", "(ILjava/lang/String;)V");
-		if (method)
-		{
-			jstring jmsg = env->NewStringUTF(msg.c_str());
-			env->CallVoidMethod(activity, method, state, jmsg);
-			env->DeleteLocalRef(jmsg);
-		}
-		env->DeleteLocalRef(clazz);
-	}
-
-	if (attached)
-		vm->DetachCurrentThread();
-}
-
-void streaming_client::notify_stream_stats(int fps, int latency_ms, float bandwidth_rx, float bandwidth_tx, int bitrate_mbps)
-{
-	if (!vm || !activity)
-		return;
-
-	JNIEnv * env = nullptr;
-	bool attached = false;
-	if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
-	{
-		if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK)
-			attached = true;
-	}
-
-	if (env && activity)
-	{
-		jclass clazz = env->GetObjectClass(activity);
-		jmethodID method = env->GetMethodID(clazz, "onStreamStats", "(IIIII)V");
-		if (method)
-			env->CallVoidMethod(activity, method, fps, latency_ms, (int)bandwidth_rx, (int)bandwidth_tx, bitrate_mbps);
-		env->DeleteLocalRef(clazz);
-	}
-
-	if (attached)
-		vm->DetachCurrentThread();
-}
-
-void streaming_client::notify_stream_stats_detailed(const float * data, int count)
-{
-	if (!vm || !activity || !data || count <= 0)
-		return;
-
-	JNIEnv * env = nullptr;
-	bool attached = false;
-	if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
-	{
-		if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK)
-			attached = true;
-	}
-
-	if (env && activity)
-	{
-		jclass clazz = env->GetObjectClass(activity);
-		jmethodID method = env->GetMethodID(clazz, "onStreamStatsDetailed", "([F)V");
-		if (method)
-		{
-			jfloatArray arr = env->NewFloatArray(count);
-			if (arr)
-			{
-				env->SetFloatArrayRegion(arr, 0, count, data);
-				env->CallVoidMethod(activity, method, arr);
-				env->DeleteLocalRef(arr);
-			}
-		}
-		env->DeleteLocalRef(clazz);
-	}
-
-	if (attached)
-		vm->DetachCurrentThread();
-}
-
-void streaming_client::notify_application_list(const std::vector<std::pair<std::string, std::string>> & apps)
-{
-	if (!vm || !activity)
-		return;
-
-	JNIEnv * env = nullptr;
-	bool attached = false;
-	if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
-	{
-		if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK)
-			attached = true;
-	}
-
-	if (env && activity)
-	{
-		jclass clazz = env->GetObjectClass(activity);
-		jclass string_class = env->FindClass("java/lang/String");
-		jmethodID method = env->GetMethodID(clazz, "onApplicationList", "([Ljava/lang/String;[Ljava/lang/String;)V");
-		if (method && string_class)
-		{
-			jobjectArray ids = env->NewObjectArray(apps.size(), string_class, nullptr);
-			jobjectArray names = env->NewObjectArray(apps.size(), string_class, nullptr);
-			for (size_t i = 0; i < apps.size(); i++)
-			{
-				jstring jid = env->NewStringUTF(apps[i].first.c_str());
-				jstring jname = env->NewStringUTF(apps[i].second.c_str());
-				env->SetObjectArrayElement(ids, i, jid);
-				env->SetObjectArrayElement(names, i, jname);
-				env->DeleteLocalRef(jid);
-				env->DeleteLocalRef(jname);
-			}
-			env->CallVoidMethod(activity, method, ids, names);
-			env->DeleteLocalRef(ids);
-			env->DeleteLocalRef(names);
-		}
-		env->DeleteLocalRef(clazz);
-		if (string_class)
-			env->DeleteLocalRef(string_class);
-	}
-
-	if (attached)
-		vm->DetachCurrentThread();
-}
-
-void streaming_client::notify_application_icon(const std::string & app_id, const std::vector<std::byte> & png_data)
-{
-	if (!vm || !activity)
-		return;
-
-	JNIEnv * env = nullptr;
-	bool attached = false;
-	if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
-	{
-		if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK)
-			attached = true;
-	}
-
-	if (env && activity)
-	{
-		jclass clazz = env->GetObjectClass(activity);
-		jmethodID method = env->GetMethodID(clazz, "onApplicationIcon", "(Ljava/lang/String;[B)V");
-		if (method)
-		{
-			jstring jid = env->NewStringUTF(app_id.c_str());
-			jbyteArray jdata = env->NewByteArray(png_data.size());
-			env->SetByteArrayRegion(jdata, 0, png_data.size(), reinterpret_cast<const jbyte *>(png_data.data()));
-			env->CallVoidMethod(activity, method, jid, jdata);
-			env->DeleteLocalRef(jid);
-			env->DeleteLocalRef(jdata);
-		}
-		env->DeleteLocalRef(clazz);
-	}
-
-	if (attached)
-		vm->DetachCurrentThread();
-}
-
-void streaming_client::notify_running_applications(const std::vector<to_headset::running_applications::application> & apps)
-{
-	if (!vm || !activity)
-		return;
-
-	JNIEnv * env = nullptr;
-	bool attached = false;
-	if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
-	{
-		if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK)
-			attached = true;
-	}
-
-	if (env && activity)
-	{
-		jclass clazz = env->GetObjectClass(activity);
-		jclass string_class = env->FindClass("java/lang/String");
-		jmethodID method = env->GetMethodID(clazz, "onRunningApplications", "([Ljava/lang/String;[I[Z[Z)V");
-		if (method && string_class)
-		{
-			jobjectArray jnames = env->NewObjectArray(apps.size(), string_class, nullptr);
-			jintArray jids = env->NewIntArray(apps.size());
-			jbooleanArray joverlays = env->NewBooleanArray(apps.size());
-			jbooleanArray jactives = env->NewBooleanArray(apps.size());
-			std::vector<jint> ids(apps.size());
-			std::vector<jboolean> overlays(apps.size());
-			std::vector<jboolean> actives(apps.size());
-			for (size_t i = 0; i < apps.size(); i++)
-			{
-				jstring jname = env->NewStringUTF(apps[i].name.c_str());
-				env->SetObjectArrayElement(jnames, i, jname);
-				env->DeleteLocalRef(jname);
-				ids[i] = apps[i].id;
-				overlays[i] = apps[i].overlay;
-				actives[i] = apps[i].active;
-			}
-			env->SetIntArrayRegion(jids, 0, apps.size(), ids.data());
-			env->SetBooleanArrayRegion(joverlays, 0, apps.size(), overlays.data());
-			env->SetBooleanArrayRegion(jactives, 0, apps.size(), actives.data());
-			env->CallVoidMethod(activity, method, jnames, jids, joverlays, jactives);
-			env->DeleteLocalRef(jnames);
-			env->DeleteLocalRef(jids);
-			env->DeleteLocalRef(joverlays);
-			env->DeleteLocalRef(jactives);
-		}
-		env->DeleteLocalRef(clazz);
-		if (string_class)
-			env->DeleteLocalRef(string_class);
-	}
-
-	if (attached)
-		vm->DetachCurrentThread();
-}
-
 void streaming_client::setup_decoders()
 {
 	if (!video_desc || decoders[0])
@@ -622,12 +401,10 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 					available_apps.push_back({app.id, app.name});
 				app_list_requested = true;
 			}
-			notify_application_list(apps);
 		}
 		else if constexpr (std::is_same_v<T, to_headset::application_icon>)
 		{
 			spdlog::info("Received application icon for id={} ({} bytes)", p.id, p.image.size());
-			notify_application_icon(p.id, p.image);
 		}
 		else if constexpr (std::is_same_v<T, to_headset::running_applications>)
 		{
@@ -638,7 +415,6 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 				for (auto & app : p.applications)
 					running_apps.push_back({app.name, app.id, app.overlay, app.active});
 			}
-			notify_running_applications(p.applications);
 		}
 		else
 		{
@@ -789,9 +565,9 @@ void streaming_client::network_loop()
 
 	spdlog::info("Network loop ended, cleaning up session");
 	if (auto_reconnect.load())
-		notify_connection_state(1, "Reconnecting...");
+		spdlog::info("network_loop: auto_reconnect set, will retry");
 	else
-		notify_connection_state(3, last_error.empty() ? "Disconnected" : last_error);
+		spdlog::info("network_loop: disconnected: {}", last_error.empty() ? "Disconnected" : last_error);
 	spdlog::info("network_loop: setting tracker.session=nullptr");
 	tracker.session = nullptr;
 	spdlog::info("network_loop: calling tracker.stop()");
@@ -1102,7 +878,6 @@ void streaming_client::try_connect()
 	{
 		ALOGI("try_connect: server_host is empty");
 		spdlog::warn("try_connect: server_host is empty");
-		notify_connection_state(3, "No server address set");
 		return;
 	}
 
@@ -1153,12 +928,9 @@ void streaming_client::run_connect_loop()
 	ALOGI("run_connect_loop: entered, this=%p", (void*)this);
 	spdlog::info("Connection attempt");
 	ALOGI("run_connect_loop: after spdlog info");
-	notify_connection_state(1, "Connecting...");
-	ALOGI("run_connect_loop: after notify_connection_state");
 
 	if (connect_to_server())
 	{
-		notify_connection_state(1, "Connected, starting stream...");
 		try
 		{
 			int fd = session->get_control_fd();
@@ -1178,7 +950,6 @@ void streaming_client::run_connect_loop()
 			tracker.session = session.get();
 			tracker.start();
 
-			notify_connection_state(4, "Streaming");
 			network_thread.join();
 			spdlog::info("run_connect_loop: network_thread joined, auto_reconnect={}", auto_reconnect.load());
 		}
@@ -1186,7 +957,6 @@ void streaming_client::run_connect_loop()
 		{
 			spdlog::error("Failed to start client: {}", e.what());
 			last_error = e.what();
-			notify_connection_state(3, e.what());
 			if (network_thread.joinable())
 				network_thread.join();
 			tracker.session = nullptr;
@@ -1200,7 +970,7 @@ void streaming_client::run_connect_loop()
 		if (session)
 			session.reset();
 		if (!shutdown)
-			notify_connection_state(3, last_error.empty() ? "Connection failed" : last_error);
+			spdlog::warn("Connection failed: {}", last_error);
 	}
 
 	while (auto_reconnect.load() && !shutdown.load())
@@ -1211,7 +981,6 @@ void streaming_client::run_connect_loop()
 		if (shutdown.load())
 			break;
 
-		notify_connection_state(1, "Reconnecting...");
 		spdlog::info("Auto-reconnect: retrying connection to {}:{}", server_host, server_port);
 
 		if (connect_to_server())
@@ -1235,14 +1004,12 @@ void streaming_client::run_connect_loop()
 				tracker.session = session.get();
 				tracker.start();
 
-				notify_connection_state(4, "Streaming");
 				network_thread.join();
 			}
 			catch (std::exception & e)
 			{
 				spdlog::error("Auto-reconnect: failed to start client: {}", e.what());
 				last_error = e.what();
-				notify_connection_state(3, e.what());
 				if (network_thread.joinable())
 					network_thread.join();
 				tracker.session = nullptr;
@@ -1262,7 +1029,6 @@ void streaming_client::run_connect_loop()
 	if (!auto_reconnect.load())
 	{
 		spdlog::info("Connection thread exiting: auto_reconnect is false");
-		notify_connection_state(0, "");
 	}
 	else if (shutdown.load())
 	{

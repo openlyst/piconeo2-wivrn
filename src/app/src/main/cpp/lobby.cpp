@@ -31,29 +31,6 @@ void main()
 }
 )";
 
-static const char * tex_vert_src = R"(#version 310 es
-layout(location = 0) in vec3 a_pos;
-layout(location = 1) in vec2 a_uv;
-uniform mat4 u_mvp;
-out vec2 v_uv;
-void main()
-{
-    gl_Position = u_mvp * vec4(a_pos, 1.0);
-    v_uv = a_uv;
-}
-)";
-
-static const char * tex_frag_src = R"(#version 310 es
-precision mediump float;
-in vec2 v_uv;
-uniform sampler2D u_tex;
-out vec4 frag_color;
-void main()
-{
-    frag_color = texture(u_tex, v_uv);
-}
-)";
-
 static GLuint compile_shader(GLenum type, const char * src)
 {
 	GLuint shader = glCreateShader(type);
@@ -190,13 +167,9 @@ pico_lobby::~pico_lobby()
 {
 	if (controller_vao) glDeleteVertexArrays(1, &controller_vao);
 	if (ray_vao) glDeleteVertexArrays(1, &ray_vao);
-	if (quad_vao) glDeleteVertexArrays(1, &quad_vao);
 	if (program) glDeleteProgram(program);
-	if (tex_program) glDeleteProgram(tex_program);
 	if (controller_vbo) glDeleteBuffers(1, &controller_vbo);
 	if (ray_vbo) glDeleteBuffers(1, &ray_vbo);
-	if (quad_vbo) glDeleteBuffers(1, &quad_vbo);
-	if (ui_texture) glDeleteTextures(1, &ui_texture);
 }
 
 void pico_lobby::init(int w, int h)
@@ -259,60 +232,6 @@ void pico_lobby::init(int w, int h)
 	glBufferData(GL_ARRAY_BUFFER, sizeof(ray), ray, GL_STATIC_DRAW);
 	glEnableVertexAttribArray(0);
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 12, (void *)0);
-	glBindVertexArray(0);
-
-	GLuint tvert = compile_shader(GL_VERTEX_SHADER, tex_vert_src);
-	GLuint tfrag = compile_shader(GL_FRAGMENT_SHADER, tex_frag_src);
-	tex_program = glCreateProgram();
-	glAttachShader(tex_program, tvert);
-	glAttachShader(tex_program, tfrag);
-	glLinkProgram(tex_program);
-	GLint tstatus = GL_FALSE;
-	glGetProgramiv(tex_program, GL_LINK_STATUS, &tstatus);
-	if (tstatus != GL_TRUE)
-	{
-		char log[1024];
-		glGetProgramInfoLog(tex_program, sizeof(log), nullptr, log);
-		LOGE("Lobby tex program link error: %s", log);
-	}
-	glDeleteShader(tvert);
-	glDeleteShader(tfrag);
-
-	tex_pos_attrib = 0;
-	tex_uv_attrib = 1;
-	tex_mvp_uniform = glGetUniformLocation(tex_program, "u_mvp");
-	tex_sampler_uniform = glGetUniformLocation(tex_program, "u_tex");
-
-	glGenTextures(1, &ui_texture);
-	glBindTexture(GL_TEXTURE_2D, ui_texture);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	// Anisotropic filtering kills oblique-angle shimmer.
-	GLint maxAniso = 1;
-	glGetIntegerv(GL_TEXTURE_MAX_ANISOTROPIC_EXT, &maxAniso);
-	if (maxAniso > 1)
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPIC_EXT, (float)maxAniso);
-	glBindTexture(GL_TEXTURE_2D, 0);
-
-	float quad[] = {
-		-1.0f, -1.0f, 0.0f,  0.0f, 1.0f,
-		 1.0f, -1.0f, 0.0f,  1.0f, 1.0f,
-		 1.0f,  1.0f, 0.0f,  1.0f, 0.0f,
-		-1.0f, -1.0f, 0.0f,  0.0f, 1.0f,
-		 1.0f,  1.0f, 0.0f,  1.0f, 0.0f,
-		-1.0f,  1.0f, 0.0f,  0.0f, 0.0f,
-	};
-	glGenVertexArrays(1, &quad_vao);
-	glGenBuffers(1, &quad_vbo);
-	glBindVertexArray(quad_vao);
-	glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
-	glEnableVertexAttribArray(0);
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 20, (void *)0);
-	glEnableVertexAttribArray(1);
-	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 20, (void *)12);
 	glBindVertexArray(0);
 
 	// Fixed world location; recenter moves it in front of the user.
@@ -454,104 +373,6 @@ void pico_lobby::draw(int eye, const float head_orient[4], const float head_pos[
 		glBindVertexArray(0);
 		glUseProgram(0);
 	}
-
-	draw_quad(head_orient, head_pos, fov, ipd, eye);
-}
-
-GLuint pico_lobby::get_external_texture()
-{
-	return ui_texture;
-}
-
-void pico_lobby::update_texture(int width, int height, const void * pixels)
-{
-	std::lock_guard<std::mutex> lock(tex_mutex);
-	pending_tex_w = width;
-	pending_tex_h = height;
-	pending_tex_data.assign((const uint8_t *)pixels, (const uint8_t *)pixels + width * height * 4);
-	tex_pending = true;
-}
-
-void pico_lobby::update_texture_argb(int width, int height, const uint32_t * pixels)
-{
-	std::lock_guard<std::mutex> lock(tex_mutex);
-	pending_tex_w = width;
-	pending_tex_h = height;
-	size_t n = (size_t)width * height;
-	pending_tex_data.resize(n * 4);
-	const uint32_t *src = pixels;
-	uint8_t *dst = pending_tex_data.data();
-	for (size_t i = 0; i < n; i++) {
-		uint32_t px = src[i];
-		dst[i * 4]     = (uint8_t)((px >> 16) & 0xFF);
-		dst[i * 4 + 1] = (uint8_t)((px >> 8)  & 0xFF);
-		dst[i * 4 + 2] = (uint8_t)(px         & 0xFF);
-		dst[i * 4 + 3] = (uint8_t)((px >> 24) & 0xFF);
-	}
-	tex_pending = true;
-}
-
-void pico_lobby::flush_pending_texture()
-{
-	std::lock_guard<std::mutex> lock(tex_mutex);
-	if (!tex_pending)
-		return;
-
-	glBindTexture(GL_TEXTURE_2D, ui_texture);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, pending_tex_w, pending_tex_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pending_tex_data.data());
-	glGenerateMipmap(GL_TEXTURE_2D);
-	glBindTexture(GL_TEXTURE_2D, 0);
-
-	tex_pending = false;
-	pending_tex_data.clear();
-}
-
-void pico_lobby::draw_quad(const float head_orient[4], const float head_pos[3],
-                           const XrFovf & fov, float ipd, int eye)
-{
-	Mat4 proj = mat4_perspective(fov.angleLeft, fov.angleRight, fov.angleUp, fov.angleDown, 0.1f, 100.0f);
-
-	neo2::quat hq = neo2::normalize_quat({head_orient[0], head_orient[1], head_orient[2], head_orient[3]});
-	float eye_offset = (eye == 0 ? -ipd * 0.5f : ipd * 0.5f);
-	float v[3] = {eye_offset, 0, 0};
-	float rotated[3];
-	neo2::rotate_vector(hq, v, rotated);
-	float eye_pos[3] = {head_pos[0] + rotated[0], head_pos[1] + rotated[1], head_pos[2] + rotated[2]};
-	Mat4 view = mat4_view(head_orient, eye_pos);
-	Mat4 vp = mat4_mul(proj, view);
-
-	float dx = panel_pos[0] - head_pos[0];
-	float dy = panel_pos[1] - head_pos[1];
-	float dz = panel_pos[2] - head_pos[2];
-	float dist = sqrtf(dx*dx + dy*dy + dz*dz);
-	float s = dist / kPanelDist;
-
-	Mat4 model = mat4_mul(mat4_translate(panel_pos[0], panel_pos[1], panel_pos[2]),
-	                      mat4_mul(mat4_rotate_y(panel_yaw),
-	                      mat4_rotate_x(panel_pitch)));
-
-	Mat4 scale = mat4_scale(panel_w * 0.5f * s, panel_h * 0.5f * s, 1.0f);
-	model = mat4_mul(model, scale);
-
-	Mat4 mvp = mat4_mul(vp, model);
-
-	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LEQUAL);
-	glDepthMask(GL_TRUE);
-
-	glUseProgram(tex_program);
-	glUniformMatrix4fv(tex_mvp_uniform, 1, GL_FALSE, mvp.m);
-	glUniform1i(tex_sampler_uniform, 0);
-
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, ui_texture);
-
-	glBindVertexArray(quad_vao);
-	glDrawArrays(GL_TRIANGLES, 0, 6);
-	glBindVertexArray(0);
-
-	glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
-	glUseProgram(0);
 }
 
 static bool ray_plane_intersect(
@@ -882,9 +703,6 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 			lobby_touch_down[h] != prev_lobby_touch_down[h] ||
 			lobby_touch_pressed[h] != prev_lobby_touch_pressed[h];
 		if (touch_changed) {
-			push_lobby_touch_to_java(h, lobby_touch_x[h], lobby_touch_y[h],
-			                         lobby_touch_down[h], lobby_touch_pressed[h],
-			                         lobby_thumbstick_y[h]);
 			prev_lobby_touch_x[h] = lobby_touch_x[h];
 			prev_lobby_touch_y[h] = lobby_touch_y[h];
 			prev_lobby_touch_down[h] = lobby_touch_down[h];
@@ -944,8 +762,6 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 			head_touch_down != prev_head_touch_down ||
 			head_touch_pressed != prev_head_touch_pressed;
 		if (head_touch_changed) {
-			push_lobby_touch_to_java(-1, head_touch_x, head_touch_y,
-			                         head_touch_down, head_touch_pressed, 0.0f);
 			prev_head_touch_x = head_touch_x;
 			prev_head_touch_y = head_touch_y;
 			prev_head_touch_down = head_touch_down;
@@ -955,9 +771,7 @@ void pico_lobby::update_interaction(const float head_orient[4], const float head
 	else
 	{
 		prev_head_trigger = false;
-		// Controllers took over: clear any stale head cursor on the Java side.
 		if (prev_head_touch_x >= -1 || prev_head_touch_down || prev_head_touch_pressed) {
-			push_lobby_touch_to_java(-1, -1, -1, false, false, 0.0f);
 			prev_head_touch_x = -2;
 			prev_head_touch_y = -2;
 			prev_head_touch_down = false;
