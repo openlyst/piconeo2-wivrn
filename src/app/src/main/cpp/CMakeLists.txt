@@ -121,6 +121,7 @@ add_library(p2wivrn SHARED
     menu_model.cpp
     settings_panel.cpp
     lobby.cpp
+    imgui_lobby.cpp
     passthrough.cpp
     input.cpp
     foveation.cpp
@@ -135,6 +136,12 @@ add_library(p2wivrn SHARED
     ${WIVRN_DIR}/audio/pico_audio.cpp
     ${WIVRN_DIR}/render/pico_blit.cpp
     ${WIVRN_DIR}/tracking/pico_tracking.cpp
+    # ImGui (GLES 3.0 backend for the 3D lobby UI)
+    ${THIRD_PARTY_DIR}/imgui/imgui.cpp
+    ${THIRD_PARTY_DIR}/imgui/imgui_draw.cpp
+    ${THIRD_PARTY_DIR}/imgui/imgui_tables.cpp
+    ${THIRD_PARTY_DIR}/imgui/imgui_widgets.cpp
+    ${THIRD_PARTY_DIR}/imgui/backends/imgui_impl_opengl3.cpp
 )
 
 # Thin LTO on OUR translation units + link only (imported prebuilt libs are
@@ -155,6 +162,8 @@ target_include_directories(p2wivrn PRIVATE
     ${WIVRN_DIR}/tracking
     ${WIVRN_DIR}/common
     ${CMAKE_BINARY_DIR}
+    ${THIRD_PARTY_DIR}/imgui
+    ${THIRD_PARTY_DIR}/imgui/backends
 )
 
 target_include_directories(p2wivrn SYSTEM PRIVATE ${SPDLOG_INCLUDE_DIR} ${BOOST_INCLUDE_DIR})
