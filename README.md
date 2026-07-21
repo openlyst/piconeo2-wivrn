@@ -36,14 +36,6 @@ The Pico Neo 2 SDK is not bundled due to licensing. A helper script downloads an
 ./tools/fetch_pico_sdk.sh
 ```
 
-This places `libPvr_UnitySDK.so`, `libtracking_module.so`, `libnative.so` into `src/app/src/main/jniLibs/armeabi-v7a/` and `pvr_classes.jar` into `src/app/libs/`.
-
-Requires `curl`, `7z` (p7zip-full), `unzip`, and `tar`. On Debian/Ubuntu: `sudo apt install p7zip-full unzip`.
-
-CI does this automatically using a `PICO_SDK_DOWNLOAD_URL` secret. If you want to point at a different mirror, pass the URL as the first argument or set `PICO_SDK_DOWNLOAD_URL` in your environment.
-
-If you skip this step, the build will fail with a message telling you exactly what's missing.
-
 ### Environment
 
 - Android SDK with NDK 26.3.11579264
