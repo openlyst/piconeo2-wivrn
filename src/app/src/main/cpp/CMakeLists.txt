@@ -1,5 +1,5 @@
 ﻿cmake_minimum_required(VERSION 3.22.1)
-project(p2alvr)
+project(p2wivrn)
 
 # C++20 is required by the WiVRn shared sources.
 set(CMAKE_CXX_STANDARD 20)
@@ -108,8 +108,8 @@ target_compile_options(wivrn-common PUBLIC -fconstexpr-steps=268435456 -fconstex
 target_compile_options(wivrn-common PUBLIC "-include${CMAKE_CURRENT_SOURCE_DIR}/openxr_ext_stubs.h" "-include${WIVRN_DIR}/common/openxr_body_compat.h")
 target_link_libraries(wivrn-common PUBLIC OpenSSL::Crypto)
 
-# --- p2alvr (PVR client with WiVRn streaming) ---
-add_library(p2alvr SHARED
+# --- p2wivrn (PVR client with WiVRn streaming) ---
+add_library(p2wivrn SHARED
     render_thread.cpp
     gl_util.cpp
     eye_tracking.cpp
@@ -139,10 +139,10 @@ add_library(p2alvr SHARED
 
 # Thin LTO on OUR translation units + link only (imported prebuilt libs are
 # unaffected -- they're IMPORTED, never compiled here).
-target_compile_options(p2alvr PRIVATE -flto=thin)
-target_link_options(p2alvr PRIVATE -flto=thin)
+target_compile_options(p2wivrn PRIVATE -flto=thin)
+target_link_options(p2wivrn PRIVATE -flto=thin)
 
-target_include_directories(p2alvr PRIVATE
+target_include_directories(p2wivrn PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/streaming
     ${CMAKE_CURRENT_SOURCE_DIR}/openxr
@@ -157,11 +157,11 @@ target_include_directories(p2alvr PRIVATE
     ${CMAKE_BINARY_DIR}
 )
 
-target_include_directories(p2alvr SYSTEM PRIVATE ${SPDLOG_INCLUDE_DIR} ${BOOST_INCLUDE_DIR})
+target_include_directories(p2wivrn SYSTEM PRIVATE ${SPDLOG_INCLUDE_DIR} ${BOOST_INCLUDE_DIR})
 
-target_compile_definitions(p2alvr PRIVATE SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG SPDLOG_FMT_EXTERNAL FMT_HEADER_ONLY)
+target_compile_definitions(p2wivrn PRIVATE SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG SPDLOG_FMT_EXTERNAL FMT_HEADER_ONLY)
 
-target_link_libraries(p2alvr
+target_link_libraries(p2wivrn
     Pvr_UnitySDK
     wivrn-common
     ${gles-lib}
