@@ -3511,7 +3511,9 @@ void *renderThread(void *) {
                 const int *k = ctrlKeys[h];
                 int kc = ctrlKeyCount[h];
                 if (kc > 8 && k[8] > 40)       texIdx = TEX_TRIG;
-                else if (kc > 4 && k[4] != 0)  texIdx = TEX_TOUCH;
+                else if (kc > 4 && (k[4] != 0 ||
+                         (kc > 1 && ((k[0]-128)*(k[0]-128) + (k[1]-128)*(k[1]-128)) > 25)))
+                    texIdx = TEX_TOUCH;
                 else if (kc > 6 && k[6] != 0)  texIdx = TEX_APP;
                 else if (kc > 5 && k[5] != 0)  texIdx = TEX_HOME;
                 GLuint tex = gCtrlTex[texIdx] ? gCtrlTex[texIdx] : gCtrlTex[TEX_IDLE];
