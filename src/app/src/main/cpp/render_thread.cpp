@@ -322,19 +322,25 @@ static void buildGazeMarker() {
 static GLuint gCtrlVao[2] = {0,0}, gCtrlVbo[2] = {0,0};
 static int    gCtrlVertCount[2] = {0,0};
 // Vertex format: pos.xyz + uv.xy + shade.rgb = 8 floats
-static GLuint gCtrlTex = 0;          // idle texture (shared by both hands)
-static GLuint gCtrlProg = 0;         // textured+lit shader
+static GLuint gCtrlTex[5] = {0,0,0,0,0};  // idle, app, home, touchpad, trigger
+static GLuint gCtrlProg = 0;
 static GLint  gCtrlMvpLoc = 0, gCtrlTexLoc = 0;
+enum CtrlTex { TEX_IDLE=0, TEX_APP=1, TEX_HOME=2, TEX_TOUCH=3, TEX_TRIG=4 };
 // Controller OBJ models bundled in assets, extracted to HOME/controller/.
 // r.obj reads right on the LEFT hand, controller2s.obj on the RIGHT.
 static std::string kCtrlObjPath[2];
-static std::string kCtrlTexPath;
+static std::string kCtrlTexPath[5];
 static void initCtrlObjPaths() {
     const char *home = getenv("HOME");
     if (!home) home = "/data/data/org.meumeu.wivrn.neo2.pvr/files";
-    kCtrlObjPath[0] = std::string(home) + "/controller/r.obj";
-    kCtrlObjPath[1] = std::string(home) + "/controller/controller2s.obj";
-    kCtrlTexPath    = std::string(home) + "/controller/controller2s_idle.png";
+    std::string base = std::string(home) + "/controller/";
+    kCtrlObjPath[0] = base + "r.obj";
+    kCtrlObjPath[1] = base + "controller2s.obj";
+    kCtrlTexPath[TEX_IDLE]  = base + "controller2s_idle.png";
+    kCtrlTexPath[TEX_APP]   = base + "controller2s_app.png";
+    kCtrlTexPath[TEX_HOME]  = base + "controller2s_home.png";
+    kCtrlTexPath[TEX_TOUCH] = base + "controller2s_touchpad.png";
+    kCtrlTexPath[TEX_TRIG]  = base + "controller2s_trigger.png";
 }
 // Load OBJ with UVs. Output: interleaved pos.xyz + uv.xy per vertex (5 floats),
 // triangulated. Positions converted cm -> m.
@@ -439,10 +445,16 @@ static void buildCtrlShader() {
     gCtrlProg = glCreateProgram();
     GLuint s1 = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(s1, 1, &vs, nullptr); glCompileShader(s1);
+    GLint ok; glGetShaderiv(s1, GL_COMPILE_STATUS, &ok);
+    if (!ok) { char log[1024]; glGetShaderInfoLog(s1, 1024, nullptr, log); LOGE("ctrl VS: %s", log); }
     GLuint s2 = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(s2, 1, &fs, nullptr); glCompileShader(s2);
+    glGetShaderiv(s2, GL_COMPILE_STATUS, &ok);
+    if (!ok) { char log[1024]; glGetShaderInfoLog(s2, 1024, nullptr, log); LOGE("ctrl FS: %s", log); }
     glAttachShader(gCtrlProg, s1); glAttachShader(gCtrlProg, s2);
     glLinkProgram(gCtrlProg);
+    glGetProgramiv(gCtrlProg, GL_LINK_STATUS, &ok);
+    if (!ok) { char log[1024]; glGetProgramInfoLog(gCtrlProg, 1024, nullptr, log); LOGE("ctrl link: %s", log); }
     glDeleteShader(s1); glDeleteShader(s2);
     gCtrlMvpLoc = glGetUniformLocation(gCtrlProg, "uMVP");
     gCtrlTexLoc = glGetUniformLocation(gCtrlProg, "uTex");
@@ -452,8 +464,9 @@ static std::vector<float> gCtrlPosData[2], gCtrlUvData[2];
 static void buildControllerMeshes() {
     if (kCtrlObjPath[0].empty()) initCtrlObjPaths();
     buildCtrlShader();
-    if (!gCtrlTex && !kCtrlTexPath.empty())
-        gCtrlTex = loadCtrlTexture(kCtrlTexPath.c_str());
+    for (int t = 0; t < 5; t++)
+        if (!gCtrlTex[t] && !kCtrlTexPath[t].empty())
+            gCtrlTex[t] = loadCtrlTexture(kCtrlTexPath[t].c_str());
     // Light direction (normalized) - from upper front left
     const float lx = -0.4f, ly = 0.6f, lz = -0.7f;
     float llen = sqrtf(lx*lx + ly*ly + lz*lz);
@@ -3191,6 +3204,8 @@ void *renderThread(void *) {
         bool  ctrlConn[2] = {false,false};
         float ctrlPos[2][3] = {{0,0,0},{0,0,0}};
         float ctrlQuat[2][4] = {{0,0,0,1},{0,0,0,1}};
+        int   ctrlKeys[2][16] = {{0},{0}};
+        int   ctrlKeyCount[2] = {0,0};
         {
             CtrlState cc[2];
             { std::lock_guard<std::mutex> lk(gCtrlMutex); cc[0]=gCtrl[0]; cc[1]=gCtrl[1]; }
@@ -3203,6 +3218,8 @@ void *renderThread(void *) {
                 ctrlPos[hh][0]=cc[hh].pos[0]*0.001f; ctrlPos[hh][1]=cc[hh].pos[1]*0.001f; ctrlPos[hh][2]=cc[hh].pos[2]*0.001f;
                 Quat cq = quatNorm({ -cc[hh].q[0], -cc[hh].q[1], cc[hh].q[2], cc[hh].q[3] });
                 ctrlQuat[hh][0]=cq.x; ctrlQuat[hh][1]=cq.y; ctrlQuat[hh][2]=cq.z; ctrlQuat[hh][3]=cq.w;
+                ctrlKeyCount[hh] = cc[hh].keyCount;
+                for (int k=0; k<cc[hh].keyCount && k<16; k++) ctrlKeys[hh][k] = cc[hh].keys[k];
             }
             auto trig = [](const CtrlState &s){
                 return (s.keyCount>2 && s.keys[2]!=0) || (s.keyCount>8 && s.keys[8]>40);
@@ -3480,7 +3497,7 @@ void *renderThread(void *) {
                 glBindVertexArray(0);
             }
             // Controller models: textured solid meshes attached to each live
-            // controller pose. Mesh is pre-scaled to metres and centred at origin.
+            // controller pose. Texture swaps based on button state.
             glEnable(GL_DEPTH_TEST);
             glDepthFunc(GL_LEQUAL);
             for (int h = 0; h < 2; h++) {
@@ -3488,9 +3505,19 @@ void *renderThread(void *) {
                 Mat4 M = quatToMat4(ctrlQuat[h][0], ctrlQuat[h][1], ctrlQuat[h][2], ctrlQuat[h][3]);
                 M.m[12] = ctrlPos[h][0]; M.m[13] = ctrlPos[h][1]; M.m[14] = ctrlPos[h][2];
                 Mat4 cMvp = mat4Mul(sproj, mat4Mul(sview, M));
+                // Pick texture based on button state.
+                // k[8]=trigger(0-255), k[4]=touchpad click, k[6]=app, k[5]=home
+                int texIdx = TEX_IDLE;
+                const int *k = ctrlKeys[h];
+                int kc = ctrlKeyCount[h];
+                if (kc > 8 && k[8] > 40)       texIdx = TEX_TRIG;
+                else if (kc > 4 && k[4] != 0)  texIdx = TEX_TOUCH;
+                else if (kc > 6 && k[6] != 0)  texIdx = TEX_APP;
+                else if (kc > 5 && k[5] != 0)  texIdx = TEX_HOME;
+                GLuint tex = gCtrlTex[texIdx] ? gCtrlTex[texIdx] : gCtrlTex[TEX_IDLE];
                 glUseProgram(gCtrlProg);
                 glActiveTexture(GL_TEXTURE0);
-                glBindTexture(GL_TEXTURE_2D, gCtrlTex);
+                glBindTexture(GL_TEXTURE_2D, tex);
                 glUniform1i(gCtrlTexLoc, 0);
                 glBindVertexArray(gCtrlVao[h]);
                 glUniformMatrix4fv(gCtrlMvpLoc, 1, GL_FALSE, cMvp.m);
