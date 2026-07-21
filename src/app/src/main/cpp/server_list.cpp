@@ -1,4 +1,5 @@
 #include "server_list.h"
+#include "settings_panel.h"  // kCtX0, kCtX1, kCtTop, kCtBot
 #include "log.h"
 #include <mutex>
 #include <cstring>
@@ -18,146 +19,116 @@ std::vector<ServerInfo> getServerList() {
     return gServers;
 }
 
-// Panel background + header + close button (same style as settings panel).
-static void buildChrome(std::vector<float> &v, bool closeHover) {
-    // Dark panel background (matches wiVRn's IM_COL32(8,8,8,224) ~ (0.03,0.03,0.03))
-    appendQuad(v, kSrvPanelL, kSrvPanelTop, kSrvPanelR, kSrvPanelBot,
-               0.03f, 0.03f, 0.03f);
-    // Sidebar (left strip, darker)
-    float sideR = kSrvPanelL + 0.24f;
-    appendQuad(v, kSrvPanelL, kSrvPanelTop, sideR, kSrvPanelBot,
-               0.01f, 0.01f, 0.01f);
-    // Header bar
-    appendQuad(v, sideR, kSrvPanelTop, kSrvPanelR, kSrvHdrY - 0.04f,
-               0.05f, 0.05f, 0.06f);
-    // Header text
-    uiTextL(v, "SERVERS", sideR + 0.03f, kSrvHdrY, kUiText * 1.6f,
-            kUiTitle[0], kUiTitle[1], kUiTitle[2]);
-    // Close button
-    uiButton(v, kSrvClose, "X", closeHover);
-    // Sidebar label
-    uiTextL(v, "WIVRN", kSrvPanelL + 0.02f, kSrvPanelTop - 0.06f,
-            kUiText * 1.4f, kUiFill[0], kUiFill[1], kUiFill[2]);
+// Row layout constants (panel-local metres).
+static constexpr float kRowH = 0.14f;
+static constexpr float kRowGap = 0.02f;
+
+float serverContentHeight() {
+    auto servers = getServerList();
+    if (servers.empty()) return 0.10f;
+    return servers.size() * kRowH + (servers.size() - 1) * kRowGap;
 }
 
-void buildServerPanel(std::vector<float> &v, int hoverItem, bool closeHover, int connectHot) {
-    buildChrome(v, closeHover);
-
+float buildServerContent(std::vector<float> &v, float scrollY,
+                         int hoverItem, int connectHot) {
     auto servers = getServerList();
+    float contentW = kCtX1 - kCtX0;
+
     if (servers.empty()) {
-        // "Start a WiVRn server on your local network" centered
-        const char *msg = "START A WIVRN SERVER";
-        uiTextC(v, msg, (kSrvPanelL + kSrvPanelR) * 0.5f, 0.05f,
-                kUiText * 1.5f, 0.5f, 0.5f, 0.55f);
-        const char *msg2 = "ON YOUR LOCAL NETWORK";
-        uiTextC(v, msg2, (kSrvPanelL + kSrvPanelR) * 0.5f, -0.02f,
-                kUiText * 1.5f, 0.5f, 0.5f, 0.55f);
-        return;
+        uiTextC(v, "START A WIVRN SERVER", (kCtX0 + kCtX1) * 0.5f,
+                kCtTop - 0.05f - scrollY, kUiText * 1.8f, 0.5f, 0.5f, 0.55f);
+        uiTextC(v, "ON YOUR LOCAL NETWORK", (kCtX0 + kCtX1) * 0.5f,
+                kCtTop - 0.13f - scrollY, kUiText * 1.8f, 0.5f, 0.5f, 0.55f);
+        return 0.20f;
     }
 
-    float sideR = kSrvPanelL + 0.24f;
-    float yTop = kSrvCtTop;
-    float rowH = kSrvRowH;
-    float gap = kSrvRowGap;
+    float yTop = kCtTop - scrollY;
+    for (int i = 0; i < (int)servers.size(); i++) {
+        float yBot = yTop - kRowH;
+        // Skip rows outside the viewport
+        if (yTop < kCtBot || yBot > kCtTop) {
+            yTop = yBot - kRowGap;
+            continue;
+        }
 
-    for (int i = 0; i < (int)servers.size() && yTop - rowH > kSrvCtBot; i++) {
         const auto &srv = servers[i];
-        float yBot = yTop - rowH;
         bool hot = (i == hoverItem);
 
-        // Row background
-        float bg[3] = {0.06f, 0.06f, 0.08f};
-        if (hot) { bg[0] = 0.12f; bg[1] = 0.16f; bg[2] = 0.22f; }
-        appendQuad(v, sideR + 0.02f, yTop, kSrvPanelR - 0.02f, yBot,
-                   bg[0], bg[1], bg[2]);
+        // Row background card (wiVRn style: dark card with slight blue tint)
+        float bg[3] = {0.08f, 0.09f, 0.12f};
+        if (hot) { bg[0] = 0.14f; bg[1] = 0.18f; bg[2] = 0.24f; }
+        appendQuad(v, kCtX0, yTop, kCtX1, yBot, bg[0], bg[1], bg[2]);
 
-        // Server name
-        uiTextL(v, srv.name.c_str(), sideR + 0.05f, yTop - 0.025f,
-                kUiText * 1.3f, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+        // Server name (large)
+        uiTextL(v, srv.name.c_str(), kCtX0 + 0.03f, yTop - 0.03f,
+                kUiText * 1.5f, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
 
-        // Hostname:port
+        // Hostname:port (small, dim)
         char hostport[128];
         snprintf(hostport, sizeof(hostport), "%s:%d", srv.hostname.c_str(), srv.port);
-        uiTextL(v, hostport, sideR + 0.05f, yTop - 0.065f,
+        uiTextL(v, hostport, kCtX0 + 0.03f, yTop - 0.075f,
                 kUiText * 0.9f, 0.5f, 0.55f, 0.6f);
 
-        // Autoconnect toggle (for non-manual servers)
+        // Autoconnect toggle (non-manual only)
         if (!srv.manual) {
-            UiRect tog = { kSrvPanelR - 0.30f, yTop - rowH * 0.5f, 0.22f, 0.05f };
-            uiToggle(v, tog, "AUTO", srv.autoconnect, hot && (connectHot == i ? false : true));
+            UiRect tog = { kCtX1 - 0.35f, yTop - kRowH * 0.5f, 0.25f, 0.05f };
+            uiToggle(v, tog, "AUTO", srv.autoconnect, hot && connectHot != i);
         }
 
         // Connect button (green, wiVRn style)
-        UiRect btn = { kSrvPanelR - 0.09f, yTop - rowH * 0.5f, 0.12f, 0.07f };
+        float btnW = 0.16f, btnH = 0.08f;
+        UiRect btn = { kCtX1 - btnW * 0.5f - 0.03f, yTop - kRowH * 0.5f, btnW, btnH };
         bool btnHot = (connectHot == i);
         if (btnHot) {
-            // Hovered: bright green
             appendQuad(v, btn.cx - btn.w*0.5f, btn.cy + btn.h*0.5f,
                        btn.cx + btn.w*0.5f, btn.cy - btn.h*0.5f,
                        0.2f, 0.8f, 0.3f);
         } else {
-            // Normal: dim green
             appendQuad(v, btn.cx - btn.w*0.5f, btn.cy + btn.h*0.5f,
                        btn.cx + btn.w*0.5f, btn.cy - btn.h*0.5f,
                        0.1f, 0.4f, 0.15f);
         }
-        uiTextC(v, "CONNECT", btn.cx, btn.cy + 3.5f * kUiText * 0.8f,
-                kUiText * 0.8f, 1.0f, 1.0f, 1.0f);
+        uiTextC(v, "CONNECT", btn.cx, btn.cy + 3.5f * kUiText * 0.85f,
+                kUiText * 0.85f, 1.0f, 1.0f, 1.0f);
 
-        yTop = yBot - gap;
+        yTop = yBot - kRowGap;
     }
+
+    return serverContentHeight();
 }
 
-SrvHover hitServerPanel(float cx, float cy) {
+SrvHover hitServerContent(float cx, float cy, float scrollY) {
     SrvHover h;
-
-    // Close button
-    if (uiHit(kSrvClose, cx, cy)) {
-        h.item = -2;  // close
-        h.part = 0;
-        h.grab = true;
-        return h;
-    }
-
     auto servers = getServerList();
-    float sideR = kSrvPanelL + 0.24f;
-    float yTop = kSrvCtTop;
-    float rowH = kSrvRowH;
-    float gap = kSrvRowGap;
+    float yTop = kCtTop - scrollY;
 
-    for (int i = 0; i < (int)servers.size() && yTop - rowH > kSrvCtBot; i++) {
-        float yBot = yTop - rowH;
+    for (int i = 0; i < (int)servers.size(); i++) {
+        float yBot = yTop - kRowH;
 
         // Connect button
-        UiRect btn = { kSrvPanelR - 0.09f, yTop - rowH * 0.5f, 0.12f, 0.07f };
+        float btnW = 0.16f, btnH = 0.08f;
+        UiRect btn = { kCtX1 - btnW * 0.5f - 0.03f, yTop - kRowH * 0.5f, btnW, btnH };
         if (uiHit(btn, cx, cy)) {
-            h.item = i;
-            h.part = 1;  // connect
-            h.grab = true;
+            h.item = i; h.part = 1; h.grab = true;
             return h;
         }
 
-        // Autoconnect toggle (non-manual only)
+        // Autoconnect toggle
         if (!servers[i].manual) {
-            UiRect tog = { kSrvPanelR - 0.30f, yTop - rowH * 0.5f, 0.22f, 0.05f };
+            UiRect tog = { kCtX1 - 0.35f, yTop - kRowH * 0.5f, 0.25f, 0.05f };
             if (uiHit(tog, cx, cy)) {
-                h.item = i;
-                h.part = 2;  // autoconnect
-                h.grab = true;
+                h.item = i; h.part = 2; h.grab = true;
                 return h;
             }
         }
 
         // Row body
-        if (cx >= sideR + 0.02f && cx <= kSrvPanelR - 0.02f &&
-            cy <= yTop && cy >= yBot) {
-            h.item = i;
-            h.part = 0;
-            h.grab = false;
+        if (cx >= kCtX0 && cx <= kCtX1 && cy <= yTop && cy >= yBot) {
+            h.item = i; h.part = 0; h.grab = false;
             return h;
         }
 
-        yTop = yBot - gap;
+        yTop = yBot - kRowGap;
     }
 
     return h;
@@ -166,14 +137,10 @@ SrvHover hitServerPanel(float cx, float cy) {
 void applyServerClick(const SrvHover &h, bool click) {
     if (!click) return;
     if (h.item < 0) return;
-
     auto servers = getServerList();
     if (h.item >= (int)servers.size()) return;
-
     if (h.part == 1) {
-        // Connect button
         if (gOnServerConnect)
             gOnServerConnect(servers[h.item]);
     }
-    // part 2 (autoconnect toggle) would need persistence; skip for POC
 }
