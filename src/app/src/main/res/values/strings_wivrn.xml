@@ -39,7 +39,6 @@
     <string name="codec_h265">H.265</string>
     <string name="setting_microphone">Enable microphone</string>
     <string name="setting_lower_res_wireless">Lower resolution for wireless</string>
-    <string name="setting_dynamic_bitrate">Dynamic bitrate</string>
     <string name="setting_language">Language</string>
     <string name="lang_system">System</string>
     <string name="restore_defaults">Restore Defaults</string>

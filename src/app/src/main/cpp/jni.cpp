@@ -415,13 +415,6 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetBitrate(JNIEnv *, jobject, 
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetDynamicBitrate(JNIEnv *, jobject, jboolean enabled) {
-    if (!g_stream) return;
-    g_stream->dynamic_bitrate_enabled.store(enabled == JNI_TRUE);
-    LOGI("Dynamic bitrate %s", enabled == JNI_TRUE ? "enabled" : "disabled");
-}
-
-extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetPassthrough(JNIEnv *, jobject, jboolean enabled) {
     gWivrnPassthrough.store(enabled == JNI_TRUE);
     extern pico_passthrough * gPassthrough;

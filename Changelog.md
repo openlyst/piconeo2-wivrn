@@ -11,6 +11,7 @@
 - Fix lobby status text mislabeling "Disconnected" as "Connecting" due to loose substring matching
 - Replace unbounded strcpy into fixed status buffers with bounded copies
 - Switch config file format to tagged key=value with version header (old positional files auto-migrate on first load)
+- Remove dynamic bitrate (was unreliable, bitrate is now fixed at the user-set value)
 - Fix controllers not tracking when only one is connected (the 6DoF thread required both)
 - Fix a broken/missing controller leaving a ghost parked at the floor (stale pose at origin now suppressed)
 - Fix one-handed 6DoF tracking by falling back to the raw CV pose when the VR Shell breaks the head-aligned transform
