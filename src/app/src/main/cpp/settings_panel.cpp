@@ -165,7 +165,12 @@ static void buildCoreModel(MenuModel &m) {
         res.vmin = 0.5f; res.vmax = 2.0f;
         res.get = []{ return gWivrnResolutionScale.load(); };
         res.set = [](float v){ gWivrnResolutionScale.store(v); };
-        res.valueText = [](char *b,int n){ snprintf(b,n,"%.2f X", gWivrnResolutionScale.load()); };
+        res.valueText = [](char *b,int n){
+            float s = gWivrnResolutionScale.load();
+            int rw = (int)((1664 * s) / 2) * 2;
+            int rh = (int)((1756 * s) / 2) * 2;
+            snprintf(b,n,"%d%% - %dx%d", (int)(s * 100), rw, rh);
+        };
         res.onCommit = []{
             if (g_stream && g_stream->session) {
                 constexpr int base_w = 1664;
