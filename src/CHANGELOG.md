@@ -1,7 +1,7 @@
 # Changelog
 
 ## v0.1.5
-- Remove dynamic bitrate
+- Remove dynamic bitrate option
 - Remove "lower resolution for wireless" option
 - Fix controllers not tracking when only one is connected
 - Suppress ghost controllers stuck at the floor
