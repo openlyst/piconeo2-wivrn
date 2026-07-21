@@ -321,68 +321,155 @@ static void buildGazeMarker() {
 // ---------------------------------------------------------------------------
 static GLuint gCtrlVao[2] = {0,0}, gCtrlVbo[2] = {0,0};
 static int    gCtrlVertCount[2] = {0,0};
-static std::vector<float> gCtrlPos[2];   // line-endpoint positions (xyz), in metres
+// Vertex format: pos.xyz + uv.xy + shade.rgb = 8 floats
+static GLuint gCtrlTex = 0;          // idle texture (shared by both hands)
+static GLuint gCtrlProg = 0;         // textured+lit shader
+static GLint  gCtrlMvpLoc = 0, gCtrlTexLoc = 0;
 // Controller OBJ models bundled in assets, extracted to HOME/controller/.
 // r.obj reads right on the LEFT hand, controller2s.obj on the RIGHT.
 static std::string kCtrlObjPath[2];
+static std::string kCtrlTexPath;
 static void initCtrlObjPaths() {
     const char *home = getenv("HOME");
     if (!home) home = "/data/data/org.meumeu.wivrn.neo2.pvr/files";
     kCtrlObjPath[0] = std::string(home) + "/controller/r.obj";
     kCtrlObjPath[1] = std::string(home) + "/controller/controller2s.obj";
+    kCtrlTexPath    = std::string(home) + "/controller/controller2s_idle.png";
 }
-static void loadCtrlObjTris(const char *path, std::vector<float> &out) {
-    out.clear();
+// Load OBJ with UVs. Output: interleaved pos.xyz + uv.xy per vertex (5 floats),
+// triangulated. Positions converted cm -> m.
+static void loadCtrlObjTextured(const char *path, std::vector<float> &outPos, std::vector<float> &outUv) {
+    outPos.clear(); outUv.clear();
     FILE *f = fopen(path, "r");
     if (!f) { LOGE("ctrl obj missing: %s", path); return; }
-    std::vector<float> vx, vy, vz;
+    std::vector<float> vx, vy, vz, vt_u, vt_v;
     char line[512];
     while (fgets(line, sizeof(line), f)) {
         if (line[0]=='v' && line[1]==' ') {
             float x,y,z;
             if (sscanf(line+2, "%f %f %f", &x,&y,&z)==3) { vx.push_back(x); vy.push_back(y); vz.push_back(z); }
+        } else if (line[0]=='v' && line[1]=='t' && line[2]==' ') {
+            float u,v;
+            if (sscanf(line+3, "%f %f", &u,&v)==2) { vt_u.push_back(u); vt_v.push_back(v); }
         } else if (line[0]=='f' && (line[1]==' '||line[1]=='\t')) {
-            int idx[16]; int n=0;
+            int vi[16], ti[16]; int n=0;
             char *tok = strtok(line+2, " \t\r\n");
             while (tok && n<16) {
-                int vi = atoi(tok);
-                if (vi != 0) idx[n++] = (vi > 0) ? vi-1 : (int)vx.size()+vi;
+                int v_idx=0, t_idx=0;
+                // format: v/vt/vn or v/vt or v
+                v_idx = atoi(tok);
+                const char *slash1 = strchr(tok, '/');
+                if (slash1) t_idx = atoi(slash1+1);
+                if (v_idx != 0) {
+                    vi[n] = (v_idx > 0) ? v_idx-1 : (int)vx.size()+v_idx;
+                    ti[n] = (t_idx > 0) ? t_idx-1 : (t_idx < 0) ? (int)vt_u.size()+t_idx : -1;
+                    n++;
+                }
                 tok = strtok(nullptr, " \t\r\n");
             }
-            // fan triangulation
             for (int i=1; i+1<n; i++) {
-                int a=idx[0], b=idx[i], c=idx[i+1];
+                int a=vi[0], b=vi[i], c=vi[i+1];
+                int ta=ti[0], tb=ti[i], tc=ti[i+1];
                 if (a<0||b<0||c<0||a>=(int)vx.size()||b>=(int)vx.size()||c>=(int)vx.size()) continue;
-                out.insert(out.end(), { vx[a],vy[a],vz[a] });
-                out.insert(out.end(), { vx[b],vy[b],vz[b] });
-                out.insert(out.end(), { vx[c],vy[c],vz[c] });
+                outPos.insert(outPos.end(), { vx[a]*0.01f,vy[a]*0.01f,vz[a]*0.01f });
+                outPos.insert(outPos.end(), { vx[b]*0.01f,vy[b]*0.01f,vz[b]*0.01f });
+                outPos.insert(outPos.end(), { vx[c]*0.01f,vy[c]*0.01f,vz[c]*0.01f });
+                auto uv = [&](int idx) {
+                    if (idx>=0 && idx<(int)vt_u.size())
+                        outUv.insert(outUv.end(), { vt_u[idx], vt_v[idx] });
+                    else
+                        outUv.insert(outUv.end(), { 0.0f, 0.0f });
+                };
+                uv(ta); uv(tb); uv(tc);
             }
         }
     }
     fclose(f);
-    for (auto &c : out) c *= 0.01f;
-    LOGI("ctrl obj %s -> %d tri verts", path, (int)(out.size()/3));
+    LOGI("ctrl obj %s -> %d tri verts (UVs: %s)", path, (int)(outPos.size()/3),
+         vt_u.empty() ? "no" : "yes");
 }
+// Load a PNG from file into a GL texture (RGBA). Uses stb_image if available,
+// otherwise falls back to a raw RGBA loader. Here we use a minimal PNG decoder
+// via the Android BitmapFactory through JNI is overkill; instead we use stb_image.
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+static GLuint loadCtrlTexture(const char *path) {
+    int w, h, ch;
+    stbi_set_flip_vertically_on_load(1); // PNG is top-down, GL is bottom-up
+    unsigned char *data = stbi_load(path, &w, &h, &ch, 4);
+    if (!data) { LOGE("ctrl tex load failed: %s", path); return 0; }
+    GLuint tex;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    LOGI("ctrl tex %s -> %d (%dx%d)", path, tex, w, h);
+    stbi_image_free(data);
+    return tex;
+}
+static void buildCtrlShader() {
+    if (gCtrlProg) return;
+    const char *vs = R"(#version 300 es
+        layout(location=0) in vec3 aPos;
+        layout(location=1) in vec2 aUV;
+        layout(location=2) in vec3 aShade;
+        uniform mat4 uMVP;
+        out vec2 vUV;
+        out vec3 vShade;
+        void main() {
+            gl_Position = uMVP * vec4(aPos, 1.0);
+            vUV = aUV;
+            vShade = aShade;
+        })";
+    const char *fs = R"(#version 300 es
+        precision mediump float;
+        in vec2 vUV;
+        in vec3 vShade;
+        uniform sampler2D uTex;
+        out vec4 frag;
+        void main() {
+            vec4 tex = texture(uTex, vUV);
+            frag = vec4(tex.rgb * vShade, 1.0);
+        })";
+    gCtrlProg = glCreateProgram();
+    GLuint s1 = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(s1, 1, &vs, nullptr); glCompileShader(s1);
+    GLuint s2 = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(s2, 1, &fs, nullptr); glCompileShader(s2);
+    glAttachShader(gCtrlProg, s1); glAttachShader(gCtrlProg, s2);
+    glLinkProgram(gCtrlProg);
+    glDeleteShader(s1); glDeleteShader(s2);
+    gCtrlMvpLoc = glGetUniformLocation(gCtrlProg, "uMVP");
+    gCtrlTexLoc = glGetUniformLocation(gCtrlProg, "uTex");
+    LOGI("ctrl shader prog=%u", gCtrlProg);
+}
+static std::vector<float> gCtrlPosData[2], gCtrlUvData[2];
 static void buildControllerMeshes() {
     if (kCtrlObjPath[0].empty()) initCtrlObjPaths();
-    bool amber = gThemeAmber.load();
+    buildCtrlShader();
+    if (!gCtrlTex && !kCtrlTexPath.empty())
+        gCtrlTex = loadCtrlTexture(kCtrlTexPath.c_str());
     // Light direction (normalized) - from upper front left
     const float lx = -0.4f, ly = 0.6f, lz = -0.7f;
     float llen = sqrtf(lx*lx + ly*ly + lz*lz);
     float lxn = lx/llen, lyn = ly/llen, lzn = lz/llen;
+    const float ambient = 0.4f;
     for (int h=0; h<2; h++) {
-        if (gCtrlPos[h].empty()) loadCtrlObjTris(kCtrlObjPath[h].c_str(), gCtrlPos[h]);
-        std::vector<float> v; v.reserve(gCtrlPos[h].size()*2);
-        // Per-triangle flat shading: compute face normal, dot with light dir,
-        // modulate base grey. Gives the model solid 3D look without a lighting shader.
-        const float baseR = amber ? 0.80f : 0.35f;
-        const float baseG = amber ? 0.65f : 0.35f;
-        const float baseB = amber ? 0.35f : 0.35f;
-        const float ambient = 0.35f;
-        for (size_t i = 0; i + 9 <= gCtrlPos[h].size(); i += 9) {
-            float ax = gCtrlPos[h][i],   ay = gCtrlPos[h][i+1], az = gCtrlPos[h][i+2];
-            float bx = gCtrlPos[h][i+3], by = gCtrlPos[h][i+4], bz = gCtrlPos[h][i+5];
-            float cx = gCtrlPos[h][i+6], cy = gCtrlPos[h][i+7], cz = gCtrlPos[h][i+8];
+        if (gCtrlPosData[h].empty())
+            loadCtrlObjTextured(kCtrlObjPath[h].c_str(), gCtrlPosData[h], gCtrlUvData[h]);
+        // Build 8-float vertices: pos.xyz + uv.xy + shade.rgb
+        std::vector<float> v;
+        v.reserve(gCtrlPosData[h].size() / 3 * 8);
+        for (size_t i = 0; i + 9 <= gCtrlPosData[h].size(); i += 9) {
+            float ax = gCtrlPosData[h][i],   ay = gCtrlPosData[h][i+1], az = gCtrlPosData[h][i+2];
+            float bx = gCtrlPosData[h][i+3], by = gCtrlPosData[h][i+4], bz = gCtrlPosData[h][i+5];
+            float cx = gCtrlPosData[h][i+6], cy = gCtrlPosData[h][i+7], cz = gCtrlPosData[h][i+8];
+            // face normal
             float ex1 = bx-ax, ey1 = by-ay, ez1 = bz-az;
             float ex2 = cx-ax, ey2 = cy-ay, ez2 = cz-az;
             float nx = ey1*ez2 - ez1*ey2;
@@ -393,23 +480,27 @@ static void buildControllerMeshes() {
             float diff = nx*lxn + ny*lyn + nz*lzn;
             if (diff < 0) diff = 0;
             float shade = ambient + (1.0f - ambient) * diff;
-            float r = baseR * shade;
-            float g = baseG * shade;
-            float b = baseB * shade;
-            v.insert(v.end(), { ax,ay,az, r,g,b });
-            v.insert(v.end(), { bx,by,bz, r,g,b });
-            v.insert(v.end(), { cx,cy,cz, r,g,b });
+            float sR = shade, sG = shade, sB = shade;
+            size_t uvBase = i / 3 * 2;  // matching UV index
+            v.insert(v.end(), { ax,ay,az, gCtrlUvData[h][uvBase],   gCtrlUvData[h][uvBase+1],   sR,sG,sB });
+            v.insert(v.end(), { bx,by,bz, gCtrlUvData[h][uvBase+2], gCtrlUvData[h][uvBase+3], sR,sG,sB });
+            v.insert(v.end(), { cx,cy,cz, gCtrlUvData[h][uvBase+4], gCtrlUvData[h][uvBase+5], sR,sG,sB });
         }
-        gCtrlVertCount[h] = (int)(v.size()/6);
+        gCtrlVertCount[h] = (int)(v.size()/8);
         if (!gCtrlVao[h]) {
             glGenVertexArrays(1,&gCtrlVao[h]);
             glBindVertexArray(gCtrlVao[h]);
             glGenBuffers(1,&gCtrlVbo[h]);
             glBindBuffer(GL_ARRAY_BUFFER,gCtrlVbo[h]);
+            // pos.xyz
             glEnableVertexAttribArray(0);
-            glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,6*sizeof(float),(void*)0);
+            glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,8*sizeof(float),(void*)0);
+            // uv.xy
             glEnableVertexAttribArray(1);
-            glVertexAttribPointer(1,3,GL_FLOAT,GL_FALSE,6*sizeof(float),(void*)(3*sizeof(float)));
+            glVertexAttribPointer(1,2,GL_FLOAT,GL_FALSE,8*sizeof(float),(void*)(3*sizeof(float)));
+            // shade.rgb
+            glEnableVertexAttribArray(2);
+            glVertexAttribPointer(2,3,GL_FLOAT,GL_FALSE,8*sizeof(float),(void*)(5*sizeof(float)));
             glBindVertexArray(0);
         }
         glBindBuffer(GL_ARRAY_BUFFER, gCtrlVbo[h]);
@@ -3388,7 +3479,7 @@ void *renderThread(void *) {
                 glDrawArrays(GL_LINES, 0, 2);
                 glBindVertexArray(0);
             }
-            // Controller models: solid meshes attached to each live
+            // Controller models: textured solid meshes attached to each live
             // controller pose. Mesh is pre-scaled to metres and centred at origin.
             glEnable(GL_DEPTH_TEST);
             glDepthFunc(GL_LEQUAL);
@@ -3397,9 +3488,12 @@ void *renderThread(void *) {
                 Mat4 M = quatToMat4(ctrlQuat[h][0], ctrlQuat[h][1], ctrlQuat[h][2], ctrlQuat[h][3]);
                 M.m[12] = ctrlPos[h][0]; M.m[13] = ctrlPos[h][1]; M.m[14] = ctrlPos[h][2];
                 Mat4 cMvp = mat4Mul(sproj, mat4Mul(sview, M));
-                glUseProgram(gProg);
+                glUseProgram(gCtrlProg);
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, gCtrlTex);
+                glUniform1i(gCtrlTexLoc, 0);
                 glBindVertexArray(gCtrlVao[h]);
-                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, cMvp.m);
+                glUniformMatrix4fv(gCtrlMvpLoc, 1, GL_FALSE, cMvp.m);
                 glDrawArrays(GL_TRIANGLES, 0, gCtrlVertCount[h]);
                 glBindVertexArray(0);
             }

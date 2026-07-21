@@ -158,7 +158,7 @@ target_include_directories(p2wivrn PRIVATE
     ${CMAKE_BINARY_DIR}
 )
 
-target_include_directories(p2wivrn SYSTEM PRIVATE ${SPDLOG_INCLUDE_DIR} ${BOOST_INCLUDE_DIR})
+target_include_directories(p2wivrn SYSTEM PRIVATE ${SPDLOG_INCLUDE_DIR} ${BOOST_INCLUDE_DIR} ${THIRD_PARTY_DIR})
 
 target_compile_definitions(p2wivrn PRIVATE SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG SPDLOG_FMT_EXTERNAL FMT_HEADER_ONLY)
 
