@@ -3,6 +3,7 @@
 #include "log.h"
 #include <cstdio>
 #include <cstdlib>   // getenv
+#include <cstring>   // strncmp, strstr
 
 std::atomic<float>    gSoftIpdMm{65.0f};
 std::atomic<bool>     gIpdDirty{false};
@@ -49,10 +50,12 @@ std::atomic<int> gFenceTimeouts{0};   // warp-submit fence-wait timeouts/sec
 std::atomic<uint64_t> gBattWarnStartNs{0};
 std::atomic<int>      gBattWarnPct{0};
 
-// Unified persistence: one $HOME/config.txt, positional raw values (not meant
-// to be hand-edited). saveAllConfig() rewrites the whole file; saveX() wrappers
-// just call it. Line order: softIpd, eyeDebug, diagHud, theme, brightness(-1=unset),
-// eqPreset, eqCustom1[16], eqCustom2[16], then appended fields (backward compatible).
+// Unified persistence: one $HOME/config.txt in tagged key=value format with a
+// version header. saveAllConfig() rewrites the whole file; saveX() wrappers
+// just call it. Unknown keys on load are skipped so new fields can be inserted
+// anywhere without breaking older files, and a missing key keeps the default.
+static const int kConfigVersion = 2;
+
 static inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
 static bool configPath(char *out, size_t n) {
@@ -67,25 +70,26 @@ void saveAllConfig() {
     if (!configPath(path, sizeof(path))) return;
     FILE *f = fopen(path, "w");
     if (!f) { LOGE("config: save failed (%s)", path); return; }
-    fprintf(f, "%.2f\n", gSoftIpdMm.load());
-    fprintf(f, "%d\n",   gEyeDebugOn.load() ? 1 : 0);
-    fprintf(f, "%d\n",   gDiagHudMode.load());
-    fprintf(f, "%d\n",   gThemeAmber.load() ? 1 : 0);
-    fprintf(f, "%.3f\n", gBrightnessSaved.load() ? gBrightnessFrac.load() : -1.0f);
-    fprintf(f, "%d\n",   gEqPresetIdx);
+    fprintf(f, "version=%d\n", kConfigVersion);
+    fprintf(f, "softIpd=%.2f\n", gSoftIpdMm.load());
+    fprintf(f, "eyeDebug=%d\n",   gEyeDebugOn.load() ? 1 : 0);
+    fprintf(f, "diagHud=%d\n",   gDiagHudMode.load());
+    fprintf(f, "theme=%d\n",   gThemeAmber.load() ? 1 : 0);
+    fprintf(f, "brightness=%.3f\n", gBrightnessSaved.load() ? gBrightnessFrac.load() : -1.0f);
+    fprintf(f, "eqPreset=%d\n",   gEqPresetIdx);
+    fprintf(f, "eqCustom1=");
     for (int i = 0; i < kEqBands; i++) fprintf(f, "%.2f%c", gEqCustoms[0][i], i == kEqBands - 1 ? '\n' : ' ');
+    fprintf(f, "eqCustom2=");
     for (int i = 0; i < kEqBands; i++) fprintf(f, "%.2f%c", gEqCustoms[1][i], i == kEqBands - 1 ? '\n' : ' ');
-    // Appended last for backward compat (old files without them keep defaults).
-    fprintf(f, "%.2f\n", gStreamFovDeg.load());
-    // WiVRn settings (appended, backward compatible).
-    fprintf(f, "%d\n", gWivrnTcpOnly.load() ? 1 : 0);
-    fprintf(f, "%.2f\n", gWivrnResolutionScale.load());
-    fprintf(f, "%.0f\n", gWivrnBitrateMbps.load());
-    fprintf(f, "%d\n", gWivrnMicrophone.load() ? 1 : 0);
-    fprintf(f, "%.2f\n", gWivrnCtrlVibration.load());
-    fprintf(f, "%d\n", gWivrnEyeTracking.load() ? 1 : 0);
-    fprintf(f, "%d\n", gWivrnPassthrough.load() ? 1 : 0);
-    fprintf(f, "%d\n", gWivrnEyeFoveation.load() ? 1 : 0);
+    fprintf(f, "streamFov=%.2f\n", gStreamFovDeg.load());
+    fprintf(f, "wivrnTcpOnly=%d\n", gWivrnTcpOnly.load() ? 1 : 0);
+    fprintf(f, "wivrnResolutionScale=%.2f\n", gWivrnResolutionScale.load());
+    fprintf(f, "wivrnBitrateMbps=%.0f\n", gWivrnBitrateMbps.load());
+    fprintf(f, "wivrnMicrophone=%d\n", gWivrnMicrophone.load() ? 1 : 0);
+    fprintf(f, "wivrnCtrlVibration=%.2f\n", gWivrnCtrlVibration.load());
+    fprintf(f, "wivrnEyeTracking=%d\n", gWivrnEyeTracking.load() ? 1 : 0);
+    fprintf(f, "wivrnPassthrough=%d\n", gWivrnPassthrough.load() ? 1 : 0);
+    fprintf(f, "wivrnEyeFoveation=%d\n", gWivrnEyeFoveation.load() ? 1 : 0);
     fclose(f);
 }
 
@@ -126,15 +130,29 @@ static bool migrateLegacyConfig() {
     return any;
 }
 
-void loadAllConfig() {
-    char path[512];
-    if (!configPath(path, sizeof(path))) return;
-    FILE *f = fopen(path, "r");
-    if (!f) {
-        // No unified file yet: migrate old per-setting files, then bake into config.txt.
-        if (migrateLegacyConfig()) { saveAllConfig(); LOGI("config: migrated legacy files -> %s", path); }
-        else                       { LOGI("config: no saved file, using defaults"); }
-    } else {
+// Parse a "key=value\n" line. Returns the value pointer (inside `line`) and
+// writes the key length to *keyLen, or returns nullptr if no '=' found.
+static const char *parseKeyValue(char *line, const char **keyOut, size_t *keyLen) {
+    char *eq = strchr(line, '=');
+    if (!eq) return nullptr;
+    *eq = 0;
+    // strip trailing \n/\r from the value
+    char *v = eq + 1;
+    char *nl = v + strlen(v);
+    while (nl > v && (nl[-1] == '\n' || nl[-1] == '\r')) *--nl = 0;
+    *keyOut = line;
+    *keyLen = eq - line;
+    return v;
+}
+
+static bool keyIs(const char *key, size_t keyLen, const char *name) {
+    return strlen(name) == keyLen && strncmp(key, name, keyLen) == 0;
+}
+
+// Parse the legacy positional config.txt (pre-version-2). Reads the same line
+// order saveAllConfig used to write, then returns true so the caller re-saves
+// in the new key=value format.
+static bool loadLegacyPositionalConfig(FILE *f) {
     char ln[1024];
     float fv; int iv;
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%f", &fv) == 1) gSoftIpdMm.store(clampf(fv, kIpdMin, kIpdMax));
@@ -155,10 +173,8 @@ void loadAllConfig() {
             p += adv;
         }
     }
-    // Stream FOV (final line). Missing on an old file -> keep the default.
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%f", &fv) == 1)
         gStreamFovDeg.store(clampf(fv, kFovMin, kFovMax));
-    // WiVRn settings (appended, backward compatible).
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) gWivrnTcpOnly.store(iv != 0);
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%f", &fv) == 1) gWivrnResolutionScale.store(clampf(fv, 0.5f, 2.0f));
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%f", &fv) == 1) gWivrnBitrateMbps.store(clampf(fv, 5.0f, 200.0f));
@@ -167,8 +183,72 @@ void loadAllConfig() {
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) gWivrnEyeTracking.store(iv != 0);
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) gWivrnPassthrough.store(iv != 0);
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) gWivrnEyeFoveation.store(iv != 0);
-    fclose(f);
-    LOGI("config: loaded %s", path);
+    return true;
+}
+
+void loadAllConfig() {
+    char path[512];
+    if (!configPath(path, sizeof(path))) return;
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        // No unified file yet: migrate old per-setting files, then bake into config.txt.
+        if (migrateLegacyConfig()) { saveAllConfig(); LOGI("config: migrated legacy files -> %s", path); }
+        else                       { LOGI("config: no saved file, using defaults"); }
+    } else {
+        // Peek the first line: if it starts with "version=" it's the new key=value
+        // format, otherwise it's the legacy positional format and we migrate it.
+        char first[64] = {0};
+        if (!fgets(first, sizeof(first), f)) { fclose(f); LOGI("config: empty file, using defaults"); }
+        else if (strncmp(first, "version=", 8) == 0) {
+            // key=value format: parse each line, skip unknown keys.
+            char ln[1024];
+            // first already consumed the version line; read the rest.
+            while (fgets(ln, sizeof(ln), f)) {
+                const char *key; size_t keyLen;
+                const char *v = parseKeyValue(ln, &key, &keyLen);
+                if (!v) continue;   // blank or malformed line
+                float fv; int iv;
+                if      (keyIs(key, keyLen, "softIpd"))              { if (sscanf(v, "%f", &fv) == 1) gSoftIpdMm.store(clampf(fv, kIpdMin, kIpdMax)); }
+                else if (keyIs(key, keyLen, "eyeDebug"))             { if (sscanf(v, "%d", &iv) == 1) gEyeDebugOn.store(iv != 0); }
+                else if (keyIs(key, keyLen, "diagHud"))              { if (sscanf(v, "%d", &iv) == 1) { if (iv < 0) iv = 0; if (iv > 2) iv = 2; gDiagHudMode.store(iv); } }
+                else if (keyIs(key, keyLen, "theme"))                { if (sscanf(v, "%d", &iv) == 1) gThemeAmber.store(iv != 0); }
+                else if (keyIs(key, keyLen, "brightness"))           { if (sscanf(v, "%f", &fv) == 1 && fv >= 0.0f) { gBrightnessFrac.store(clampf(fv, 0.0f, 1.0f)); gBrightnessSaved.store(true); } }
+                else if (keyIs(key, keyLen, "eqPreset"))             { if (sscanf(v, "%d", &iv) == 1) { if (iv < 0 || iv >= kEqNumPresets) iv = 0; gEqPresetIdx = iv; } }
+                else if (keyIs(key, keyLen, "eqCustom1") || keyIs(key, keyLen, "eqCustom2")) {
+                    int slot = (key[7] == '2') ? 1 : 0;
+                    const char *p = v;
+                    for (int i = 0; i < kEqBands; i++) {
+                        float g; int adv = 0;
+                        if (sscanf(p, " %f%n", &g, &adv) != 1) break;
+                        gEqCustoms[slot][i] = clampf(g, -kEqGainMax, kEqGainMax);
+                        p += adv;
+                    }
+                }
+                else if (keyIs(key, keyLen, "streamFov"))            { if (sscanf(v, "%f", &fv) == 1) gStreamFovDeg.store(clampf(fv, kFovMin, kFovMax)); }
+                else if (keyIs(key, keyLen, "wivrnTcpOnly"))         { if (sscanf(v, "%d", &iv) == 1) gWivrnTcpOnly.store(iv != 0); }
+                else if (keyIs(key, keyLen, "wivrnResolutionScale")) { if (sscanf(v, "%f", &fv) == 1) gWivrnResolutionScale.store(clampf(fv, 0.5f, 2.0f)); }
+                else if (keyIs(key, keyLen, "wivrnBitrateMbps"))     { if (sscanf(v, "%f", &fv) == 1) gWivrnBitrateMbps.store(clampf(fv, 5.0f, 200.0f)); }
+                else if (keyIs(key, keyLen, "wivrnMicrophone"))      { if (sscanf(v, "%d", &iv) == 1) gWivrnMicrophone.store(iv != 0); }
+                else if (keyIs(key, keyLen, "wivrnCtrlVibration"))   { if (sscanf(v, "%f", &fv) == 1) gWivrnCtrlVibration.store(clampf(fv, 0.0f, 1.0f)); }
+                else if (keyIs(key, keyLen, "wivrnEyeTracking"))     { if (sscanf(v, "%d", &iv) == 1) gWivrnEyeTracking.store(iv != 0); }
+                else if (keyIs(key, keyLen, "wivrnPassthrough"))     { if (sscanf(v, "%d", &iv) == 1) gWivrnPassthrough.store(iv != 0); }
+                else if (keyIs(key, keyLen, "wivrnEyeFoveation"))    { if (sscanf(v, "%d", &iv) == 1) gWivrnEyeFoveation.store(iv != 0); }
+                // unknown key -> skip (forward-compatible)
+            }
+            fclose(f);
+            LOGI("config: loaded %s (v%d key=value)", path, kConfigVersion);
+        } else {
+            // Legacy positional format: rewind and parse the old way, then
+            // re-save in the new format so future loads are tagged.
+            fclose(f);
+            f = fopen(path, "r");
+            if (f) {
+                loadLegacyPositionalConfig(f);
+                fclose(f);
+                saveAllConfig();
+                LOGI("config: migrated legacy positional file -> %s (v%d)", path, kConfigVersion);
+            }
+        }
     }
     // mirror the active EQ slot into the live gain set
     if (gEqPresetIdx < 0 || gEqPresetIdx >= kEqNumPresets) gEqPresetIdx = 0;

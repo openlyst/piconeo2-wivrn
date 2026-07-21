@@ -10,6 +10,7 @@
 - Fix race conditions on stream lifecycle flags causing occasional lobby/stream state desync
 - Fix lobby status text mislabeling "Disconnected" as "Connecting" due to loose substring matching
 - Replace unbounded strcpy into fixed status buffers with bounded copies
+- Switch config file format to tagged key=value with version header (old positional files auto-migrate on first load)
 
 # [Beta 1.0](https://github.com/openlyst/piconeo2-wivrn/releases/download/Beta-1.0/wivrn-pvr-Beta-1.0.apk)
 
