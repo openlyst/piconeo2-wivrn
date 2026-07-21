@@ -190,8 +190,8 @@ static float gPlayspaceW = 0.0f, gPlayspaceD = 0.0f;
 // Negotiated stream refresh rate; fed to the decoder as frame-rate so the Venus
 // driver stops logging "Unable to convey fps info".
 static float gRefreshHint = 72.0f;
-// Stream-lifecycle flags touched ONLY on the render thread. gSleepReq /
-// gManualLobby / gWindowDirty ARE cross-thread and are atomic.
+// Stream-lifecycle flags. Read/written from the render loop and the ALVR
+// event handler thread, so they are atomic for cross-thread visibility.
 static std::atomic<bool>   gStreaming{false};
 static std::atomic<bool>   gDecoderReady{false};
 static std::atomic<bool>   gAlvrGlReady{false};
