@@ -470,21 +470,26 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
     }
 
-    // Start the 6DoF controller thread exactly once, only after BOTH controllers have
-    // been continuously connected for CTRL_SETTLE_MS. The service reports "connected"
-    // instantly on bind (cached), but the link isn't truly re-established yet; binding
-    // handedness that early causes the swap. Waiting for it to hold steady lets the
-    // service settle so the bind is correct. Idempotent; safe to call repeatedly.
+    // Start the 6DoF controller thread exactly once, only after at least one
+    // controller has been continuously connected for CTRL_SETTLE_MS. The service
+    // reports "connected" instantly on bind (cached), but the link isn't truly
+    // re-established yet; binding handedness that early causes the swap. Waiting
+    // for it to hold steady lets the service settle so the bind is correct.
+    // Requiring BOTH controllers left a one-handed user (broken/missing
+    // controller) with no 6DoF at all, so the working controller never tracked.
+    // Now we start as soon as ANY controller is settled. Idempotent; safe to
+    // call repeatedly.
     private synchronized void maybeStartControllerThread() {
         if (mCtrlThreadStarted) return;
-        if (!(mConn0 && mConn1)) {
+        if (!(mConn0 || mConn1)) {
             mBothConnSinceMs = 0;   // link dropped -> restart the settle window
             return;
         }
         long now = android.os.SystemClock.uptimeMillis();
         if (mBothConnSinceMs == 0) {
             mBothConnSinceMs = now;
-            Log.i(TAG, "both controllers connected -> settling " + mSettleMs + "ms before 6DoF start");
+            Log.i(TAG, "controller connected (L=" + mConn0 + " R=" + mConn1
+                    + ") -> settling " + mSettleMs + "ms before 6DoF start");
             return;
         }
         if (now - mBothConnSinceMs < mSettleMs) return;
