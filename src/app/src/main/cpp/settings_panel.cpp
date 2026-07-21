@@ -325,18 +325,18 @@ float &settingsScroll() { settingsModel(); settingsClampCat(); return gSettingsS
 // then gap, then bottom group (ABOUT, LICENSES, EXIT) anchored to bottom.
 UiRect settingsTabRect(int i) {
     int nTop = 2;       // top group
-    float tabH = 0.10f;
-    float tabGap = 0.03f;
+    float tabH = 0.09f;
+    float tabGap = 0.02f;
     float sidebarL = kSetPanelL + 0.02f;
     float sidebarR = kSidebarR - 0.02f;
     float tabW = sidebarR - sidebarL;
     float sidebarX = (sidebarL + sidebarR) * 0.5f;
     if (i < nTop) {
-        float yTop = kSetPanelTop - 0.04f;
+        float yTop = kSetPanelTop - 0.02f;
         return { sidebarX, yTop - tabH*0.5f - i*(tabH + tabGap), tabW, tabH };
     } else {
         int bi = i - nTop;  // 0=ABOUT, 1=LICENSES, 2=EXIT
-        float yBot = kSetPanelBot + 0.04f;
+        float yBot = kSetPanelBot + 0.02f;
         int nBot = 3;
         return { sidebarX, yBot + tabH*0.5f + (nBot-1-bi)*(tabH + tabGap), tabW, tabH };
     }

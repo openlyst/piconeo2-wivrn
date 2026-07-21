@@ -11,9 +11,9 @@ static constexpr float kHButton    = 0.070f, kRowButton  = kHButton + 0.060f;
 static constexpr float kFaderH     = 0.050f, kRowFader   = 0.160f;
 static constexpr float kStepBtnH   = 0.100f, kRowStepper = 0.210f;
 static constexpr float kDropHdrH   = 0.075f, kDropItemH  = 0.060f, kDropLabelH = 0.055f;
-static constexpr float kRowW       = 0.50f;          // toggle band width
-static constexpr float kFaderW     = 0.40f;
-static constexpr float kStepBtnW   = 0.13f, kStepBtnX = 0.13f;
+static constexpr float kRowW       = 0.90f;          // toggle band width
+static constexpr float kFaderW     = 0.80f;
+static constexpr float kStepBtnW   = 0.13f, kStepBtnX = 0.20f;
 
 static inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 

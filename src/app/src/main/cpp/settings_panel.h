@@ -21,16 +21,18 @@ extern std::vector<float> gSettingsScroll;
 float &settingsScroll();                  // scroll for the active category
 
 // ---- panel geometry (panel-local metres) ----------------------------------
+// Proportions match upstream wiVRn: 1400x900 window, 300px sidebar, 20px gaps.
+// Scale: 1.42m / 1400px = 0.001014 m/px
 constexpr float kSetPanelL = -0.80f, kSetPanelR =  0.62f;
 constexpr float kSetPanelTop = 0.50f, kSetPanelBot = -0.50f;
 constexpr float kSetHdrY   =  0.40f;
 constexpr UiRect kSetClose = { 0.575f, 0.40f, 0.07f, 0.07f };
-// sidebar width: wider to fit text
-constexpr float kSidebarR = -0.42f;   // sidebar right edge
-// content viewport (the scrolling region)
-constexpr float kCtX0 = -0.36f, kCtX1 = 0.60f;
-constexpr float kCtTop = 0.38f, kCtBot = -0.46f;
-constexpr float kSetContentOffX = 0.09f;
+// sidebar: 300px = 0.304m wide
+constexpr float kSidebarR = -0.50f;   // sidebar right edge
+// content viewport: starts 20px after sidebar, ends 20px before panel right
+constexpr float kCtX0 = -0.48f, kCtX1 = 0.60f;
+constexpr float kCtTop = 0.48f, kCtBot = -0.48f;
+constexpr float kSetContentOffX = 0.06f;
 constexpr float kSetViewportH = kCtTop - kCtBot;
 // reference scrollbar (drawn only, never interactive)
 constexpr float kSbX = 0.585f, kSbW = 0.012f;
