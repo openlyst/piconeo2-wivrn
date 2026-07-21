@@ -2197,7 +2197,7 @@ void *renderThread(void *) {
                 gStreaming = false;
                 gManualLobby.store(false);   // back to the normal disconnected lobby
                 gHaveDecCfg = false;         // stale config; next stream sends a fresh one
-                strcpy(gStatusText, "DISCONNECTED");
+                setStrBounded(gStatusText, "DISCONNECTED", sizeof(gStatusText));
                 if (gDecoderReady) { alvr_destroy_decoder(); gDecoderReady = false; }
                 destroyStreamSwapchain();   // also resets the pipeline (no stale slot)
                 gFovResyncPending = false;   // drop any pending re-sync for the dead stream
