@@ -370,18 +370,21 @@ float &settingsScroll() { settingsModel(); settingsClampCat(); return gSettingsS
 // then gap, then bottom group (ABOUT, LICENSES, EXIT) anchored to bottom.
 UiRect settingsTabRect(int i) {
     int nTop = 4;       // top group
-    float tabH = 0.085f;
-    float tabGap = 0.025f;
-    float sidebarX = -0.55f;
-    float tabW = 0.18f;
+    float tabH = 0.10f;
+    float tabGap = 0.03f;
+    // sidebar spans kSetPanelL to kSidebarR; center buttons in it with padding
+    float sidebarL = kSetPanelL + 0.02f;
+    float sidebarR = kSidebarR - 0.02f;
+    float tabW = sidebarR - sidebarL;
+    float sidebarX = (sidebarL + sidebarR) * 0.5f;
     if (i < nTop) {
-        // top group: starts below header
-        float yTop = kSetPanelTop - 0.06f;
+        // top group: starts below panel top
+        float yTop = kSetPanelTop - 0.04f;
         return { sidebarX, yTop - tabH*0.5f - i*(tabH + tabGap), tabW, tabH };
     } else {
         // bottom group: anchored to panel bottom
         int bi = i - nTop;  // 0=ABOUT, 1=LICENSES, 2=EXIT
-        float yBot = kSetPanelBot + 0.06f;
+        float yBot = kSetPanelBot + 0.04f;
         int nBot = 3;
         return { sidebarX, yBot + tabH*0.5f + (nBot-1-bi)*(tabH + tabGap), tabW, tabH };
     }
@@ -439,9 +442,9 @@ void buildSettingsPanel(std::vector<float> &v, float offX, float offY, float con
     int cat = gSettingsCat;
     // wiVRn-style: pure black sidebar, grey semi-transparent content area.
     // Sidebar: pure black (0,0,0)
-    appendQuad(v, kSetPanelL, kSetPanelTop, -0.45f, kSetPanelBot, 0.0f, 0.0f, 0.0f);
+    appendQuad(v, kSetPanelL, kSetPanelTop, kSidebarR, kSetPanelBot, 0.0f, 0.0f, 0.0f);
     // Content area: dark grey semi-transparent (wiVRn uses 8,8,8,224)
-    appendQuad(v, -0.45f, kSetPanelTop, kSetPanelR, kSetPanelBot, 0.03f, 0.03f, 0.03f);
+    appendQuad(v, kSidebarR, kSetPanelTop, kSetPanelR, kSetPanelBot, 0.03f, 0.03f, 0.03f);
 
     // Header removed - wiVRn doesn't show a title in the content area.
 
@@ -458,7 +461,11 @@ void buildSettingsPanel(std::vector<float> &v, float offX, float offY, float con
         else                  { c0=0.04f; c1=0.10f; c2=0.22f; }
         appendQuad(v, xL, yT, xR, yB, c0, c1, c2);
         const float *tc = active ? kUiWhite : kUiTitle;
-        uiTextC(v, m[i].name, r.cx, r.cy + 3.0f*0.005f, 0.005f, tc[0], tc[1], tc[2]);
+        // Shrink text to fit button width
+        float tpx = 0.0045f;
+        float textW = r.w - 0.02f;  // padding
+        // measureTextTTF is internal to ui_kit; use a simple fit
+        uiTextC(v, m[i].name, r.cx, r.cy + 3.0f*tpx, tpx, tc[0], tc[1], tc[2]);
     }
 
     // content: build builder-local, then translate + triangle-clip to the viewport
