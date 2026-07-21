@@ -1,22 +1,21 @@
 # [Beta 1.1 (Unreleased)]()
 
-- Reimplements eye tracking
-- Add eye-tracked foveated streaming toggle (VIDEO settings)
-- Fix stereo IPD mismatch between server
-- Fix springing HMD tracking
+- Reimplementes Eye tracking
+- Adds foveated streaming toggle added to VIDEO settings
+- Fixed stereo IPD mismatch between client and server
+- Fixed springing HMD tracking
+- Fixed passthrough warping at the edges of the view
+- Fixed passthrough stuttering when moving your head
+- Fixed race conditions on stream lifecycle flags that caused occasional lobby/stream state desync
+- Fixed lobby status text mislabeling "Disconnected" as "Connecting" due to loose substring matching
+- Fixed controllers not tracking when only one is connected
+- Fixed a broken or missing controller leaving a ghost parked at the floor 
+- Fixed one-handed 6DoF tracking
+- Fixed the right controller disconnecting when both were connected
+- Replaced unbounded with bounded copies
 - Passthrough is now off by default
-- Fix passthrough warping at the edges of the view
-- Fix passthrough stuttering when moving your head
-- Fix race conditions on stream lifecycle flags causing occasional lobby/stream state desync
-- Fix lobby status text mislabeling "Disconnected" as "Connecting" due to loose substring matching
-- Replace unbounded strcpy into fixed status buffers with bounded copies
-- Switch config file format to tagged key=value with version header (old positional files auto-migrate on first load)
-- Remove dynamic bitrate (was unreliable, bitrate is now fixed at the user-set value)
-- Remove "lower resolution for wireless" option (use the resolution slider instead)
-- Fix controllers not tracking when only one is connected (the 6DoF thread required both)
-- Fix a broken/missing controller leaving a ghost parked at the floor (stale pose at origin now suppressed)
-- Fix one-handed 6DoF tracking by falling back to the raw CV pose when the VR Shell breaks the head-aligned transform
-- Fix the right controller disconnecting when both were connected (stop+restart only runs in the single-controller path now)
+- Dynamic bitrate removed 
+- "Lower resolution for wireless" option removed
 
 # [Beta 1.0](https://github.com/openlyst/piconeo2-wivrn/releases/download/Beta-1.0/wivrn-pvr-Beta-1.0.apk)
 
