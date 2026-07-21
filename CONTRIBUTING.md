@@ -78,16 +78,6 @@ The lobby UI is an immediate-mode layer on top of `ui_kit`. Each frame, the rend
 
 `v` is a `std::vector<float>` of interleaved position + color + UV verts that gets uploaded to a VBO and drawn with `gProg` at the end of the frame. Hit-testing is `uiHit(rect, lx, ly)` against the controller/head-gaze pointer position. Look at `settings_panel.cpp` and `eq_panel.cpp` for working examples.
 
-## Commit messages
-
-Commits are written in **Mandarin Chinese**, short and descriptive. Examples from `git log`:
-
-- `将gStreaming改为std::atomic<bool>`
-- `修复passthrough网格UV越界和y_scale过度拉伸导致的边缘wraping`
-- `设置passthrough摄像头AE目标帧率范围为30-60fps减少移动时卡顿`
-
-No `Co-Authored-By` lines, no `Generated with ...` attribution, no AI mentions. Just the change.
-
 ## Branches and merges
 
 Feature branches off `main`, named by area: `fix/...`, `cleanup/...`, `docs/...`, `feature/...`. Merge via GitLab MR with a merge commit (not squash). Keep branches short-lived.
