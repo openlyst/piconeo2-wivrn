@@ -2586,6 +2586,7 @@ void *renderThread(void *) {
         // ---- ALVR video path: async TimeWarp (present every refresh) --------
         // The overlay (gManualLobby) draws on top of the video below.
         if (gStreaming && gDecoderReady) {
+            gStreamingMode = true;
             hudAnchored = false;   // re-anchor the lobby HUD next time we return to it
             // Free the lobby eye-texture ring (~94 MB) while streaming; rebuilt
             // lazily when we next return to the lobby. DEFER the free, arm a
@@ -2946,6 +2947,7 @@ void *renderThread(void *) {
                     // UI directly on top of the video in gSwap (overlay mode: no
                     // color clear, only depth). The video keeps playing underneath.
                     if (gManualLobby.load()) {
+                        gStreamingMode = true;   // show streaming tabs in sidebar
                         // Compute view/projection from the head pose + stream FOV.
                         Mat4 hRot = quatToMat4(qx, qy, qz, qw);
                         Mat4 invRot = mat4Transpose3x3(hRot);
@@ -3089,8 +3091,10 @@ void *renderThread(void *) {
 
                             if (onPanel) {
                                 if (uiHit(kSetClose, lx, ly)) { setCloseHover = true; lobbyHover = true; }
-                                for (int i = 0; i < (int)model.size(); i++)
+                                for (int i = 0; i < (int)model.size(); i++) {
+                                    if (model[i].streamingOnly && !gStreamingMode) continue;
                                     if (uiHit(settingsTabRect(i), lx, ly)) { setTabHover = i; lobbyHover = true; }
+                                }
                             }
                             if (inContent) mh = menuHit(cat, cx, cy);
                             if (mh.item >= 0 || setTabHover >= 0 || setCloseHover) lobbyHover = true;
@@ -3113,7 +3117,29 @@ void *renderThread(void *) {
                             if (scrollable && fabsf(scrollStickY) > 0.18f)
                                 gSettingsScroll[gSettingsCat] -= scrollStickY * 0.01875f;
 
-                            if (clickEdge && setTabHover >= 0 && setTabHover != gSettingsCat) { gSettingsCat = setTabHover; sDragMode = 0; }
+                            if (clickEdge && setTabHover >= 0 && setTabHover != gSettingsCat) {
+                                gSettingsCat = setTabHover; sDragMode = 0;
+                                // Switching to Launch: request app list if not yet loaded.
+                                if (g_stream && g_stream->session && setTabHover == 4 /* Launch */) {
+                                    std::lock_guard<std::mutex> lk(g_stream->app_mutex);
+                                    if (g_stream->available_apps.empty() && !g_stream->app_list_requested) {
+                                        try { g_stream->session->send_control(
+                                            wivrn::from_headset::get_application_list{"en","US",""}); }
+                                        catch (...) {}
+                                    }
+                                }
+                            }
+                            // Auto-poll running apps every ~1s while on the Apps tab.
+                            if (g_stream && g_stream->session && gSettingsCat == 3 /* Apps */) {
+                                static uint64_t lastAppPoll = 0;
+                                uint64_t now = nowNs();
+                                if (now - lastAppPoll > 1000000000ULL) {
+                                    lastAppPoll = now;
+                                    try { g_stream->session->send_control(
+                                        wivrn::from_headset::get_running_applications{}); }
+                                    catch (...) {}
+                                }
+                            }
                             if (sDragMode != 1)
                                 menuApply(gSettingsCat, cat, mh, clickEdge, ptrGrab, cx, cy);
                             if (!ptrGrab && gEqGrabbing) { gEqGrabbing = false; gEqActiveBand = -1; }
@@ -3129,6 +3155,30 @@ void *renderThread(void *) {
                             for (const auto &it : cat.items) pmix(it.dropOpen ? 1 : 0);
                             pmix(gEqActiveBand); pmix(gEqPresetOpen ? 1 : 0); pmix(gEqPresetIdx);
                             for (int i = 0; i < kEqBands; i++) pmix(lroundf(gEqGains[i] * 2000.0f));
+                            // Streaming data: stats + app counts change the panel.
+                            if (g_stream) {
+                                pmix(g_stream->stats_fps);
+                                pmix(lroundf(g_stream->stats_total_latency_ms * 10));
+                                pmix(lroundf(g_stream->stats_bandwidth_rx * 1e-6f * 10));
+                                pmix(lroundf(g_stream->stats_bandwidth_tx * 1e-6f * 10));
+                                pmix(lroundf(g_stream->stats_cpu_time_ms * 10));
+                                pmix(lroundf(g_stream->stats_gpu_time_ms * 10));
+                                pmix(lroundf(g_stream->stats_encode_ms * 10));
+                                pmix(lroundf(g_stream->stats_send_ms * 10));
+                                pmix(lroundf(g_stream->stats_network_ms * 10));
+                                pmix(lroundf(g_stream->stats_decode_ms * 10));
+                                pmix(lroundf(g_stream->stats_render_wait_ms * 10));
+                                pmix(lroundf(g_stream->stats_blit_ms * 10));
+                                pmix(g_stream->current_bitrate_mbps.load());
+                                pmix(g_stream->stream_eye_width.load());
+                                pmix(g_stream->stream_eye_height.load());
+                                pmix(g_stream->microphone_enabled.load() ? 1 : 0);
+                                int nAvail = 0, nRun = 0;
+                                { std::lock_guard<std::mutex> lk(g_stream->app_mutex);
+                                  nAvail = (int)g_stream->available_apps.size();
+                                  nRun = (int)g_stream->running_apps.size(); }
+                                pmix(nAvail); pmix(nRun);
+                            }
                             static uint32_t sPanelSig = 0; static bool sPanelHave = false;
                             static int sSliderVertCount = 0; static GLsizeiptr sSetCap = 0;
                             if (!sPanelHave || panelSig != sPanelSig) {
@@ -3367,6 +3417,14 @@ void *renderThread(void *) {
         // The streaming video path above ends with `continue`, so this lobby
         // path only runs pre-stream / between streams. The in-stream overlay
         // draws on top of the video in the path above.
+        gStreamingMode = false;   // lobby path: hide streaming-only tabs
+        // If we were on a streaming-only tab, fall back to Settings.
+        {
+            MenuModel &mm = settingsModel();
+            if (gSettingsCat >= 0 && gSettingsCat < (int)mm.size()
+                && mm[gSettingsCat].streamingOnly)
+                gSettingsCat = 1;   // Settings
+        }
 
         // When streaming has started but the decoder isn't ready yet (first
         // frame hasn't arrived), show BLACK instead of the lobby UI. The lobby
@@ -3615,8 +3673,10 @@ void *renderThread(void *) {
             // ---- chrome: close + sidebar tabs (always clickable) ----
             if (onPanel) {
                 if (uiHit(kSetClose, lx, ly)) { setCloseHover = true; lobbyHover = true; }
-                for (int i = 0; i < (int)model.size(); i++)
+                for (int i = 0; i < (int)model.size(); i++) {
+                    if (model[i].streamingOnly && !gStreamingMode) continue;
                     if (uiHit(settingsTabRect(i), lx, ly)) { setTabHover = i; lobbyHover = true; }
+                }
             }
 
             // ---- content hover (generic, over the active category's items) ----

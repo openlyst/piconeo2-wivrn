@@ -171,6 +171,14 @@ struct streaming_client
 	std::atomic<int> max_bitrate_mbps{50};
 	std::atomic<int> current_bitrate_mbps{50};
 
+	// Native copies of app/running-app data for the 3D streaming UI.
+	struct AppEntry { std::string id; std::string name; };
+	struct RunningApp { std::string name; uint32_t id; bool overlay; bool active; };
+	std::mutex app_mutex;
+	std::vector<AppEntry>    available_apps;
+	std::vector<RunningApp>  running_apps;
+	bool app_list_requested = false;
+
 	std::string server_host;
 	int server_port = 0;
 	bool tcp_only = false;

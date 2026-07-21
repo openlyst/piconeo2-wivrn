@@ -9,6 +9,7 @@
 // ---- session state (not persisted) ----------------------------------------
 extern bool gSettingsOpen;   // panel shown
 extern int  gSettingsCat;    // active category = index into settingsModel()
+extern bool gStreamingMode;  // streaming tabs visible in the sidebar
 
 // The menu model (core categories + extras). Built once on first use; item
 // values are read live, so it never needs rebuilding.

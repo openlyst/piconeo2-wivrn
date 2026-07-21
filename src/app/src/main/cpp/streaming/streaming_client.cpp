@@ -615,6 +615,13 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 			apps.reserve(p.applications.size());
 			for (auto & app : p.applications)
 				apps.emplace_back(app.id, app.name);
+			{
+				std::lock_guard<std::mutex> lk(app_mutex);
+				available_apps.clear();
+				for (auto & app : p.applications)
+					available_apps.push_back({app.id, app.name});
+				app_list_requested = true;
+			}
 			notify_application_list(apps);
 		}
 		else if constexpr (std::is_same_v<T, to_headset::application_icon>)
@@ -625,6 +632,12 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 		else if constexpr (std::is_same_v<T, to_headset::running_applications>)
 		{
 			spdlog::info("Received running applications: {} apps", p.applications.size());
+			{
+				std::lock_guard<std::mutex> lk(app_mutex);
+				running_apps.clear();
+				for (auto & app : p.applications)
+					running_apps.push_back({app.name, app.id, app.overlay, app.active});
+			}
 			notify_running_applications(p.applications);
 		}
 		else
@@ -645,6 +658,12 @@ void streaming_client::reset_stream_state()
 	frame_first_displayed_ns = 0;
 	video_ready = false;
 	g_latency.reset();
+	{
+		std::lock_guard<std::mutex> lk(app_mutex);
+		available_apps.clear();
+		running_apps.clear();
+		app_list_requested = false;
+	}
 	stats_bytes_rx = 0;
 	stats_bytes_tx = 0;
 	stats_bandwidth_rx = 0;
