@@ -97,7 +97,3 @@ Feature branches off `main`, named by area: `fix/...`, `cleanup/...`, `docs/...`
 There are no automated tests today. You test by building the APK, installing on the headset (`adb install -r app/build/outputs/apk/debug/app-debug.apk`), and exercising the change. `adb logcat | grep wivrn` is the main feedback loop.
 
 When automated tests eventually land they'll be gated behind `WIVRN_BUILD_TEST=ON` so they don't pollute the headset build.
-
-## Translations
-
-The lobby UI is currently English-only. An i18n pass is tracked separately; until then, user-facing strings are hardcoded in `settings_panel.cpp`, `lobby_panels.cpp`, and `eq_panel.cpp`.
