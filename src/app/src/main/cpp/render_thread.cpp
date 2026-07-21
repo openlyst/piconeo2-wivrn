@@ -39,6 +39,7 @@
 #include "app_state.h"   // shared lobby/render knobs: IPD, input edges, toggles, diag
 #include "lobby.h"       // ported pico_oxr WiVRn lobby UI panel
 #include "passthrough.h" // passthrough camera background for the lobby
+#include "panorama.h"    // equirectangular panorama background
 #include "lobby_panels.h"// diagnostics overlay builders
 #include "input.h"       // controller + head-pose shared state
 #include "foveation.h"   // readFoveationParams() from the settings JSON
@@ -1934,8 +1935,21 @@ void *renderThread(void *) {
     // The lobby UI panels composite on top of the live camera feed.
     if (gPassthrough) {
         gPassthrough->init();
-        if (gWivrnPassthrough.load())
+        if (gWivrnPassthrough.load() && gLobbyBgMode.load() == 0)
             gPassthrough->start();
+    }
+    // Panorama background: init GL resources and load the default panorama.
+    if (gPanorama) {
+        gPanorama->init();
+        const char *home = getenv("HOME");
+        std::string base = std::string(home ? home : "/data/data/org.meumeu.wivrn.neo2.pvr/files") + "/panoramas/";
+        const char *panoFiles[] = { "classroom.jpg", "mountain_lake.jpg", "forest_path.jpg" };
+        int idx = gLobbyPanoramaIdx.load();
+        if (idx < 0 || idx > 2) idx = 0;
+        std::string p = base + panoFiles[idx];
+        FILE *test = fopen(p.c_str(), "r");
+        if (test) { fclose(test); gPanorama->load(p); }
+        else if (idx != 0) { gPanorama->load(base + "classroom.jpg"); }  // fallback to bundled
     }
 
     RenderEventFunc re = (RenderEventFunc) GetRenderEventFunc();
@@ -3473,10 +3487,12 @@ void *renderThread(void *) {
         // gaze disc) into the currently-bound FBO. Shared by the HW-compositor
         // and self-present paths.
         auto drawLobbyScene = [&](const Mat4 &sproj, const Mat4 &sview, const Mat4 &sEyeShift, int eyeIdx) {
-            // Passthrough camera background. Drawn first as a fullscreen quad so
-            // everything else composites on top.
-            if (gPassthrough && gPassthrough->is_camera_on())
+            // Background: passthrough camera or panorama sphere.
+            if (gLobbyBgMode.load() == 1 && gPanorama && gPanorama->has_tex()) {
+                gPanorama->draw(sproj.m, sview.m);
+            } else if (gPassthrough && gPassthrough->is_camera_on()) {
                 gPassthrough->draw(eyeIdx);
+            }
             glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE);
             // Native HUD text and SETTINGS window replaced by the ported WiVRn lobby UI.
             // Controller laser beam (world-space) when a controller drives the pointer.

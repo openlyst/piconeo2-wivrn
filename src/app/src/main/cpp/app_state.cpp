@@ -21,6 +21,8 @@ std::atomic<bool> gEyeDebugOn{false};
 std::atomic<int>  gDiagHudMode{0};
 std::atomic<float> gBrightnessFrac{1.0f};
 std::atomic<bool>  gBrightnessSaved{false};
+std::atomic<int>   gLobbyBgMode{1};       // 0=passthrough, 1=panorama (default: classroom)
+std::atomic<int>   gLobbyPanoramaIdx{0};  // 0 = bundled default
 
 std::atomic<bool>   gWivrnTcpOnly{false};
 std::atomic<int>    gWivrnCodec{0};
@@ -75,6 +77,8 @@ void saveAllConfig() {
     fprintf(f, "softIpd=%.2f\n", gSoftIpdMm.load());
     fprintf(f, "eyeDebug=%d\n",   gEyeDebugOn.load() ? 1 : 0);
     fprintf(f, "diagHud=%d\n",   gDiagHudMode.load());
+    fprintf(f, "lobbyBgMode=%d\n", gLobbyBgMode.load());
+    fprintf(f, "lobbyPanoramaIdx=%d\n", gLobbyPanoramaIdx.load());
     fprintf(f, "brightness=%.3f\n", gBrightnessSaved.load() ? gBrightnessFrac.load() : -1.0f);
     fprintf(f, "eqPreset=%d\n",   gEqPresetIdx);
     fprintf(f, "eqCustom1=");
@@ -209,6 +213,8 @@ void loadAllConfig() {
                 if      (keyIs(key, keyLen, "softIpd"))              { if (sscanf(v, "%f", &fv) == 1) gSoftIpdMm.store(clampf(fv, kIpdMin, kIpdMax)); }
                 else if (keyIs(key, keyLen, "eyeDebug"))             { if (sscanf(v, "%d", &iv) == 1) gEyeDebugOn.store(iv != 0); }
                 else if (keyIs(key, keyLen, "diagHud"))              { if (sscanf(v, "%d", &iv) == 1) { if (iv < 0) iv = 0; if (iv > 2) iv = 2; gDiagHudMode.store(iv); } }
+                else if (keyIs(key, keyLen, "lobbyBgMode"))          { if (sscanf(v, "%d", &iv) == 1) gLobbyBgMode.store(iv); }
+                else if (keyIs(key, keyLen, "lobbyPanoramaIdx"))     { if (sscanf(v, "%d", &iv) == 1) gLobbyPanoramaIdx.store(iv); }
                 else if (keyIs(key, keyLen, "brightness"))           { if (sscanf(v, "%f", &fv) == 1 && fv >= 0.0f) { gBrightnessFrac.store(clampf(fv, 0.0f, 1.0f)); gBrightnessSaved.store(true); } }
                 else if (keyIs(key, keyLen, "eqPreset"))             { if (sscanf(v, "%d", &iv) == 1) { if (iv < 0 || iv >= kEqNumPresets) iv = 0; gEqPresetIdx = iv; } }
                 else if (keyIs(key, keyLen, "eqCustom1") || keyIs(key, keyLen, "eqCustom2")) {

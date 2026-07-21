@@ -9,6 +9,7 @@
 #include "streaming/streaming_client.h"
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <cmath>
 
 // session state
@@ -260,6 +261,42 @@ static void buildCoreModel(MenuModel &m) {
     }
     m.push_back(settings);
 
+    // CUSTOMIZE (top) -------------------------------------------------------
+    MenuCategory customize; customize.name = "CUSTOMIZE";
+    {
+        // Background mode: passthrough or panorama
+        MenuItem bgMode; bgMode.kind = MK_DROPDOWN; bgMode.label = "BACKGROUND";
+        bgMode.options = { "PASSTHROUGH", "PANORAMA" };
+        bgMode.get = []{ return (float)gLobbyBgMode.load(); };
+        bgMode.set = [](float v){
+            int mode = (int)(v + 0.5f);
+            gLobbyBgMode.store(mode);
+            extern pico_passthrough *gPassthrough;
+            if (mode == 0) {
+                if (gPassthrough && !gPassthrough->is_camera_on()) gPassthrough->start();
+            } else {
+                if (gPassthrough && gPassthrough->is_camera_on()) gPassthrough->stop();
+            }
+        };
+        bgMode.onChange = []{ saveAllConfig(); };
+        customize.items.push_back(bgMode);
+
+        // Panorama selection (only relevant in panorama mode)
+        MenuItem panoSel; panoSel.kind = MK_DROPDOWN; panoSel.label = "PANORAMA";
+        panoSel.options = { "CLASSROOM", "MOUNTAIN LAKE", "FOREST PATH" };
+        panoSel.get = []{ return (float)gLobbyPanoramaIdx.load(); };
+        panoSel.set = [](float v){
+            int idx = (int)(v + 0.5f);
+            gLobbyPanoramaIdx.store(idx);
+            // Trigger download/load via JNI
+            extern std::function<void(int)> gOnPanoramaSelect;
+            if (gOnPanoramaSelect) gOnPanoramaSelect(idx);
+        };
+        panoSel.onChange = []{ saveAllConfig(); };
+        customize.items.push_back(panoSel);
+    }
+    m.push_back(customize);
+
     // ABOUT (bottom) --------------------------------------------------------
     MenuCategory about; about.name = "ABOUT";
     {
@@ -318,7 +355,7 @@ float &settingsScroll() { settingsModel(); settingsClampCat(); return gSettingsS
 // wiVRn-style sidebar: top group (SERVERS, SETTINGS)
 // then gap, then bottom group (ABOUT, LICENSES, EXIT) anchored to bottom.
 UiRect settingsTabRect(int i) {
-    int nTop = 2;       // top group
+    int nTop = 3;       // top group: SERVERS, SETTINGS, CUSTOMIZE
     float tabH = 0.09f;
     float tabGap = 0.02f;
     float sidebarL = kSetPanelL + 0.02f;

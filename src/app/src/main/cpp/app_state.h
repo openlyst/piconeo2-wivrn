@@ -33,6 +33,12 @@ extern std::atomic<int>  gDiagHudMode;  // streaming diagnostics HUD: 0=off, 1=p
 extern std::atomic<float> gBrightnessFrac; // HMD panel brightness 0..1 (VIDEO tab slider)
 extern std::atomic<bool>  gBrightnessSaved; // a brightness value was persisted (vs. panel default)
 
+// ---- lobby background mode -------------------------------------------------
+// 0 = passthrough camera, 1 = panorama image
+extern std::atomic<int>    gLobbyBgMode;
+// index of selected panorama (0 = bundled default "classroom")
+extern std::atomic<int>    gLobbyPanoramaIdx;
+
 // ---- wivrn client option placeholders (server-controlled or not yet wired) --
 extern std::atomic<bool>   gWivrnTcpOnly;
 extern std::atomic<int>    gWivrnCodec;        // 0=h264, 1=h265, 2=av1

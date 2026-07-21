@@ -122,6 +122,7 @@ add_library(p2wivrn SHARED
     settings_panel.cpp
     server_list.cpp
     lobby.cpp
+    panorama.cpp
     passthrough.cpp
     input.cpp
     foveation.cpp

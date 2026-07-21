@@ -107,3 +107,4 @@ Listed on [NeoRevived](https://openlyst.github.io/neorevived/#/entry/streaming/g
 - [WiVRn](https://github.com/WiVRn/WiVRn) | The upstream project this client is based on
 - [ALVR Pico Legacy](https://github.com/Juspertinry/alvr-pico-legacy) | Rendering reference for the Pico Neo 2
 - [Pico SDK](https://developer.picoxr.com/) | Pico Neo 2 SDK
+- Classroom panorama (default lobby background): By Biswarup Ganguly, CC BY 3.0, https://commons.wikimedia.org/w/index.php?curid=43422213

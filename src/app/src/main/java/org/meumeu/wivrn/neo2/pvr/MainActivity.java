@@ -86,11 +86,54 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         extractAsset("controller/controller2s_home.png", new File(dir, "controller/controller2s_home.png"));
         extractAsset("controller/controller2s_touchpad.png", new File(dir, "controller/controller2s_touchpad.png"));
         extractAsset("controller/controller2s_trigger.png", new File(dir, "controller/controller2s_trigger.png"));
+        extractAsset("panoramas/classroom.jpg", new File(dir, "panoramas/classroom.jpg"));
+    }
+
+    // Available panoramas from Wikimedia Commons (CC-licensed equirectangular 360 images).
+    // Index 0 is the bundled default (classroom). Others are downloaded on demand.
+    static final String[][] PANORAMAS = {
+        {"Classroom (default)", "classroom.jpg", ""},
+        {"Mountain Lake", "mountain_lake.jpg",
+         "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Pic_de_Montferrat%2C_Lac_d%27Ayous_-_360_Degree_Equirectangular_View_-_Haldia_-_East_Midnapore_2015-09-18_4011-4019.tif/lossy-page1-1280px-Pic_de_Montferrat%2C_Lac_d%27Ayous_-_360_Degree_Equirectangular_View_-_Haldia_-_East_Midnapore_2015-09-18_4011-4019.tif.jpg"},
+        {"Forest Path", "forest_path.jpg",
+         "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0d/2014-09-07_360_Panorama_Schwarzwald_-_360_Degree_Equirectangular_View_-_Haldia_-_East_Midnapore_2015-09-18_4011-4019.tif/lossy-page1-1280px-2014-09-07_360_Panorama_Schwarzwald_-_360_Degree_Equirectangular_View_-_Haldia_-_East_Midnapore_2015-09-18_4011-4019.tif.jpg"},
+    };
+
+    private void downloadPanorama(int idx) {
+        if (idx < 0 || idx >= PANORAMAS.length) return;
+        final String filename = PANORAMAS[idx][1];
+        final String url = PANORAMAS[idx][2];
+        if (url.isEmpty()) return;  // bundled, no download needed
+        final File outFile = new File(getFilesDir(), "panoramas/" + filename);
+        if (outFile.exists()) return;
+        new Thread(() -> {
+            try {
+                outFile.getParentFile().mkdirs();
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(60000);
+                conn.setRequestProperty("User-Agent", "PicoNeo2WiVRn/1.0 (Android)");
+                java.io.InputStream in = conn.getInputStream();
+                java.io.FileOutputStream out = new java.io.FileOutputStream(outFile);
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                out.close(); in.close(); conn.disconnect();
+                runOnUiThread(() -> nativePanoramaLoaded(outFile.getAbsolutePath()));
+            } catch (Exception e) {
+                Log.e(TAG, "panorama download failed: " + filename, e);
+            }
+        }).start();
     }
     private native void nativeSurfaceChanged(android.view.Surface surface);
     private native void nativeSurfaceDestroyed();
     private native void nativeStop();
     private native void nativeSetSleep(boolean sleep);
+    private native void nativePanoramaLoaded(String path);
+    // Called from native when user selects a panorama that needs downloading
+    private void onPanoramaDownloadRequested(int idx) {
+        downloadPanorama(idx);
+    }
     // Test hook: arm the low-battery popup at a given percentage (see mTestReceiver).
     private native void nativeTestBatteryWarn(int pct);
     private native void nativeKeyEvent(int keyCode, boolean down);

@@ -8,11 +8,14 @@
 #include <mutex>
 #include <cstdio>
 #include <vector>
+#include <string>
+#include <functional>
 
 #include "render_thread.h"   // gVM/gActivity/gVrClass/gRunning/gThread, setWindow, renderThread, gSleepReq
 #include "input.h"           // CtrlState, gCtrl/gCtrlMutex, gHeadData/gHeadMutex
 #include "app_state.h"       // gOkHeld/gSideHeld/gOkClick
 #include "passthrough.h"     // gPassthrough (extern in render_thread.cpp)
+#include "panorama.h"        // gPanorama
 #include "lobby.h"
 #include "server_list.h"
 #include "log.h"
@@ -64,6 +67,31 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
     g_onLobbyTouchMethod = env->GetMethodID(clazz, "onLobbyTouch", "(FFZZF)V");
     g_onServerConnectMethod = env->GetMethodID(clazz, "onServerConnect", "(Ljava/lang/String;IZ)V");
     LOGI("nativeStart: onLobbyTouch method=%p onServerConnect=%p", g_onLobbyTouchMethod, g_onServerConnectMethod);
+
+    // Panorama download callback
+    {
+        extern std::function<void(int)> gOnPanoramaSelect;
+        extern JavaVM *gVm;
+        extern jobject gActivityRef;
+        gVm = gVM;
+        if (gActivityRef) env->DeleteGlobalRef(gActivityRef);
+        gActivityRef = env->NewGlobalRef(activity);
+        gOnPanoramaSelect = [](int idx) {
+            if (!gVm || !gActivityRef) return;
+            JNIEnv *env = nullptr;
+            bool attached = false;
+            if (gVm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+                if (gVm->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+            }
+            if (env) {
+                jclass cls = env->GetObjectClass(gActivityRef);
+                jmethodID mid = env->GetMethodID(cls, "onPanoramaDownloadRequested", "(I)V");
+                if (mid) env->CallVoidMethod(gActivityRef, mid, (jint)idx);
+                env->DeleteLocalRef(cls);
+            }
+            if (attached) gVm->DetachCurrentThread();
+        };
+    }
 
     // Wire the native server list CONNECT button to Java's onServerConnect.
     gOnServerConnect = [](const ServerInfo &s) {
@@ -285,6 +313,24 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetSleep(JNIEnv *env, jobject 
     gSleepReq.store(sleep == JNI_TRUE);
     LOGI("nativeSetSleep(%d)", (int)(sleep == JNI_TRUE));
 }
+
+// Called from Java when a panorama download completes or when the user selects
+// a panorama. Reloads the panorama texture on the render thread.
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativePanoramaLoaded(JNIEnv *env, jobject thiz, jstring path) {
+    (void) thiz;
+    const char *p = env->GetStringUTFChars(path, nullptr);
+    if (p && gPanorama) {
+        gPanorama->load(std::string(p));
+        LOGI("nativePanoramaLoaded: %s", p);
+    }
+    if (p) env->ReleaseStringUTFChars(path, p);
+}
+
+// Callback set by jni.cpp to trigger panorama download from Java.
+std::function<void(int)> gOnPanoramaSelect;
+JavaVM *gVm = nullptr;
+jobject gActivityRef = nullptr;
 
 // Test hook (fired from adb via a broadcast): arm the low-battery popup at `pct`.
 extern "C" JNIEXPORT void JNICALL
