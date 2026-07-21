@@ -46,7 +46,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         System.loadLibrary("tracking_module");
         System.loadLibrary("native");
         System.loadLibrary("Pvr_UnitySDK");
-        System.loadLibrary("p2alvr");
+        System.loadLibrary("p2wivrn");
     }
 
     // IMPORTANT: the SDK looks up this exact field name/type on the activity.
@@ -623,11 +623,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             WifiManager wifi = (WifiManager)
                     getApplicationContext().getSystemService(Context.WIFI_SERVICE);
             if (wifi == null) { Log.e(TAG, "no WifiManager"); return; }
-            mMulticastLock = wifi.createMulticastLock("alvr-mdns");
+            mMulticastLock = wifi.createMulticastLock("wivrn-mdns");
             mMulticastLock.setReferenceCounted(false);
             mMulticastLock.acquire();
             mWifiLock = wifi.createWifiLock(
-                    WifiManager.WIFI_MODE_FULL_HIGH_PERF, "alvr-stream");
+                    WifiManager.WIFI_MODE_FULL_HIGH_PERF, "wivrn-stream");
             mWifiLock.setReferenceCounted(false);
             mWifiLock.acquire();
             Log.i(TAG, "wifi locks acquired: multicast=" + mMulticastLock.isHeld()
