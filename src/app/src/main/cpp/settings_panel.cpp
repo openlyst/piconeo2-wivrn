@@ -322,10 +322,10 @@ static void buildCoreModel(MenuModel &m) {
             appendQuad(v, -halfW, y, halfW, y - 0.005f,
                        kUiTrack[0], kUiTrack[1], kUiTrack[2]);
             y -= 0.04f;
-            uiTextC(v, "LICENSED UNDER GPL V3 OR LATER", cx, y, 0.004f,
+            uiTextC(v, "LICENSED UNDER AGPL V3", cx, y, 0.004f,
                     kUiTitle[0], kUiTitle[1], kUiTitle[2]);
             y -= 0.06f;
-            uiTextC(v, "SEE WIVRN REPO FOR DETAILS", cx, y, 0.0035f,
+            uiTextC(v, "SEE LICENSES TAB FOR DETAILS", cx, y, 0.0035f,
                     kUiTrack[0], kUiTrack[1], kUiTrack[2]);
         };
         about.items.push_back(ab);
@@ -333,15 +333,42 @@ static void buildCoreModel(MenuModel &m) {
     m.push_back(about);
 
     // LICENSES (bottom) -----------------------------------------------------
-    MenuCategory licenses; licenses.name = "LICENSES";
+    MenuCategory licenses; licenses.name = "LICENSES"; licenses.custom = true;
     {
-        MenuItem info; info.kind = MK_BUTTON; info.label = "GPL V3 OR LATER";
-        info.disabled = true;
-        licenses.items.push_back(info);
+        MenuItem lic; lic.kind = MK_CUSTOM;
+        lic.customH = 0.6f;
+        lic.cBuild = [](std::vector<float> &v, const MenuHover &h) {
+            (void)h;
+            float y = kMenuTopY;
+            float cx = 0.0f;
+            float halfW = (kCtX1 - kCtX0) * 0.5f - 0.02f;
 
-        MenuItem note; note.kind = MK_BUTTON; note.label = "SEE WIVRN REPO FOR DETAILS";
-        note.disabled = true;
-        licenses.items.push_back(note);
+            UiRect banner = { cx, y - 0.06f, halfW * 2.0f, 0.12f };
+            uiBox(v, banner, kUiFill);
+            uiTextC(v, "AGPL V3", cx, y - 0.09f, 0.007f, 1.0f, 1.0f, 1.0f);
+            y -= 0.20f;
+
+            uiTextC(v, "THIS PROJECT IS LICENSED UNDER", cx, y, 0.0045f,
+                    kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+            y -= 0.06f;
+            uiTextC(v, "THE GNU AFFERO GENERAL", cx, y, 0.0045f,
+                    kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+            y -= 0.06f;
+            uiTextC(v, "PUBLIC LICENSE V3", cx, y, 0.0045f,
+                    kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+            y -= 0.10f;
+
+            uiTextC(v, "FULL LICENSE TEXT", cx, y, 0.004f,
+                    kUiFill[0], kUiFill[1], kUiFill[2]);
+            y -= 0.07f;
+
+            UiRect urlBtn = { cx, y - 0.035f, halfW * 2.0f, 0.07f };
+            uiButton(v, urlBtn, "GITLAB.COM/HTTPANIMATIONS/", false, false);
+            y -= 0.06f;
+            uiTextC(v, "PICONEO2-WIVRN/-/RAW/MAIN/LICENSE", cx, y, 0.0035f,
+                    kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+        };
+        licenses.items.push_back(lic);
     }
     m.push_back(licenses);
 
