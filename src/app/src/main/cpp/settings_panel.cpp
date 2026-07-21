@@ -108,7 +108,7 @@ static inline MenuItem wivrnToggle(const char *label, std::atomic<bool> &val) {
 
 // ---- model assembly --------------------------------------------------------
 // wiVRn-style tab layout:
-//   Top:    SERVERS, SETTINGS, POST-PROCESSING, CUSTOMIZE
+//   Top:    SERVERS, SETTINGS
 //   Bottom: ABOUT, LICENSES, EXIT
 static void buildCoreModel(MenuModel &m) {
     // SERVERS (wiVRn-style server list, first tab) --------------------------
@@ -135,15 +135,9 @@ static void buildCoreModel(MenuModel &m) {
     }
     m.push_back(servers);
 
-    // SETTINGS (consolidates old CONNECT/VIDEO/AUDIO/INPUT/SYSTEM/DEBUG/LOBBY)
+    // SETTINGS (only options we actually support) ---------------------------
     MenuCategory settings; settings.name = "SETTINGS";
     {
-        // Connection
-        MenuItem tcp = wivrnToggle("TCP ONLY", gWivrnTcpOnly);
-        tcp.onChange = []{ saveAllConfig(); };
-        settings.items.push_back(tcp);
-
-        // Video
         MenuItem ipd; ipd.kind = MK_STEPPER; ipd.label = "SOFTWARE IPD";
         ipd.vmin = kIpdMin; ipd.vmax = kIpdMax; ipd.vstep = kIpdStep;
         ipd.get = []{ return gSoftIpdMm.load(); };
@@ -209,26 +203,11 @@ static void buildCoreModel(MenuModel &m) {
         };
         settings.items.push_back(bit);
 
-        MenuItem codec; codec.kind = MK_DROPDOWN; codec.label = "CODEC";
-        codec.disabled = true;
-        codec.options = { "H264", "H265", "AV1" };
-        codec.get = []{ return (float)gWivrnCodec.load(); };
-        codec.set = [](float v){ gWivrnCodec.store((int)(v+0.5f)); };
-        settings.items.push_back(codec);
-
-        MenuItem fovq; fovq.kind = MK_DROPDOWN; fovq.label = "FOVEATION";
-        fovq.disabled = true;
-        fovq.options = { "OFF", "LOW", "MEDIUM", "HIGH" };
-        fovq.get = []{ return (float)gWivrnFoveation.load(); };
-        fovq.set = [](float v){ gWivrnFoveation.store((int)(v+0.5f)); };
-        settings.items.push_back(fovq);
-
         MenuItem eyeFov = wivrnToggle("EYE-TRACKED FOVEATION", gWivrnEyeFoveation);
         eyeFov.disabled = !gEyeSupported.load();
         eyeFov.onChange = []{ saveAllConfig(); gEyeFoveationDirty.store(true); };
         settings.items.push_back(eyeFov);
 
-        // Audio
         MenuItem mic = wivrnToggle("MICROPHONE", gWivrnMicrophone);
         mic.onChange = []{
             bool on = gWivrnMicrophone.load();
@@ -242,9 +221,6 @@ static void buildCoreModel(MenuModel &m) {
         };
         settings.items.push_back(mic);
 
-        // Input
-        settings.items.push_back(wivrnToggle("HAND TRACKING", gWivrnHandTracking));
-
         MenuItem vib; vib.kind = MK_FADER; vib.label = "CONTROLLER VIBRATION";
         vib.vmin = 0.0f; vib.vmax = 1.0f;
         vib.get = []{ return gWivrnCtrlVibration.load(); };
@@ -253,7 +229,6 @@ static void buildCoreModel(MenuModel &m) {
         vib.onCommit = []{ saveAllConfig(); };
         settings.items.push_back(vib);
 
-        // System
         MenuItem pt = wivrnToggle("PASSTHROUGH", gWivrnPassthrough);
         pt.onChange = []{
             extern pico_passthrough * gPassthrough;
@@ -270,7 +245,6 @@ static void buildCoreModel(MenuModel &m) {
         rec.onClick = []{ gWivrnRecenterReq.store(true); };
         settings.items.push_back(rec);
 
-        // Debug
         MenuItem eye; eye.kind = MK_TOGGLE; eye.label = "EYE DEBUG";
         eye.get = []{ return gEyeDebugOn.load()?1.0f:0.0f; };
         eye.set = [](float v){ gEyeDebugOn.store(v>0.5f); };
@@ -284,7 +258,6 @@ static void buildCoreModel(MenuModel &m) {
         diag.onChange = []{ saveDiagHud(); };
         settings.items.push_back(diag);
 
-        // Lobby
         MenuItem theme; theme.kind = MK_TOGGLE; theme.label = "AMBER THEME";
         theme.get = []{ return gThemeAmber.load()?1.0f:0.0f; };
         theme.set = [](float v){ bool a=v>0.5f; gThemeAmber.store(a); applyUiTheme(a); };
@@ -292,24 +265,6 @@ static void buildCoreModel(MenuModel &m) {
         settings.items.push_back(theme);
     }
     m.push_back(settings);
-
-    // POST-PROCESSING (placeholder for now) ---------------------------------
-    MenuCategory post; post.name = "POST";
-    {
-        MenuItem placeholder; placeholder.kind = MK_BUTTON; placeholder.label = "NOT YET AVAILABLE";
-        placeholder.disabled = true;
-        post.items.push_back(placeholder);
-    }
-    m.push_back(post);
-
-    // CUSTOMIZE (placeholder for now) ---------------------------------------
-    MenuCategory customize; customize.name = "CUSTOMIZE";
-    {
-        MenuItem placeholder; placeholder.kind = MK_BUTTON; placeholder.label = "NOT YET AVAILABLE";
-        placeholder.disabled = true;
-        customize.items.push_back(placeholder);
-    }
-    m.push_back(customize);
 
     // ABOUT (bottom) --------------------------------------------------------
     MenuCategory about; about.name = "ABOUT";
@@ -366,23 +321,20 @@ int  settingsNumCats() { return (int)settingsModel().size(); }
 void settingsClampCat() { int n = settingsNumCats(); if (gSettingsCat < 0) gSettingsCat = 0; else if (gSettingsCat >= n) gSettingsCat = n-1; }
 float &settingsScroll() { settingsModel(); settingsClampCat(); return gSettingsScroll[gSettingsCat]; }
 
-// wiVRn-style sidebar: top group (SERVERS, SETTINGS, POST, CUSTOMIZE)
+// wiVRn-style sidebar: top group (SERVERS, SETTINGS)
 // then gap, then bottom group (ABOUT, LICENSES, EXIT) anchored to bottom.
 UiRect settingsTabRect(int i) {
-    int nTop = 4;       // top group
+    int nTop = 2;       // top group
     float tabH = 0.10f;
     float tabGap = 0.03f;
-    // sidebar spans kSetPanelL to kSidebarR; center buttons in it with padding
     float sidebarL = kSetPanelL + 0.02f;
     float sidebarR = kSidebarR - 0.02f;
     float tabW = sidebarR - sidebarL;
     float sidebarX = (sidebarL + sidebarR) * 0.5f;
     if (i < nTop) {
-        // top group: starts below panel top
         float yTop = kSetPanelTop - 0.04f;
         return { sidebarX, yTop - tabH*0.5f - i*(tabH + tabGap), tabW, tabH };
     } else {
-        // bottom group: anchored to panel bottom
         int bi = i - nTop;  // 0=ABOUT, 1=LICENSES, 2=EXIT
         float yBot = kSetPanelBot + 0.04f;
         int nBot = 3;
