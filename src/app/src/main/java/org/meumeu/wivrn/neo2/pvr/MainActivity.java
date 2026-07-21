@@ -133,6 +133,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private volatile boolean mConn0 = false;   // controller 0 connected
     private volatile boolean mConn1 = false;   // controller 1 connected
     private volatile boolean mCtrlThreadStarted = false;
+    private int diagTick = 0;  // diagnostic log counter for controller sensor status
     private long mBothConnSinceMs = 0;         // when both first became connected (0 = not yet)
     private static final long CTRL_SETTLE_MS = 1500;  // both-connected must hold this long
     // Set when our surface is torn down; consumed when it comes back. A full-screen
@@ -498,9 +499,40 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             // so callunityversion is definitely true at the moment the service
             // assigns the main controller (see bindSuccess for why).
             try { ControllerClient.setUnityVersion(CTRL_UNITY_VERSION); } catch (Throwable t) { /* logged at bind */ }
+            // The VR Shell (com.pvr.vrshell) starts the CV controller thread before
+            // our app launches, with callunityversion=false. That binds handedness
+            // wrong (forces main controller to index 1, collapsing both virtual
+            // hands onto one). Our startControllerThread is then a no-op ("Controller
+            // has already been started"), so the wrong binding sticks and the
+            // working controller's pose stays at origin. Stop+restart forces the
+            // service to re-bind handedness with our unity version now set.
+            try {
+                ControllerClient.stopControllerThread(1, 1);
+                Log.i(TAG, "stopped stale controller thread (likely VR Shell's) before rebind");
+                try { Thread.sleep(80); } catch (InterruptedException ie) { /* brief settle */ }
+            } catch (Throwable t) {
+                Log.w(TAG, "stopControllerThread before rebind failed (may be fine if not running)", t);
+            }
             ControllerClient.startControllerThread(1, 1);
             mCtrlThreadStarted = true;
             Log.i(TAG, "controller link settled -> startControllerThread (handedness bound)");
+            // One-controller workaround: the VR Shell may have left the CV service
+            // with the wrong main-controller binding (callunityversion=false). When
+            // only one controller is connected, explicitly set it as the main and
+            // reset its sensor so 6DoF tracking (re)initializes for that hand.
+            if (mConn0 && !mConn1) {
+                try {
+                    ControllerClient.setMainController(0);
+                    ControllerClient.resetControllerSensorState(0);
+                    Log.i(TAG, "one-controller (L only): setMainController(0) + resetControllerSensorState(0)");
+                } catch (Throwable t) { Log.w(TAG, "setMainController/reset failed", t); }
+            } else if (mConn1 && !mConn0) {
+                try {
+                    ControllerClient.setMainController(1);
+                    ControllerClient.resetControllerSensorState(1);
+                    Log.i(TAG, "one-controller (R only): setMainController(1) + resetControllerSensorState(1)");
+                } catch (Throwable t) { Log.w(TAG, "setMainController/reset failed", t); }
+            }
         } catch (Throwable t) {
             Log.e(TAG, "startControllerThread failed", t);
         }
@@ -540,12 +572,40 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 for (int h = 0; h < 2; h++) {
                     try {
                         int conn = ControllerClient.getControllerConnectionState(h);
+                        // Occasional diagnostic: log sensor status + 6DoF pose every
+                        // ~30s to help diagnose tracking issues if they recur.
+                        if (conn == 1 && (diagTick++ % 2700) == 0) {
+                            try {
+                                int sstat = ControllerClient.getControllerSensorStatus(h);
+                                float[] pose6dof = ControllerClient.getController6dofPose(h);
+                                String p6s = pose6dof != null
+                                    ? String.format("(%.1f,%.1f,%.1f)", pose6dof[4], pose6dof[5], pose6dof[6])
+                                    : "null";
+                                Log.i(TAG, "DIAG h=" + h + " conn=" + conn
+                                    + " sensorStatus=" + sstat + " 6dofPose=" + p6s);
+                            } catch (Throwable dt) { /* diagnostic only */ }
+                        }
                         // Head-aligned pose: feed the live head pose so the CV service
                         // returns the controller in the HEAD's tracking frame (this is
                         // what the legacy SDK does when enablehand6dofbyhead==1). Keeps
                         // controllers locked to the head instead of a separate universe.
                         nativeGetHeadData(mHeadData);
                         float[] sensor = ControllerClient.getControllerSensorState(h, mHeadData);
+                        // Fallback: when the CV service's head-aligned transform is
+                        // broken (e.g. the VR Shell left it in a bad state for the
+                        // one-controller case), getControllerSensorState returns a zero
+                        // pose even though the controller IS tracking. Fall back to the
+                        // raw 6DoF pose which bypasses the head-frame transform.
+                        if (sensor != null && sensor.length >= 7
+                                && sensor[4] == 0.0f && sensor[5] == 0.0f && sensor[6] == 0.0f) {
+                            try {
+                                float[] pose6 = ControllerClient.getController6dofPose(h);
+                                if (pose6 != null && pose6.length >= 7
+                                        && (pose6[4] != 0.0f || pose6[5] != 0.0f || pose6[6] != 0.0f)) {
+                                    sensor = pose6;
+                                }
+                            } catch (Throwable ft) { /* 6dof pose not available */ }
+                        }
                         float[] angVel = ControllerClient.getControllerAngularVelocity(h);
                         // Button/joystick state lives in getControllerKeyEventUnityExt
                         // (a ~67-int array). Reverse-engineered held-state indices on
