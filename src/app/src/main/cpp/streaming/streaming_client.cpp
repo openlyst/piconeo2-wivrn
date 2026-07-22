@@ -272,6 +272,8 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 			std::lock_guard lock(video_mutex);
 			video_desc = p;
 			video_ready = true;
+			stream_eye_width.store(p.width);
+			stream_eye_height.store(p.height);
 			ALOGI("Received video stream description: %dx%d, fps=%f, codecs=[%d,%d,%d]",
 				p.width, p.height, p.frame_rate,
 				(int)p.codec[0], (int)p.codec[1], (int)p.codec[2]);
