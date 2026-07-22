@@ -1583,6 +1583,20 @@ static void *trackingThread(void *) {
         // The pico_native_tracker handles all tracking uplink. Skip the useless ALVR
         // velocity filtering, motion building, and button edge detection. The head
         // pose is already published to gHeadData above.
+        // BUT we still need to read eye tracking data here so that gGazeLocal /
+        // gGazeValid / gEyeOnline get populated for the WiVRn tracker (pico_tracking
+        // reads them via pollEyeGaze) and the debug overlay.
+        {
+            Quat headQ = quatNorm({ qx, qy, qz, qw });
+            const int kEyeDiv = 3;   // 300Hz / 3 = ~100Hz
+            if ((tframe % kEyeDiv) == 0) {
+                XrPosef eg[2]; bool vL=false, vR=false;
+                if (!readEyeGazes(eg, &vL, &vR, tframe, headQ))
+                    vL = vR = false;
+                eyeGazeCache[0] = eg[0]; eyeGazeCache[1] = eg[1];
+                eyeVLCache = vL; eyeVRCache = vR;
+            }
+        }
         tframe++;
         tsAddNs(nextTick, kPeriodNs);
         clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &nextTick, nullptr);
