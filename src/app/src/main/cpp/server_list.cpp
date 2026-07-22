@@ -13,6 +13,7 @@ static std::atomic<bool> gConnecting{false};
 std::function<void(const ServerInfo &)> gOnServerConnect;
 std::function<void(const std::string &hostname, int port)> gOnServerRemove;
 std::function<void(const std::string &hostname, int port)> gOnServerAutoconnect;
+std::function<void()> gOnRefreshServers;
 
 void setServerList(const std::vector<ServerInfo> & servers) {
     std::lock_guard<std::mutex> lk(gSrvMutex);
@@ -51,6 +52,7 @@ bool isConnecting() {
 static constexpr float kRowH = 0.14f;
 static constexpr float kRowGap = 0.02f;
 static constexpr float kErrH = 0.06f;
+static constexpr float kRefreshH = 0.10f;
 
 float serverContentHeight() {
     auto servers = getServerList();
@@ -59,6 +61,7 @@ float serverContentHeight() {
     h += servers.size() * kRowH + (servers.size() - 1) * kRowGap;
     auto err = getConnectionError();
     if (!err.empty()) h += kErrH + kRowGap;
+    h += kRowGap + kRefreshH;
     return h;
 }
 
@@ -177,6 +180,21 @@ float buildServerContent(std::vector<float> &v, float scrollY,
         yTop = yBot - kRowGap;
     }
 
+    // Refresh button at the bottom
+    {
+        float rBtnW = 0.20f, rBtnH = 0.08f;
+        float rBtnCx = (kCtX0 + kCtX1Content) * 0.5f;
+        float rBtnCy = yTop - rBtnH * 0.5f;
+        bool rHot = (connectHot == -3);
+        float rc[3] = {0.1f, 0.15f, 0.2f};
+        if (rHot) { rc[0] = 0.15f; rc[1] = 0.25f; rc[2] = 0.35f; }
+        appendQuad(v, rBtnCx - rBtnW*0.5f, rBtnCy + rBtnH*0.5f,
+                   rBtnCx + rBtnW*0.5f, rBtnCy - rBtnH*0.5f,
+                   rc[0], rc[1], rc[2]);
+        uiTextC(v, "Refresh", rBtnCx, rBtnCy + 3.5f * kUiText * 0.85f,
+                kUiText * 0.85f, 0.7f, 0.8f, 1.0f);
+    }
+
     return serverContentHeight();
 }
 
@@ -234,11 +252,31 @@ SrvHover hitServerContent(float cx, float cy, float scrollY) {
         yTop = yBot - kRowGap;
     }
 
+    // Refresh button
+    {
+        float rBtnW = 0.20f, rBtnH = 0.08f;
+        float rBtnCx = (kCtX0 + kCtX1Content) * 0.5f;
+        float rBtnCy = yTop - rBtnH * 0.5f;
+        if (cx >= rBtnCx - rBtnW*0.5f && cx <= rBtnCx + rBtnW*0.5f &&
+            cy >= rBtnCy - rBtnH*0.5f && cy <= rBtnCy + rBtnH*0.5f) {
+            h.item = -1; h.part = 4; h.grab = true;
+            return h;
+        }
+    }
+
     return h;
 }
 
 void applyServerClick(const SrvHover &h, bool click) {
     if (!click) return;
+
+    // Refresh button (item = -1, part = 4)
+    if (h.part == 4) {
+        if (gOnRefreshServers)
+            gOnRefreshServers();
+        return;
+    }
+
     if (h.item < 0) return;
     auto servers = getServerList();
     if (h.item >= (int)servers.size()) return;

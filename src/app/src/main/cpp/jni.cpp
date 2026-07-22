@@ -23,6 +23,7 @@
 static jmethodID g_onServerConnectMethod = nullptr;
 static jmethodID g_onServerRemoveMethod = nullptr;
 static jmethodID g_onServerAutoconnectMethod = nullptr;
+static jmethodID g_onRefreshServersMethod = nullptr;
 
 // HMD home button long-press tracking for recenter (mirrors pico_oxr).
 static struct timespec g_home_press_ts = {};
@@ -65,8 +66,10 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
     g_onServerConnectMethod = env->GetMethodID(clazz, "onServerConnect", "(Ljava/lang/String;IZ)V");
     g_onServerRemoveMethod = env->GetMethodID(clazz, "onServerRemove", "(Ljava/lang/String;I)V");
     g_onServerAutoconnectMethod = env->GetMethodID(clazz, "onServerAutoconnect", "(Ljava/lang/String;I)V");
-    LOGI("nativeStart: onServerConnect=%p onServerRemove=%p onServerAutoconnect=%p",
-         g_onServerConnectMethod, g_onServerRemoveMethod, g_onServerAutoconnectMethod);
+    g_onRefreshServersMethod = env->GetMethodID(clazz, "onRefreshServers", "()V");
+    LOGI("nativeStart: onServerConnect=%p onServerRemove=%p onServerAutoconnect=%p onRefreshServers=%p",
+         g_onServerConnectMethod, g_onServerRemoveMethod, g_onServerAutoconnectMethod,
+         g_onRefreshServersMethod);
 
     // Wire the native server list CONNECT button to Java's onServerConnect.
     gOnServerConnect = [](const ServerInfo &s) {
@@ -110,6 +113,19 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
         jstring jhost = env->NewStringUTF(hostname.c_str());
         env->CallVoidMethod(gActivity, g_onServerAutoconnectMethod, jhost, port);
         env->DeleteLocalRef(jhost);
+        if (attached) gVM->DetachCurrentThread();
+    };
+
+    // Wire the native server list Refresh button to Java's onRefreshServers.
+    gOnRefreshServers = []() {
+        if (!gVM || !gActivity || !g_onRefreshServersMethod) return;
+        JNIEnv *env = nullptr;
+        bool attached = false;
+        if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+            if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+        }
+        if (!env) return;
+        env->CallVoidMethod(gActivity, g_onRefreshServersMethod);
         if (attached) gVM->DetachCurrentThread();
     };
 

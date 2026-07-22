@@ -904,6 +904,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         serverDiscovery.setAutoconnect(hostname, port);
     }
 
+    // Called from C++ when the user clicks the Refresh button.
+    public void onRefreshServers() {
+        Log.i(TAG, "refresh servers requested");
+        serverDiscovery.refreshDiscovery();
+    }
+
     // Called from C++ (streaming_client.cpp) when the server requests a PIN.
     // The native 3D UI doesn't have a PIN pad yet; PIN from URI still works.
     public void requestPinEntry() {}

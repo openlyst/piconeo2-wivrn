@@ -31,6 +31,7 @@ bool isConnecting();
 extern std::function<void(const ServerInfo &)> gOnServerConnect;
 extern std::function<void(const std::string &hostname, int port)> gOnServerRemove;
 extern std::function<void(const std::string &hostname, int port)> gOnServerAutoconnect;
+extern std::function<void()> gOnRefreshServers;
 
 // Build server list rows inside the panel content area.
 // Origin is top-left of content area (kCtX0, kCtTop). Scrolls vertically.
@@ -51,4 +52,4 @@ float serverContentHeight();
 
 // Apply a click on a server entry.
 void applyServerClick(const SrvHover &h, bool click);
-// part: 0 = row, 1 = connect, 2 = autoconnect toggle, 3 = remove (X)
+// part: 0 = row, 1 = connect, 2 = autoconnect toggle, 3 = remove (X), 4 = refresh
