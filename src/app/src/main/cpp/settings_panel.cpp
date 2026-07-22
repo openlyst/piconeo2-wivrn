@@ -123,6 +123,7 @@ static void buildCoreModel(MenuModel &m) {
             int hoverItem = (h.item >= 0) ? h.item : -1;
             int connectHot = (h.item >= 0 && h.part == 1) ? h.item : -1;
             if (h.item >= 0 && h.part == 3) connectHot = -2;  // X button hover
+            if (h.part == 4) connectHot = -3;                 // Refresh button hover
             float scrollY = settingsScroll();
             buildServerContent(v, scrollY, hoverItem, connectHot);
         };

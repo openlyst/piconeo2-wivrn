@@ -143,6 +143,15 @@ public class ServerDiscovery {
         }
     }
 
+    public void refreshDiscovery() {
+        Log.i(TAG, "Refreshing server discovery");
+        synchronized (discoveredServers) {
+            discoveredServers.clear();
+        }
+        stopDiscovery();
+        startDiscovery();
+    }
+
     public List<ServerEntry> getAllServers() {
         List<ServerEntry> all = new ArrayList<>();
         synchronized (discoveredServers) {
