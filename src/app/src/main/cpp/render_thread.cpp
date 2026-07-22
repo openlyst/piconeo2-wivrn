@@ -2274,6 +2274,20 @@ void *renderThread(void *) {
     buildTextBuffers();      // dynamic VBOs for lobby HUD text + slider
     buildReticle();          // head-gaze crosshair
     buildControllerMeshes(); // Neo 2 controller wireframes
+
+    // CJK test panel: load font atlas + build panel geometry once.
+    if (gCjkText.init(32.0f)) {
+        std::vector<float> bgV, textV;
+        gCjkTextVerts = buildCjkTestPanel(bgV, textV);
+        glBindBuffer(GL_ARRAY_BUFFER, gCjkBgVbo);
+        glBufferData(GL_ARRAY_BUFFER, bgV.size()*sizeof(float), bgV.data(), GL_STATIC_DRAW);
+        glBindBuffer(GL_ARRAY_BUFFER, gCjkTextVbo);
+        glBufferData(GL_ARRAY_BUFFER, textV.size()*sizeof(float), textV.data(), GL_STATIC_DRAW);
+        gCjkPanelBuilt = true;
+        LOGI("CJK test panel built: %d text verts", gCjkTextVerts);
+    } else {
+        LOGE("CJK test panel: font init failed, panel disabled");
+    }
     // Passthrough camera background replaces the dark-void environment.
     // The lobby UI panels composite on top of the live camera feed.
     if (gPassthrough) {
