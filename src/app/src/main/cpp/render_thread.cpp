@@ -40,6 +40,7 @@
 #include "lobby.h"       // ported pico_oxr WiVRn lobby UI panel
 #include "passthrough.h" // passthrough camera background for the lobby
 #include "simple_lobby.h"// simple 3D lobby environment (floor grid + sky)
+#include "pin_pad.h"     // PIN entry numpad overlay for pairing
 #include "lobby_panels.h"// diagnostics overlay builders
 #include "input.h"       // controller + head-pose shared state
 #include "foveation.h"   // readFoveationParams() from the settings JSON
@@ -3849,6 +3850,43 @@ void *renderThread(void *) {
             drawSettingsPanelVerts(pi.sliderVertCount, sproj, sview, settingsWorld);
             if (pi.cursorOnPanel)
                 drawPointerCursor(pi.cursorLx, pi.cursorLy, pi.cursorPressed, sproj, sview, settingsWorld);
+
+            // PIN pad overlay (shown when server requests pairing PIN).
+            if (gPinEntryRequested.load()) {
+                // Position the PIN pad in front of the user, slightly closer
+                // than the settings panel so it's clearly on top.
+                const float kPinDist = 1.9f;
+                Mat4 pinWorld = mat4Translate(0, 0, -kPinDist);
+                // Build PIN pad verts with cursor mapped to panel-local coords.
+                float pinCursorLx = 0, pinCursorLy = 0;
+                bool pinOnPad = false;
+                // Ray-march the pointer against the PIN pad plane.
+                float pz = -kPinDist;
+                if (fabsf(pi.ptrDz) > 0.001f) {
+                    float t = (pz - pi.ptrOz) / pi.ptrDz;
+                    if (t > 0) {
+                        pinCursorLx = pi.ptrOx + pi.ptrDx * t;
+                        pinCursorLy = pi.ptrOy + pi.ptrDy * t;
+                        pinOnPad = true;
+                    }
+                }
+                static std::vector<float> pinVerts;
+                pinVerts.clear();
+                bool active = buildPinPad(pinVerts, pinCursorLx, pinCursorLy,
+                                           pi.clickEdge, pinOnPad);
+                if (active && !pinVerts.empty()) {
+                    int pinVc = (int)(pinVerts.size() / 6);
+                    glBindBuffer(GL_ARRAY_BUFFER, gSliderVbo);
+                    glBufferData(GL_ARRAY_BUFFER, pinVerts.size() * sizeof(float),
+                                 pinVerts.data(), GL_DYNAMIC_DRAW);
+                    Mat4 pinMvp = mat4Mul(sproj, mat4Mul(sview, pinWorld));
+                    glUseProgram(gProg);
+                    glBindVertexArray(gSliderVao);
+                    glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, pinMvp.m);
+                    glDrawArrays(GL_TRIANGLES, 0, pinVc);
+                    glBindVertexArray(0);
+                }
+            }
 
             glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);
         };
