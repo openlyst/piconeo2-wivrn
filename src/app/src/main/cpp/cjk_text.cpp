@@ -64,24 +64,22 @@ bool CjkText::init(float pxHeight) {
     }
     stbtt_PackSetOversampling(&pack, 1, 1);
 
-    // Pack each range; store glyph metrics. We use a large packedchar array
-    // since CJK ranges can have many codepoints (only existing ones get packed).
-    stbtt_packedchar packed[0xA000];   // max range size = 0x9FFF-0x4E00+1
+    // Pack each range; store glyph metrics. Use heap allocation since the
+    // CJK range is ~21K codepoints and stbtt_packedchar is ~20 bytes each.
+    std::vector<stbtt_packedchar> packed;
     glyphs_.clear();
     memset(cpToIdx_, -1, sizeof(cpToIdx_));
 
     for (const auto &r : ranges) {
         int n = r.last - r.first + 1;
-        int ok = stbtt_PackFontRange(&pack, fontBuf.data(), 0, pxHeight, r.first, n, packed);
+        packed.resize(n);
+        int ok = stbtt_PackFontRange(&pack, fontBuf.data(), 0, pxHeight, r.first, n, packed.data());
         if (!ok) LOGE("cjk_text: pack failed for range 0x%X-0x%X", r.first, r.last);
         for (int i = 0; i < n; i++) {
             int cp = r.first + i;
             if (cp >= kMaxCp) continue;
-            // Skip glyphs that don't exist in the font (x0==x1 && y0==y1).
-            if (packed[i].x0 == 0 && packed[i].x1 == 0 && packed[i].y0 == 0 && packed[i].y1 == 0) {
-                // Still might be valid at (0,0)... check advance instead.
-                if (packed[i].xadvance == 0) continue;
-            }
+            // Only store glyphs that actually exist in the font.
+            if (!stbtt_FindGlyphIndex(&font, cp)) continue;
             const stbtt_packedchar &pc = packed[i];
             CjkGlyph g;
             g.x0 = pc.x0 / (float)atlasW_;
