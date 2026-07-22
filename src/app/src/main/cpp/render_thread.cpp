@@ -3467,10 +3467,18 @@ void *renderThread(void *) {
                         int64_t total_ns = g_latency.get_avg_total_latency_ns();
                         float total_ms = total_ns / 1e6f;
                         float fps = (float)sDecoded / dtS;
-                        (void)fps; (void)total_ms;
 
-                        LOGI("LATENCY: total=%.1fms enc=%.1f send=%.1f net=%.1f dec=%.1f wait=%.1f blit=%.1f",
-                             total_ms, bd[0], bd[1], bd[2], bd[3], bd[4], bd[5]);
+                        g_stream->stats_fps = (int)lroundf(fps);
+                        g_stream->stats_total_latency_ms = total_ms;
+                        g_stream->stats_encode_ms   = bd[0];
+                        g_stream->stats_send_ms     = bd[1];
+                        g_stream->stats_network_ms  = bd[2];
+                        g_stream->stats_decode_ms   = bd[3];
+                        g_stream->stats_render_wait_ms = bd[4];
+                        g_stream->stats_blit_ms     = bd[5];
+
+                        LOGI("LATENCY: total=%.1fms enc=%.1f send=%.1f net=%.1f dec=%.1f wait=%.1f blit=%.1f fps=%.1f",
+                             total_ms, bd[0], bd[1], bd[2], bd[3], bd[4], bd[5], fps);
                     }
 
                     gVidDecoded.store(sDecoded); gVidSubmit.store(sSubmits); gVidDropped.store(sDropped);

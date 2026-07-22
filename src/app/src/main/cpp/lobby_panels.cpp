@@ -1,8 +1,9 @@
 #include "lobby_panels.h"
 #include "app_state.h"   // gVid*/g*MsX10 diag publish
-#include "alvr_ext.h"    // alvr_get_client_stats
 #include "input.h"       // gCtrl/gCtrlMutex (controller battery)
 #include "log.h"         // nowNs
+#include "wivrn/core/latency_tracker.h"  // g_latency
+#include "streaming/streaming_client.h"  // g_stream
 #include <cstdio>
 #include <cstring>
 
@@ -199,15 +200,25 @@ void buildBatteryWarn(std::vector<float> &v, int pct) {
 
 void buildDiagOverlay(std::vector<float> &v, int page) {
     if (page == 2) { buildSysOverlay(v); return; }
-    // Throttle ALVR latency stats to ~3/sec (values jitter every frame otherwise).
+    // Throttle latency stats to ~3/sec (values jitter every frame otherwise).
     static float held[6] = {0,0,0,0,0,0};
     static bool  haveHeld = false;
     static uint64_t lastUpd = 0;
     uint64_t now = nowNs();
     if (now - lastUpd > 333000000ULL) {
-        float st[6];
-        if (alvr_get_client_stats(st)) { for (int i=0;i<6;i++) held[i]=st[i]; haveHeld=true; }
-        else haveHeld = false;
+        if (g_stream && g_stream->session) {
+            auto bd = g_latency.get_avg_breakdown_ms();
+            int64_t total_ns = g_latency.get_avg_total_latency_ns();
+            held[0] = total_ns / 1e6f;  // total
+            held[1] = bd[3];            // decode
+            held[2] = 0;                // queue (not separately tracked)
+            held[3] = bd[4] + bd[5];   // render + blit
+            held[4] = 0;
+            held[5] = g_stream->stats_fps > 0 ? 1000.0f / g_stream->stats_fps : 0;
+            haveHeld = (total_ns > 0);
+        } else {
+            haveHeld = false;
+        }
         lastUpd = now;
     }
     const float px  = 0.0019f;          // glyph size (metres)
