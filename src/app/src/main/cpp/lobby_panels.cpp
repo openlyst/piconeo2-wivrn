@@ -5,6 +5,7 @@
 #include "wivrn/core/latency_tracker.h"  // g_latency
 #include "streaming/streaming_client.h"  // g_stream
 #include "cjk_text.h"    // gCjkText
+#include "i18n.h"
 #include <cstdio>
 #include <cstring>
 
@@ -151,27 +152,27 @@ static void buildSysOverlay(std::vector<float> &v) {
     };
 
     // --- Column 0: CPU ---
-    hdr(0, "CPU");
-    pctStr(line, sizeof(line), "Usage", held[0]); row(0,0,line);
-    pctStr(line, sizeof(line), "Little", held[1]); row(0,1,line);
-    pctStr(line, sizeof(line), "Big", held[2]);    row(0,2,line);
-    trow(0,3,"Temp", held[6]);
+    hdr(0, tr(Str::CPU));
+    pctStr(line, sizeof(line), tr(Str::Usage), held[0]); row(0,0,line);
+    pctStr(line, sizeof(line), tr(Str::Little), held[1]); row(0,1,line);
+    pctStr(line, sizeof(line), tr(Str::Big), held[2]);    row(0,2,line);
+    trow(0,3,tr(Str::Temp), held[6]);
 
     // --- Column 1: GPU ---
-    hdr(1, "GPU");
-    pctStr(line, sizeof(line), "Usage", held[3]); row(1,0,line);
-    pctStr(line, sizeof(line), "Clock", held[4]); row(1,1,line);
+    hdr(1, tr(Str::GPU));
+    pctStr(line, sizeof(line), tr(Str::Usage), held[3]); row(1,0,line);
+    pctStr(line, sizeof(line), tr(Str::Clock), held[4]); row(1,1,line);
     if (held[5] < 0) snprintf(line, sizeof(line), "MHz  --");
     else             snprintf(line, sizeof(line), "MHz  %.0f", held[5]);
     row(1,2,line);
-    trow(1,3,"Temp", held[7]);
+    trow(1,3,tr(Str::Temp), held[7]);
 
     // --- Column 2: heat (C) ---
-    hdr(2, "Heat (C)");
-    trow(2,0,"CPU", held[6]);
-    trow(2,1,"GPU", held[7]);
-    trow(2,2,"DDR", held[8]);
-    trow(2,3,"SoC", held[9]);
+    hdr(2, tr(Str::HeatC));
+    trow(2,0,tr(Str::CPU), held[6]);
+    trow(2,1,tr(Str::GPU), held[7]);
+    trow(2,2,tr(Str::DDR), held[8]);
+    trow(2,3,tr(Str::SoC), held[9]);
 
     // --- Row 4: controller battery (L/R), warm tint under 20% ---
     auto batCell = [&](int c, const char *lbl, float p){
@@ -181,10 +182,10 @@ static void buildSysOverlay(std::vector<float> &v) {
         const float *col = (p >= 0.0f && p < 20.0f) ? hotCol : valCol;
         uiTextL(v, b, colL[c], yTop - 5.0f*dy, px, col[0], col[1], col[2]);
     };
-    batCell(0, "Ctrl L", held[10]);
-    batCell(1, "Ctrl R", held[11]);
+    batCell(0, tr(Str::CtrlL), held[10]);
+    batCell(1, tr(Str::CtrlR), held[11]);
 
-    uiTextC(v, "System telemetry", 0.0f, yTop - 6.0f*dy - 0.010f, px*0.9f, 0.55f, 0.65f, 0.78f);
+    uiTextC(v, tr(Str::SystemTelemetry), 0.0f, yTop - 6.0f*dy - 0.010f, px*0.9f, 0.55f, 0.65f, 0.78f);
 }
 
 void buildBatteryWarn(std::vector<float> &v, int pct) {
@@ -194,8 +195,8 @@ void buildBatteryWarn(std::vector<float> &v, int pct) {
     else          { bg[0]=0.20f; bg[1]=0.14f; bg[2]=0.01f; hd[0]=1.00f; hd[1]=0.82f; hd[2]=0.32f; }
     const float px = 0.0024f;
     appendQuad(v, -0.21f, 0.066f, 0.21f, -0.066f, bg[0], bg[1], bg[2]);   // card (drawn first)
-    uiTextC(v, "Low battery", 0.0f, 0.030f, px, hd[0], hd[1], hd[2]);
-    char line[32]; snprintf(line, sizeof(line), "%d percent remaining", pct);   // no '%' glyph in the font
+    uiTextC(v, tr(Str::LowBattery), 0.0f, 0.030f, px, hd[0], hd[1], hd[2]);
+    char line[32]; snprintf(line, sizeof(line), tr(Str::PercentRemaining), pct);
     uiTextC(v, line, 0.0f, -0.022f, px*0.78f, 0.95f, 0.96f, 1.00f);
 }
 
@@ -245,32 +246,32 @@ void buildDiagOverlay(std::vector<float> &v, int page) {
     };
 
     // --- Column 0: pipeline latency (ms) ---
-    colHdr(0, "Latency (ms)");
+    colHdr(0, tr(Str::LatencyMs));
     if (haveHeld) {
-        snprintf(line, sizeof(line), "Total   %.1f", held[0]); colRow(0,0,line);
-        snprintf(line, sizeof(line), "Decode  %.1f", held[1]); colRow(0,1,line);
-        snprintf(line, sizeof(line), "Queue   %.1f", held[2]); colRow(0,2,line);
-        snprintf(line, sizeof(line), "Render  %.1f", held[3]); colRow(0,3,line);
+        snprintf(line, sizeof(line), "%s   %.1f", tr(Str::Total), held[0]); colRow(0,0,line);
+        snprintf(line, sizeof(line), "%s  %.1f", tr(Str::Decode), held[1]); colRow(0,1,line);
+        snprintf(line, sizeof(line), "%s   %.1f", tr(Str::Queue), held[2]); colRow(0,2,line);
+        snprintf(line, sizeof(line), "%s  %.1f", tr(Str::Render), held[3]); colRow(0,3,line);
     } else {
-        colRow(0,0,"Waiting...");
+        colRow(0,0,tr(Str::Waiting));
     }
 
     // --- Column 1: video rate (per second) ---
-    colHdr(1, "Video rate");
+    colHdr(1, tr(Str::VideoRate));
     float fps = (haveHeld && held[5] > 0.01f) ? (1000.0f / held[5]) : (float) gVidSubmit.load();
-    snprintf(line, sizeof(line), "FPS      %.0f", fps);              colRow(1,0,line);
-    snprintf(line, sizeof(line), "Decoded  %d",  gVidDecoded.load()); colRow(1,1,line);
-    snprintf(line, sizeof(line), "Submit   %d",  gVidSubmit.load());  colRow(1,2,line);
-    snprintf(line, sizeof(line), "Dropped  %d",  gVidDropped.load()); colRow(1,3,line);
+    snprintf(line, sizeof(line), "%s      %.0f", tr(Str::FPS), fps);              colRow(1,0,line);
+    snprintf(line, sizeof(line), "%s  %d",  tr(Str::Decoded), gVidDecoded.load()); colRow(1,1,line);
+    snprintf(line, sizeof(line), "%s   %d",  tr(Str::Submit), gVidSubmit.load());  colRow(1,2,line);
+    snprintf(line, sizeof(line), "%s  %d",  tr(Str::Dropped), gVidDropped.load()); colRow(1,3,line);
 
     // --- Column 2: per-stage frame timing (ms). enqueue = submit-to-SDK-warp
     // cost (incl vsync backpressure), not the warp's own compute. ---
-    colHdr(2, "Time (ms)");
-    snprintf(line, sizeof(line), "Gap     %.1f", gGapMsX10.load()/10.0f); colRow(2,0,line);
-    snprintf(line, sizeof(line), "Encode  %.1f", gEncMsX10.load()/10.0f); colRow(2,1,line);
-    snprintf(line, sizeof(line), "Enqueue %.1f", gEnqMsX10.load()/10.0f); colRow(2,2,line);
+    colHdr(2, tr(Str::TimeMs));
+    snprintf(line, sizeof(line), "%s     %.1f", tr(Str::Gap), gGapMsX10.load()/10.0f); colRow(2,0,line);
+    snprintf(line, sizeof(line), "%s  %.1f", tr(Str::Encode), gEncMsX10.load()/10.0f); colRow(2,1,line);
+    snprintf(line, sizeof(line), "%s %.1f", tr(Str::Enqueue), gEnqMsX10.load()/10.0f); colRow(2,2,line);
     // warp-submit fence timeouts/sec (slot not GPU-complete in budget -> tear). 0 = healthy.
-    snprintf(line, sizeof(line), "Fencetmo %d",  gFenceTimeouts.load()); colRow(2,3,line);
+    snprintf(line, sizeof(line), "%s %d",  tr(Str::Fencetmo), gFenceTimeouts.load()); colRow(2,3,line);
 
-    uiTextC(v, "Diagnostics", 0.0f, yTop - 5.0f*dy - 0.010f, px*0.9f, 0.55f, 0.65f, 0.78f);
+    uiTextC(v, tr(Str::Diagnostics), 0.0f, yTop - 5.0f*dy - 0.010f, px*0.9f, 0.55f, 0.65f, 0.78f);
 }

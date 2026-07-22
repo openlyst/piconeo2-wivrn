@@ -89,12 +89,12 @@ static void statsBuild(std::vector<float> &v, const MenuHover &h) {
     y -= lineH * 1.5f;
 
     struct { const char *name; float ms; float col[3]; } bars[] = {
-        {"Encode",   g_stream->stats_encode_ms,   {0.9f, 0.6f, 0.3f}},
-        {"Send",     g_stream->stats_send_ms,     {0.8f, 0.7f, 0.4f}},
-        {"Network",  g_stream->stats_network_ms,  {0.4f, 0.7f, 0.9f}},
-        {"Decode",   g_stream->stats_decode_ms,   {0.5f, 0.8f, 0.5f}},
-        {"Render",   g_stream->stats_render_wait_ms, {0.7f, 0.5f, 0.8f}},
-        {"Blit",     g_stream->stats_blit_ms,     {0.6f, 0.6f, 0.7f}},
+        {tr(Str::Encode),   g_stream->stats_encode_ms,   {0.9f, 0.6f, 0.3f}},
+        {tr(Str::Send),     g_stream->stats_send_ms,     {0.8f, 0.7f, 0.4f}},
+        {tr(Str::Network),  g_stream->stats_network_ms,  {0.4f, 0.7f, 0.9f}},
+        {tr(Str::Decode),   g_stream->stats_decode_ms,   {0.5f, 0.8f, 0.5f}},
+        {tr(Str::Render),   g_stream->stats_render_wait_ms, {0.7f, 0.5f, 0.8f}},
+        {tr(Str::Blit),     g_stream->stats_blit_ms,     {0.6f, 0.6f, 0.7f}},
     };
     float maxMs = 1.0f;
     for (auto &b : bars) if (b.ms > maxMs) maxMs = b.ms;
@@ -113,7 +113,7 @@ static void statsBuild(std::vector<float> &v, const MenuHover &h) {
 
     y -= lineH * 0.5f;
     // Stream info
-    uiTextL(v, "Stream info", x, y, px * 1.1f, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+    uiTextL(v, tr(Str::StreamInfo), x, y, px * 1.1f, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
     y -= lineH * 1.5f;
 
     snprintf(buf, sizeof(buf), "%d Mbit/s", g_stream->current_bitrate_mbps.load());
@@ -124,7 +124,7 @@ static void statsBuild(std::vector<float> &v, const MenuHover &h) {
     y -= lineH * 2.5f;
 
     bool mic = g_stream->microphone_enabled.load();
-    writeStat(x, y, "Microphone", mic ? "On" : "Off");
+    writeStat(x, y, "Microphone", mic ? tr(Str::On_) : tr(Str::Off_));
 }
 
 static void statsHit(float, float, MenuHover &) {}
@@ -146,11 +146,11 @@ static void appsBuild(std::vector<float> &v, const MenuHover &h) {
     float y = kMenuTopY;
     float px = kUiText * 1.4f;
 
-    uiTextL(v, "Running apps", x, y, px * 1.3f, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+    uiTextL(v, tr(Str::RunningApps), x, y, px * 1.3f, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
     y -= 0.10f;
 
     if (apps.empty()) {
-        uiTextL(v, "No apps running", x, y, px, 0.5f, 0.5f, 0.55f);
+        uiTextL(v, tr(Str::NoAppsRunning), x, y, px, 0.5f, 0.5f, 0.55f);
         return;
     }
 
@@ -183,7 +183,7 @@ static void appsBuild(std::vector<float> &v, const MenuHover &h) {
         uiTextL(v, name, tx, y - 0.02f, px, kUiWhite[0], kUiWhite[1], kUiWhite[2]);
 
         if (isOverlay) {
-            uiTextL(v, "overlay", tx, y - 0.05f, px * 0.7f, 0.5f, 0.55f, 0.6f);
+            uiTextL(v, tr(Str::Overlay), tx, y - 0.05f, px * 0.7f, 0.5f, 0.55f, 0.6f);
         }
 
         // Stop button (red X)
@@ -194,7 +194,7 @@ static void appsBuild(std::vector<float> &v, const MenuHover &h) {
         if (hot && h.part >= 100) { sb[0] = 0.7f; sb[1] = 0.2f; sb[2] = 0.2f; }
         appendQuad(v, btnX, btnY + btnSz*0.5f, btnX + btnSz, btnY - btnSz*0.5f,
                    sb[0], sb[1], sb[2]);
-        uiTextC(v, "X", btnX + btnSz*0.5f, btnY + baselineOffset(px * 0.8f), px * 0.8f,
+        uiTextC(v, tr(Str::Close), btnX + btnSz*0.5f, btnY + baselineOffset(px * 0.8f), px * 0.8f,
                 1, 1, 1);
 
         y = yBot - rowGap;
@@ -287,18 +287,18 @@ static void launchBuild(std::vector<float> &v, const MenuHover &h) {
     float y = kMenuTopY;
     float px = kUiText * 1.4f;
 
-    uiTextL(v, "Launch application", x, y, px * 1.3f, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+    uiTextL(v, tr(Str::LaunchApplication), x, y, px * 1.3f, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
     y -= 0.10f;
 
     if (apps.empty()) {
         if (requested) {
-            uiTextL(v, "Loading...", x, y, px, 0.5f, 0.5f, 0.55f);
+            uiTextL(v, tr(Str::Loading), x, y, px, 0.5f, 0.5f, 0.55f);
         } else {
-            uiTextL(v, "No apps available", x, y, px, 0.5f, 0.5f, 0.55f);
+            uiTextL(v, tr(Str::NoAppsAvailable), x, y, px, 0.5f, 0.5f, 0.55f);
         }
         // Refresh button
         UiRect btn = { x + 0.10f, y - 0.06f, 0.18f, 0.06f };
-        uiButton(v, btn, "Refresh", h.part == 200);
+        uiButton(v, btn, tr(Str::Refresh), h.part == 200);
         return;
     }
 
@@ -331,7 +331,7 @@ static void launchBuild(std::vector<float> &v, const MenuHover &h) {
         else if (hot && h.part >= 100) { gc[0] = 0.2f; gc[1] = 0.5f; gc[2] = 0.25f; }
         appendQuad(v, btnX, btnY + btnH*0.5f, btnX + btnW, btnY - btnH*0.5f,
                    gc[0], gc[1], gc[2]);
-        uiTextC(v, launching ? "Launching..." : "Launch",
+        uiTextC(v, launching ? tr(Str::Launching) : tr(Str::Launch),
                 btnX + btnW*0.5f, btnY + baselineOffset(px * 0.7f), px * 0.7f, 1, 1, 1);
 
         y = yBot - rowGap;
