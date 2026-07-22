@@ -39,6 +39,7 @@
 #include "app_state.h"   // shared lobby/render knobs: IPD, input edges, toggles, diag
 #include "lobby.h"       // ported pico_oxr WiVRn lobby UI panel
 #include "passthrough.h" // passthrough camera background for the lobby
+#include "lobby_map.h"   // custom OBJ lobby environment
 #include "lobby_panels.h"// diagnostics overlay builders
 #include "input.h"       // controller + head-pose shared state
 #include "foveation.h"   // readFoveationParams() from the settings JSON
@@ -115,6 +116,7 @@ std::atomic<bool> gWindowDirty{false};     // a change is pending (see render_th
 
 pico_lobby * gLobby = new pico_lobby();
 pico_passthrough * gPassthrough = new pico_passthrough();
+static lobby_map * gLobbyMap = nullptr;
 
 // Shared "position + per-vertex colour" shader: grid, HUD text, and eye-gaze
 // marker all reuse this same program (gProg) + uMVP.
@@ -2193,6 +2195,20 @@ void *renderThread(void *) {
             gPassthrough->start();
     }
 
+    // Custom lobby map (loaded from /home/calico/Documents/map.obj on device).
+    // Shown when passthrough is off. User spawns at x=5, y=0, z=0 in map space.
+    {
+        const char *home = getenv("HOME");
+        if (!home) home = "/data/data/org.meumeu.wivrn.neo2.pvr/files";
+        std::string mapPath = std::string(home) + "/map.obj";
+        gLobbyMap = new lobby_map();
+        gLobbyMap->load(mapPath.c_str());
+        if (gLobbyMap->is_loaded()) {
+            // Offset map so user at tracking origin (0,0,0) appears at x=5 in map space.
+            gLobbyMap->set_model(mat4Translate(-5.0f, 0.0f, 0.0f));
+        }
+    }
+
     RenderEventFunc re = (RenderEventFunc) GetRenderEventFunc();
     LOGI("GetRenderEventFunc=%p", (void *) re);
 
@@ -3754,6 +3770,9 @@ void *renderThread(void *) {
         // gaze disc) into the currently-bound FBO. Shared by the HW-compositor
         // and self-present paths.
         auto drawLobbyScene = [&](const Mat4 &sproj, const Mat4 &sview, const Mat4 &sEyeShift, int eyeIdx) {
+            // Custom lobby map when passthrough is off.
+            if (!(gPassthrough && gPassthrough->is_camera_on()) && gLobbyMap && gLobbyMap->is_loaded())
+                gLobbyMap->draw(sproj, sview);
             // Passthrough camera background. Drawn first as a fullscreen quad so
             // everything else composites on top.
             if (gPassthrough && gPassthrough->is_camera_on())

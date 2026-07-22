@@ -123,6 +123,7 @@ add_library(p2wivrn SHARED
     server_list.cpp
     stream_panel.cpp
     lobby.cpp
+    lobby_map.cpp
     passthrough.cpp
     input.cpp
     foveation.cpp
