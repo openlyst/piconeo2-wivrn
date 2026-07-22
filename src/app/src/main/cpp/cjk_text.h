@@ -35,3 +35,6 @@ private:
     int16_t cpToIdx_[kMaxCp] = {};
     float fontScale_ = 1.0f;
 };
+
+// Global instance, defined in render_thread.cpp.
+extern CjkText gCjkText;
