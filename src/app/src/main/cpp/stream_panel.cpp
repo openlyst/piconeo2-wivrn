@@ -311,7 +311,7 @@ static void launchBuild(std::vector<float> &v, const MenuHover &h) {
         uiTextL(v, name, x, y - 0.02f, px, kUiWhite[0], kUiWhite[1], kUiWhite[2]);
 
         // Launch button (green)
-        float btnW = 0.14f, btnH = 0.05f;
+        float btnW = 0.16f, btnH = 0.06f;
         float btnX = kCtX1 - btnW - 0.03f;
         float btnY = y - rowH * 0.5f;
         float gc[3] = {0.1f, 0.3f, 0.15f};
@@ -344,7 +344,7 @@ static void launchHit(float cx, float cy, MenuHover &h) {
     }
 
     float rowH = 0.08f, rowGap = 0.02f;
-    float btnW = 0.14f, btnH = 0.05f;
+    float btnW = 0.16f, btnH = 0.06f;
 
     for (int i = 0; i < (int)apps.size(); i++) {
         float y = yTop - i * (rowH + rowGap);
