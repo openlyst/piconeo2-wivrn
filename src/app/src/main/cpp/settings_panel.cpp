@@ -571,7 +571,7 @@ void settingsMeasure(float &offX, float &offY, float &contentH) {
         MenuHover none;
         menuBuild(tmp, cat, none);
         float minY = 1e9f, mxY = -1e9f;
-        for (size_t i = 1; i < tmp.size(); i += 6) { float y = tmp[i]; if (y<minY) minY=y; if (y>mxY) mxY=y; }
+        for (size_t i = 1; i < tmp.size(); i += 8) { float y = tmp[i]; if (y<minY) minY=y; if (y>mxY) mxY=y; }
         if (mxY < minY) { minY = 0; mxY = 0; }
         maxY = mxY; contentH = mxY - minY;
         sExtCat = gSettingsCat; sExtSig = sig; sExtMaxY = maxY; sExtContentH = contentH;
@@ -633,24 +633,25 @@ void buildSettingsPanel(std::vector<float> &v, float offX, float offY, float con
         appendQuad(v, xL, yT, xR, yB, c0, c1, c2);
         const float *tc = active ? kUiWhite : kUiTitle;
         // Shrink text to fit button width
-        float tpx = 0.0045f;
+        float tpx = kUiText;
         float textW = r.w - 0.02f;  // padding
         // measureTextTTF is internal to ui_kit; use a simple fit
-        uiTextC(v, m[i].name, r.cx, r.cy + 3.0f*tpx, tpx, tc[0], tc[1], tc[2]);
+        uiTextC(v, m[i].name, r.cx, r.cy + baselineOffset(tpx), tpx, tc[0], tc[1], tc[2]);
     }
 
     // content: build builder-local, then translate + triangle-clip to the viewport
     static std::vector<float> c; c.clear();
     menuBuild(c, m[cat], content);
-    for (size_t t = 0; t + 18 <= c.size(); t += 18) {
-        float y0 = c[t+1]+offY, y1 = c[t+7]+offY, y2 = c[t+13]+offY;
+    for (size_t t = 0; t + 24 <= c.size(); t += 24) {
+        float y0 = c[t+1]+offY, y1 = c[t+9]+offY, y2 = c[t+17]+offY;
         if ((y0>kCtTop && y1>kCtTop && y2>kCtTop) || (y0<kCtBot && y1<kCtBot && y2<kCtBot)) continue;
         for (int k = 0; k < 3; k++) {
-            size_t b = t + k*6;
+            size_t b = t + k*8;
             float yy = c[b+1]+offY;
             if (yy>kCtTop) yy=kCtTop; else if (yy<kCtBot) yy=kCtBot;
             v.push_back(c[b+0]+offX); v.push_back(yy); v.push_back(c[b+2]);
-            v.push_back(c[b+3]); v.push_back(c[b+4]); v.push_back(c[b+5]);
+            v.push_back(c[b+3]); v.push_back(c[b+4]);
+            v.push_back(c[b+5]); v.push_back(c[b+6]); v.push_back(c[b+7]);
         }
     }
 

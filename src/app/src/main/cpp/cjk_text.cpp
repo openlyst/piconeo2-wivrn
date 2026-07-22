@@ -140,12 +140,16 @@ int CjkText::emitQuads(std::vector<float> &v, const char *utf8, float x, float y
         if (cp >= kMaxCp || cpToIdx_[cp] < 0) continue;
         const CjkGlyph &gl = glyphs_[cpToIdx_[cp]];
 
-        // Atlas pixel coords -> metres via px (metres per atlas pixel).
+        // The UI passes the top edge of the line. stbtt_packedchar stores
+        // glyph offsets in image coordinates, where Y grows downward.
         float gx0 = cursorX + gl.xoff * px;
-        float gy0 = y + gl.yoff * px;
+        float gy0 = y;
         float gx1 = gx0 + gl.pw * px;
-        float gy1 = gy0 + gl.ph * px;
+        float gy1 = gy0 - gl.ph * px;
 
+        // The uploaded atlas uses the same row order as stb's packed image.
+        // The corrected geometry below supplies the top edge first, so keep
+        // the glyph's atlas V order unchanged.
         float u0 = gl.x0, v0 = gl.y0, u1 = gl.x1, v1 = gl.y1;
         float verts[6][8] = {
             {gx0, gy0, 0, u0, v0, r, g, b},

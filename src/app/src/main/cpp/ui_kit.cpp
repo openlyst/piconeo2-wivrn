@@ -31,7 +31,7 @@ void appendQuad(std::vector<float> &v, float xL, float yTop, float xR, float yBo
 }
 
 // ---- widget kit ----------------------------------------------------------
-const float kUiText      = 0.000656f;         // metres per atlas pixel (~31.5mm text)
+const float kUiText      = 0.000875f;         // metres per atlas pixel (~31.5mm visible text)
 const float kUiBg[3]     = {0.13f, 0.13f, 0.13f};
 const float kUiBgHot[3]  = {0.26f, 0.34f, 0.46f};
 const float kUiTrack[3]  = {0.08f, 0.08f, 0.08f};
@@ -56,13 +56,13 @@ void uiTextL(std::vector<float> &v, const char *s, float xLeft, float yTop, floa
 }
 void uiLabel(std::vector<float> &v, const char *s, float cx, float cy, float px,
              const float col[3]) {
-    uiTextC(v, s, cx, cy - baselineOffset(px), px, col[0], col[1], col[2]);
+    uiTextC(v, s, cx, cy + baselineOffset(px), px, col[0], col[1], col[2]);
 }
 void uiButton(std::vector<float> &v, const UiRect &r, const char *label, bool hot, bool disabled) {
     const float *bg = disabled ? kUiTrack : (hot ? kUiBgHot : kUiBg);
     uiBox(v, r, bg);
     float txt[3] = { disabled ? 0.50f : 1.0f, disabled ? 0.52f : 1.0f, disabled ? 0.56f : 1.0f };
-    uiTextC(v, label, r.cx, r.cy - baselineOffset(kUiText), kUiText, txt[0], txt[1], txt[2]);
+    uiTextC(v, label, r.cx, r.cy + baselineOffset(kUiText), kUiText, txt[0], txt[1], txt[2]);
 }
 void uiToggle(std::vector<float> &v, const UiRect &r, const char *label, bool on, bool hot, float textScale, bool disabled) {
     uiBox(v, r, disabled ? kUiTrack : (hot ? kUiBgHot : kUiBg));
@@ -78,7 +78,7 @@ void uiToggle(std::vector<float> &v, const UiRect &r, const char *label, bool on
         }
     }
     float txt[3] = { disabled ? 0.45f : 0.85f, disabled ? 0.48f : 0.88f, disabled ? 0.52f : 0.92f };
-    uiTextL(v, label, r.cx - r.w*0.5f + 0.012f, r.cy - baselineOffset(tpx), tpx, txt[0], txt[1], txt[2]);
+    uiTextL(v, label, r.cx - r.w*0.5f + 0.012f, r.cy + baselineOffset(tpx), tpx, txt[0], txt[1], txt[2]);
     float scx = r.cx + r.w*0.5f - sw*0.5f - 0.012f;
     UiRect track = { scx, r.cy, sw, sh };
     const float *trackCol = on ? kUiOn : kUiOff;
@@ -113,10 +113,10 @@ void uiDropdownHeader(std::vector<float> &v, const UiRect &r, const char *label,
     uiBox(v, r, disabled ? kUiTrack : (hot ? kUiBgHot : kUiBg));
     char buf[64]; snprintf(buf, sizeof(buf), "%s %s", label, open ? "^" : "~");
     float txt[3] = { disabled ? 0.50f : 1.0f, disabled ? 0.52f : 1.0f, disabled ? 0.56f : 1.0f };
-    uiTextC(v, buf, r.cx, r.cy - baselineOffset(kUiText), kUiText, txt[0], txt[1], txt[2]);
+    uiTextC(v, buf, r.cx, r.cy + baselineOffset(kUiText), kUiText, txt[0], txt[1], txt[2]);
 }
 void uiDropdownItem(std::vector<float> &v, const UiRect &r, const char *label, bool hot, bool disabled) {
     uiBox(v, r, disabled ? kUiTrack : (hot ? kUiBgHot : kUiOff));
     float txt[3] = { disabled ? 0.50f : 1.0f, disabled ? 0.52f : 1.0f, disabled ? 0.56f : 1.0f };
-    uiTextC(v, label, r.cx, r.cy - baselineOffset(kUiText), kUiText, txt[0], txt[1], txt[2]);
+    uiTextC(v, label, r.cx, r.cy + baselineOffset(kUiText), kUiText, txt[0], txt[1], txt[2]);
 }

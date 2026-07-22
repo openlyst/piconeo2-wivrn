@@ -52,7 +52,7 @@ void buildEqVerts(std::vector<float> &v, int hoverBand, bool resetHover,
         float rpx = px * 0.78f;   // smaller so RESET fits the button
         std::vector<float> tmp;
         appendTextLine(tmp, tr(Str::Reset), (kEqResetYTop+kEqResetYBot)*0.5f + baselineOffset(rpx), rpx, 1,1,1);
-        for (size_t i = 0; i < tmp.size(); i += 6) tmp[i] += cx;
+        for (size_t i = 0; i < tmp.size(); i += 8) tmp[i] += cx;
         v.insert(v.end(), tmp.begin(), tmp.end());
     }
 
