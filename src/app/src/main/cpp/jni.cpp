@@ -2,6 +2,8 @@
 // and start/stop the render thread.
 #include <jni.h>
 #include <android/native_window_jni.h>
+#include <android/asset_manager.h>
+#include <android/asset_manager_jni.h>
 #include <pthread.h>
 #include <sys/socket.h>
 #include <thread>
@@ -25,6 +27,9 @@ static jmethodID g_onServerRemoveMethod = nullptr;
 static jmethodID g_onServerAutoconnectMethod = nullptr;
 static jmethodID g_onRefreshServersMethod = nullptr;
 static jmethodID g_onConnectingChangedMethod = nullptr;
+
+// Asset manager for loading bundled fonts/assets. Set in nativeStart.
+AAssetManager * gAssetManager = nullptr;
 
 // HMD home button long-press tracking for recenter (mirrors pico_oxr).
 static struct timespec g_home_press_ts = {};
@@ -63,6 +68,17 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
     if (gRunning.load()) { LOGI("nativeStart ignored (already running)"); return; }
     env->GetJavaVM(&gVM);
     gActivity = env->NewGlobalRef(activity);
+
+    // Grab the asset manager so native code can load bundled fonts.
+    {
+        jclass cls = env->GetObjectClass(activity);
+        jmethodID getAssets = env->GetMethodID(cls, "getAssets", "()Landroid/content/res/AssetManager;");
+        jobject javaAssets = env->CallObjectMethod(activity, getAssets);
+        if (javaAssets) {
+            gAssetManager = AAssetManager_fromJava(env, javaAssets);
+            env->DeleteLocalRef(javaAssets);
+        }
+    }
     jclass clazz = env->GetObjectClass(activity);
     g_onServerConnectMethod = env->GetMethodID(clazz, "onServerConnect", "(Ljava/lang/String;IZ)V");
     g_onServerRemoveMethod = env->GetMethodID(clazz, "onServerRemove", "(Ljava/lang/String;I)V");
