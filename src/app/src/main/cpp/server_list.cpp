@@ -133,27 +133,28 @@ float buildServerContent(std::vector<float> &v, float scrollY,
                     kUiText * 0.7f, 0.3f, 0.7f, 0.4f);
         }
 
-        // Remove (X) button - shown for all servers
-        float xBtnSz = 0.04f;
-        float xBtnX = kCtX1Content - xBtnSz - 0.01f;
-        float xBtnY = yTop - 0.02f;
+        // Remove (X) button - same height as Connect button
+        float xBtnW = 0.06f, xBtnH = 0.08f;
+        float xBtnCx = kCtX1Content - xBtnW * 0.5f - 0.01f;
+        float xBtnCy = yTop - kRowH * 0.5f;
         bool xHot = (hot && hoverItem == i && connectHot == -2);
         float xc[3] = {0.2f, 0.1f, 0.1f};
         if (xHot) { xc[0] = 0.5f; xc[1] = 0.2f; xc[2] = 0.2f; }
-        appendQuad(v, xBtnX, xBtnY + xBtnSz*0.5f, xBtnX + xBtnSz, xBtnY - xBtnSz*0.5f,
+        appendQuad(v, xBtnCx - xBtnW*0.5f, xBtnCy + xBtnH*0.5f,
+                   xBtnCx + xBtnW*0.5f, xBtnCy - xBtnH*0.5f,
                    xc[0], xc[1], xc[2]);
-        uiTextC(v, "X", xBtnX + xBtnSz*0.5f, xBtnY + 3.5f * (kUiText * 0.8f),
-                kUiText * 0.8f, 1, 1, 1);
+        uiTextC(v, "X", xBtnCx, xBtnCy + 3.5f * (kUiText * 0.85f),
+                kUiText * 0.85f, 1, 1, 1);
 
         // Autoconnect toggle (non-manual only)
         if (!srv.manual) {
-            UiRect tog = { kCtX1Content - 0.52f, yTop - kRowH * 0.5f, 0.25f, 0.05f };
+            UiRect tog = { kCtX1Content - 0.59f, yTop - kRowH * 0.5f, 0.25f, 0.05f };
             uiToggle(v, tog, "Auto", srv.autoconnect, hot && connectHot != i);
         }
 
         // Connect button (green, wiVRn style)
         float btnW = 0.16f, btnH = 0.08f;
-        UiRect btn = { kCtX1Content - btnW * 0.5f - 0.20f, yTop - kRowH * 0.5f, btnW, btnH };
+        UiRect btn = { kCtX1Content - btnW * 0.5f - 0.27f, yTop - kRowH * 0.5f, btnW, btnH };
         bool btnHot = (connectHot == i);
         if (btnHot) {
             appendQuad(v, btn.cx - btn.w*0.5f, btn.cy + btn.h*0.5f,
@@ -191,18 +192,18 @@ SrvHover hitServerContent(float cx, float cy, float scrollY) {
         float yBot = yTop - kRowH;
 
         // Remove (X) button
-        float xBtnSz = 0.04f;
-        float xBtnX = kCtX1Content - xBtnSz - 0.01f;
-        float xBtnY = yTop - 0.02f;
-        if (cx >= xBtnX && cx <= xBtnX + xBtnSz &&
-            cy >= xBtnY - xBtnSz*0.5f && cy <= xBtnY + xBtnSz*0.5f) {
+        float xBtnW = 0.06f, xBtnH = 0.08f;
+        float xBtnCx = kCtX1Content - xBtnW * 0.5f - 0.01f;
+        float xBtnCy = yTop - kRowH * 0.5f;
+        if (cx >= xBtnCx - xBtnW*0.5f && cx <= xBtnCx + xBtnW*0.5f &&
+            cy >= xBtnCy - xBtnH*0.5f && cy <= xBtnCy + xBtnH*0.5f) {
             h.item = i; h.part = 3; h.grab = true;
             return h;
         }
 
         // Connect button
         float btnW = 0.16f, btnH = 0.08f;
-        UiRect btn = { kCtX1Content - btnW * 0.5f - 0.20f, yTop - kRowH * 0.5f, btnW, btnH };
+        UiRect btn = { kCtX1Content - btnW * 0.5f - 0.27f, yTop - kRowH * 0.5f, btnW, btnH };
         if (uiHit(btn, cx, cy)) {
             h.item = i; h.part = 1; h.grab = true;
             return h;
@@ -210,7 +211,7 @@ SrvHover hitServerContent(float cx, float cy, float scrollY) {
 
         // Autoconnect toggle
         if (!servers[i].manual) {
-            UiRect tog = { kCtX1Content - 0.52f, yTop - kRowH * 0.5f, 0.25f, 0.05f };
+            UiRect tog = { kCtX1Content - 0.59f, yTop - kRowH * 0.5f, 0.25f, 0.05f };
             if (uiHit(tog, cx, cy)) {
                 h.item = i; h.part = 2; h.grab = true;
                 return h;
