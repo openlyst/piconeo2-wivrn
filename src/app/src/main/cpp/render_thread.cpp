@@ -541,6 +541,7 @@ static GLuint gCjkProg = 0, gCjkMvpLoc = 0, gCjkTexLoc = 0;
 static GLuint gCjkBgVao = 0, gCjkBgVbo = 0;     // background quad (6-float verts)
 static GLuint gCjkTextVao = 0, gCjkTextVbo = 0; // text quads (8-float verts)
 static int    gCjkTextVerts = 0;
+static int    gCjkBgVerts = 0;
 static bool   gCjkPanelBuilt = false;
 static GLuint gLaserVao = 0, gLaserVbo = 0;     // controller laser beam (dynamic, world-space)
 static GLuint gCursorVao = 0, gCursorVbo = 0;   // UI pointer cursor ring (dynamic, panel-local)
@@ -2279,12 +2280,13 @@ void *renderThread(void *) {
     if (gCjkText.init(32.0f)) {
         std::vector<float> bgV, textV;
         gCjkTextVerts = buildCjkTestPanel(bgV, textV);
+        gCjkBgVerts = (int)(bgV.size() / 6);
         glBindBuffer(GL_ARRAY_BUFFER, gCjkBgVbo);
         glBufferData(GL_ARRAY_BUFFER, bgV.size()*sizeof(float), bgV.data(), GL_STATIC_DRAW);
         glBindBuffer(GL_ARRAY_BUFFER, gCjkTextVbo);
         glBufferData(GL_ARRAY_BUFFER, textV.size()*sizeof(float), textV.data(), GL_STATIC_DRAW);
         gCjkPanelBuilt = true;
-        LOGI("CJK test panel built: %d text verts", gCjkTextVerts);
+        LOGI("CJK test panel built: %d bg verts, %d text verts", gCjkBgVerts, gCjkTextVerts);
     } else {
         LOGE("CJK test panel: font init failed, panel disabled");
     }
@@ -3969,7 +3971,7 @@ void *renderThread(void *) {
                 glUseProgram(gProg);
                 glBindVertexArray(gCjkBgVao);
                 glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, cjkMvp.m);
-                glDrawArrays(GL_TRIANGLES, 0, 6 * 3);  // bg quad + "Hello World" text
+                glDrawArrays(GL_TRIANGLES, 0, gCjkBgVerts);
                 glBindVertexArray(0);
                 // CJK text (textured, alpha-blended).
                 if (gCjkTextVerts > 0) {

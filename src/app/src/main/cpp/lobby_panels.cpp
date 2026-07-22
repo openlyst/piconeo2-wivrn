@@ -286,27 +286,16 @@ int buildCjkTestPanel(std::vector<float> &bgV, std::vector<float> &textV) {
     // English line with the existing 5x7 bitmap font.
     uiTextC(bgV, "Hello World", 0.0f, 0.06f, 0.004f, 1.0f, 1.0f, 1.0f);
 
-    // Chinese line with the stb_truetype atlas. The textV vertices are pos.xyz +
-    // uv.xy + color.rgb (8 floats). Centre the 4 chars manually.
+    // Chinese line: 你好世界. Atlas baked at 32px, so px=0.0015 gives ~48mm tall
+    // glyphs. 4 CJK chars * ~32px advance = ~0.19m wide.
     int textVerts = 0;
     if (gCjkText.ready()) {
-        // 你好世界 = 4 chars. Estimate width: each CJK glyph ~0.018m at px=0.003.
-        float px = 0.003f;
-        const char *zh = "\xe4\xbd\xa0\xe5\xa5\xbd\xe4\xb8\x96\xe7\x95\x8c";  // 你好世界 UTF-8
-        // Measure width by summing advances.
-        float w = 0;
-        for (const char *p = zh; *p; ) {
-            uint8_t c = (uint8_t)*p;
-            int cp = 0, adv = 0;
-            if (c < 0x80) { cp = c; adv = 1; }
-            else if ((c & 0xE0) == 0xC0) { cp = ((c&0x1F)<<6)|((uint8_t)p[1]&0x3F); adv = 2; }
-            else if ((c & 0xF0) == 0xE0) { cp = ((c&0x0F)<<12)|(((uint8_t)p[1]&0x3F)<<6)|((uint8_t)p[2]&0x3F); adv = 3; }
-            p += adv;
-            (void)cp;
-            w += 0.018f;  // rough
-        }
-        float startX = -w * 0.5f;
-        float y = -0.04f;
+        float px = 0.0015f;
+        const char *zh = "\xe4\xbd\xa0\xe5\xa5\xbd\xe4\xb8\x96\xe7\x95\x8c";  // 你好世界
+        float charW = 32.0f * px;  // approx advance per CJK glyph
+        float totalW = 4.0f * charW;
+        float startX = -totalW * 0.5f;
+        float y = -0.05f;
         textVerts = gCjkText.emitQuads(textV, zh, startX, y, px, 1.0f, 0.9f, 0.5f);
     }
     return textVerts;

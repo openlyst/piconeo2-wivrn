@@ -7,8 +7,9 @@
 
 struct CjkGlyph {
     float x0, y0, x1, y1;   // atlas UVs
-    float xoff, yoff;       // bearing in metres at px=1
-    float advance;          // x advance in metres at px=1
+    float xoff, yoff;       // bearing in atlas pixels
+    float advance;          // x advance in atlas pixels
+    float pw, ph;           // glyph pixel w/h in atlas
 };
 
 class CjkText {

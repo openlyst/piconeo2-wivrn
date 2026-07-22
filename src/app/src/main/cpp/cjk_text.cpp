@@ -79,9 +79,11 @@ bool CjkText::init(float pxHeight) {
             g.y0 = pc.y0 / (float)atlasH_;
             g.x1 = pc.x1 / (float)atlasW_;
             g.y1 = pc.y1 / (float)atlasH_;
-            g.xoff = pc.xoff * fontScale_ / pxHeight;
-            g.yoff = pc.yoff * fontScale_ / pxHeight;
-            g.advance = pc.xadvance * fontScale_ / pxHeight;
+            g.xoff = pc.xoff;
+            g.yoff = pc.yoff;
+            g.advance = pc.xadvance;
+            g.pw = (float)(pc.x1 - pc.x0);
+            g.ph = (float)(pc.y1 - pc.y0);
             cpToIdx_[cp] = (int16_t)glyphs_.size();
             glyphs_.push_back(g);
         }
@@ -117,8 +119,7 @@ int CjkText::emitQuads(std::vector<float> &v, const char *utf8, float x, float y
                        float r, float g, float b) const {
     if (!tex_) return 0;
     int len = (int)strlen(utf8);
-    int i = 0;
-    int vertCount = 0;
+    int i = 0, vertCount = 0;
     float cursorX = x;
     while (i < len) {
         int cp = 0;
@@ -128,34 +129,20 @@ int CjkText::emitQuads(std::vector<float> &v, const char *utf8, float x, float y
         if (cp >= kMaxCp || cpToIdx_[cp] < 0) continue;
         const CjkGlyph &gl = glyphs_[cpToIdx_[cp]];
 
+        // Atlas pixel coords -> metres via px (metres per atlas pixel).
         float gx0 = cursorX + gl.xoff * px;
         float gy0 = y + gl.yoff * px;
-        float gx1 = gx0 + (gl.x1 - gl.x0) * atlasW_ * px / atlasW_;  // glyph pixel w
-        float gy1 = gy0 + (gl.y1 - gl.y0) * atlasH_ * px / atlasH_;
+        float gx1 = gx0 + gl.pw * px;
+        float gy1 = gy0 + gl.ph * px;
 
-        // Actually: glyph width in metres = (pc.x1-pc.x0) * fontScale_ / pxHeight * px
-        // but we stored xoff/advance normalised to px=1, so multiply by px.
-        // Recompute properly: the packed char gives pixel coords in atlas space.
-        // glyph pixel size = (gl.x1-gl.x0)*atlasW_, in font pixels.
-        // metres = glyphPixels * fontScale_ * px / pxHeight ... but fontScale_/pxHeight = 1/pxHeight * scaleForPixelHeight(pxHeight)/pxHeight
-        // Simpler: store raw pixel metrics and scale here.
-        // For now use the normalised values (already /pxHeight so *px gives metres).
-        float w = (gl.x1 - gl.x0) * atlasW_ * fontScale_ / 32.0f * px;  // 32 = pxHeight
-        float h = (gl.y1 - gl.y0) * atlasH_ * fontScale_ / 32.0f * px;
-        gx1 = gx0 + w;
-        gy1 = gy0 + h;
-
-        // Two triangles: (gx0,gy0) (gx1,gy0) (gx1,gy1) and (gx0,gy0) (gx1,gy1) (gx0,gy1)
-        // Vertex format: pos.xyz(3) + uv.xy(2) + color.rgb(3) = 8 floats
         float u0 = gl.x0, v0 = gl.y0, u1 = gl.x1, v1 = gl.y1;
-        float z = 0.0f;
         float verts[6][8] = {
-            {gx0, gy0, z, u0, v0, r, g, b},
-            {gx1, gy0, z, u1, v0, r, g, b},
-            {gx1, gy1, z, u1, v1, r, g, b},
-            {gx0, gy0, z, u0, v0, r, g, b},
-            {gx1, gy1, z, u1, v1, r, g, b},
-            {gx0, gy1, z, u0, v1, r, g, b},
+            {gx0, gy0, 0, u0, v0, r, g, b},
+            {gx1, gy0, 0, u1, v0, r, g, b},
+            {gx1, gy1, 0, u1, v1, r, g, b},
+            {gx0, gy0, 0, u0, v0, r, g, b},
+            {gx1, gy1, 0, u1, v1, r, g, b},
+            {gx0, gy1, 0, u0, v1, r, g, b},
         };
         for (int k = 0; k < 6; k++)
             v.insert(v.end(), verts[k], verts[k] + 8);
