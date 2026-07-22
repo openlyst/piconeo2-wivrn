@@ -150,7 +150,7 @@ static void buildGraphics() {
 
 // ALVR's storage uses app_dirs2, which needs $HOME (unset on Android) -> it
 // panics. Point HOME at the app's private files dir before initializing ALVR.
-static void setHomeFromFilesDir(JNIEnv *env, jobject activity) {
+void setHomeFromFilesDir(JNIEnv *env, jobject activity) {
     jclass cls = env->GetObjectClass(activity);
     jmethodID m = env->GetMethodID(cls, "getFilesDir", "()Ljava/io/File;");
     jobject file = env->CallObjectMethod(activity, m);
@@ -2068,11 +2068,6 @@ void *renderThread(void *) {
     // searches for an ALVR PC server on the LAN (mDNS) and connects.
     setHomeFromFilesDir(env, gActivity);   // before any ALVR storage access
     loadAllConfig();                        // restore ALL persisted settings
-    // Sync the loaded mic preference into the streaming client: nativeStart
-    // copies gWivrnMicrophone into microphone_enabled before loadAllConfig
-    // runs, so we re-sync here once the persisted value is restored.
-    if (g_stream)
-        g_stream->microphone_enabled.store(gWivrnMicrophone.load());
     // Apply the persisted STREAM FOV to the SDK before the warp thread is created
     // (at the first surface's EV_InitRenderThread), so the warp builds its
     // distortion mesh with the right texture FOV. Runs after Pvr_Init so it isn't

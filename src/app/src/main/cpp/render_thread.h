@@ -30,5 +30,7 @@ extern pico_lobby * gLobby;
 
 // Hand the render thread a new window (or null when the surface is destroyed).
 void  setWindow(ANativeWindow *win);
+// Set $HOME from the activity's files dir (needed before any file-based config).
+void  setHomeFromFilesDir(JNIEnv *env, jobject activity);
 // The long-lived render-thread entry point (started via pthread_create).
 void *renderThread(void *);
