@@ -3871,8 +3871,9 @@ void *renderThread(void *) {
                 pinOnPad = onPad;
                 static std::vector<float> pinVerts;
                 pinVerts.clear();
+                // Only process clicks on the first eye to avoid double-input
                 bool active = buildPinPad(pinVerts, pinCursorLx, pinCursorLy,
-                                           pi.clickEdge, pinOnPad);
+                                           pi.clickEdge && eyeIdx == 0, pinOnPad);
                 if (active && !pinVerts.empty()) {
                     int pinVc = (int)(pinVerts.size() / 6);
                     glBindBuffer(GL_ARRAY_BUFFER, gSliderVbo);
