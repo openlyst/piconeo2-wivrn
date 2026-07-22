@@ -272,10 +272,20 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        // Request camera permission for passthrough background
+        // Request dangerous permissions upfront. CAMERA drives passthrough,
+        // RECORD_AUDIO drives mic-to-PC streaming; both surface the system
+        // grant dialog here so toggling mic in settings doesn't silently fail.
+        java.util.ArrayList<String> perms = new java.util.ArrayList<>();
         if (checkSelfPermission(android.Manifest.permission.CAMERA)
                 != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{android.Manifest.permission.CAMERA}, 1001);
+            perms.add(android.Manifest.permission.CAMERA);
+        }
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            perms.add(android.Manifest.permission.RECORD_AUDIO);
+        }
+        if (!perms.isEmpty()) {
+            requestPermissions(perms.toArray(new String[0]), 1001);
         }
 
         acquireWifiLocks();

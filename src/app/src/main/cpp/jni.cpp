@@ -107,6 +107,12 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
     // Create the WiVRn stream client up front so dashboard intents and the lobby
     // can connect as soon as the native side is ready.
     if (!g_stream) {
+        // Load persisted settings before creating the client so the initial
+        // headset_info (sent on connect) reflects the saved mic preference.
+        // The render thread also calls loadAllConfig, but that runs later and
+        // would race with the connect thread sending headset_info first.
+        setHomeFromFilesDir(env, activity);
+        loadAllConfig();
         g_stream = new streaming_client();
         g_stream->vm = gVM;
         g_stream->activity = gActivity;
@@ -114,7 +120,7 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
         g_stream->bitrate_mbps.store((int)gWivrnBitrateMbps.load());
         g_stream->max_bitrate_mbps.store((int)gWivrnBitrateMbps.load());
         g_stream->microphone_enabled.store(gWivrnMicrophone.load());
-        LOGI("nativeStart: created streaming_client");
+        LOGI("nativeStart: created streaming_client (mic=%d)", gWivrnMicrophone.load() ? 1 : 0);
     }
 
     LOGI("nativeStart");

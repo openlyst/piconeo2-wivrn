@@ -161,7 +161,11 @@ void pico_audio::build_microphone(AAudioStreamBuilder * builder, int32_t sample_
 
 	aaudio_result_t result = AAudioStreamBuilder_openStream(builder, &microphone);
 	if (result != AAUDIO_OK)
+	{
 		spdlog::error("Cannot create microphone stream: {}", AAudio_convertResultToText(result));
+		AAudioStream_close(microphone);
+		microphone = nullptr;
+	}
 	mic_running = false;
 }
 

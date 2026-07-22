@@ -150,7 +150,7 @@ static void buildGraphics() {
 
 // ALVR's storage uses app_dirs2, which needs $HOME (unset on Android) -> it
 // panics. Point HOME at the app's private files dir before initializing ALVR.
-static void setHomeFromFilesDir(JNIEnv *env, jobject activity) {
+void setHomeFromFilesDir(JNIEnv *env, jobject activity) {
     jclass cls = env->GetObjectClass(activity);
     jmethodID m = env->GetMethodID(cls, "getFilesDir", "()Ljava/io/File;");
     jobject file = env->CallObjectMethod(activity, m);

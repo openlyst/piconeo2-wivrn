@@ -113,9 +113,12 @@ void streaming_client::setup_decoders()
 
 void streaming_client::setup_audio()
 {
-	if (!audio_desc || audio_handle)
+	if (!audio_desc)
 		return;
 
+	// Replace the handle every time a new description arrives: the server
+	// sends a fresh audio_stream_description when mic capability changes,
+	// and the handle must be rebuilt to pick up (or drop) the mic stream.
 	audio_handle = std::make_unique<pico_audio>(*audio_desc, *session);
 	spdlog::info("Audio initialized");
 }
@@ -278,8 +281,12 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 		{
 			std::lock_guard lock(audio_mutex);
 			audio_desc = p;
-			ALOGI("Received audio stream description");
-			spdlog::info("Received audio stream description");
+			ALOGI("Received audio stream description: speaker=%s mic=%s",
+				p.speaker ? "yes" : "no",
+				p.microphone ? "yes" : "no");
+			spdlog::info("Received audio stream description: speaker={} mic={}",
+				p.speaker ? "yes" : "no",
+				p.microphone ? "yes" : "no");
 			setup_audio();
 		}
 		else if constexpr (std::is_same_v<T, to_headset::tracking_control>)
@@ -805,6 +812,9 @@ bool streaming_client::connect_to_server()
 
 void streaming_client::send_headset_info()
 {
+	if (!session)
+		return;
+
 	from_headset::headset_info_packet info{};
 
 	info.render_eye_width = eye_width.load();
@@ -822,6 +832,11 @@ void streaming_client::send_headset_info()
 
 	if (!microphone_enabled.load())
 		info.microphone.reset();
+
+	ALOGI("send_headset_info: microphone_enabled=%d, info.microphone=%s, info.speaker=%s",
+		microphone_enabled.load() ? 1 : 0,
+		info.microphone ? "yes" : "no",
+		info.speaker ? "yes" : "no");
 
 	info.fov[0] = eye_fov[0];
 	info.fov[1] = eye_fov[1];
