@@ -39,6 +39,7 @@
 #include "app_state.h"   // shared lobby/render knobs: IPD, input edges, toggles, diag
 #include "lobby.h"       // ported pico_oxr WiVRn lobby UI panel
 #include "passthrough.h" // passthrough camera background for the lobby
+#include "simple_lobby.h"// simple 3D lobby environment (floor grid + sky)
 #include "lobby_panels.h"// diagnostics overlay builders
 #include "input.h"       // controller + head-pose shared state
 #include "foveation.h"   // readFoveationParams() from the settings JSON
@@ -115,6 +116,7 @@ std::atomic<bool> gWindowDirty{false};     // a change is pending (see render_th
 
 pico_lobby * gLobby = new pico_lobby();
 pico_passthrough * gPassthrough = new pico_passthrough();
+static simple_lobby * gSimpleLobby = nullptr;
 
 // Shared "position + per-vertex colour" shader: grid, HUD text, and eye-gaze
 // marker all reuse this same program (gProg) + uMVP.
@@ -2193,6 +2195,9 @@ void *renderThread(void *) {
             gPassthrough->start();
     }
 
+    gSimpleLobby = new simple_lobby();
+    gSimpleLobby->init();
+
     RenderEventFunc re = (RenderEventFunc) GetRenderEventFunc();
     LOGI("GetRenderEventFunc=%p", (void *) re);
 
@@ -3754,6 +3759,9 @@ void *renderThread(void *) {
         // gaze disc) into the currently-bound FBO. Shared by the HW-compositor
         // and self-present paths.
         auto drawLobbyScene = [&](const Mat4 &sproj, const Mat4 &sview, const Mat4 &sEyeShift, int eyeIdx) {
+            // Simple 3D lobby environment when passthrough is off.
+            if (!(gPassthrough && gPassthrough->is_camera_on()) && gSimpleLobby)
+                gSimpleLobby->draw(sproj, sview);
             // Passthrough camera background. Drawn first as a fullscreen quad so
             // everything else composites on top.
             if (gPassthrough && gPassthrough->is_camera_on())
