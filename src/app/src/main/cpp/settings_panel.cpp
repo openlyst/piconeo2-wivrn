@@ -527,8 +527,11 @@ void settingsMeasure(float &offX, float &offY, float &contentH) {
     static float    sExtMaxY = 0.0f, sExtContentH = 0.0f;
 
     unsigned sig = menuStructSig(cat);
+    // Custom categories have dynamic content (app lists, running apps) that
+    // changes without the menu structure changing, so always re-measure them.
+    bool cacheValid = !cat.custom && sExtCat == gSettingsCat && sExtSig == sig;
     float maxY;
-    if (sExtCat == gSettingsCat && sExtSig == sig) {
+    if (cacheValid) {
         maxY = sExtMaxY; contentH = sExtContentH;
     } else {
         static std::vector<float> tmp; tmp.clear();
