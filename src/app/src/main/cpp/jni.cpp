@@ -112,7 +112,6 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
         // The render thread also calls loadAllConfig, but that runs later and
         // would race with the connect thread sending headset_info first.
         setHomeFromFilesDir(env, activity);
-        extern void loadAllConfig();
         loadAllConfig();
         g_stream = new streaming_client();
         g_stream->vm = gVM;
