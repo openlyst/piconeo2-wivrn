@@ -2204,8 +2204,14 @@ void *renderThread(void *) {
         gLobbyMap = new lobby_map();
         gLobbyMap->load(mapPath.c_str());
         if (gLobbyMap->is_loaded()) {
-            // Offset map so user at tracking origin (0,0,0) appears at x=5 in map space.
-            gLobbyMap->set_model(mat4Translate(-5.0f, 0.0f, 0.0f));
+            // User spawns at x=5, y=0, z=0 in map space, facing backwards.
+            // 180-degree Y rotation so the player faces -Z (backwards), then
+            // translate so the spawn point maps to the tracking origin.
+            Mat4 rot = mat4Identity();
+            rot.m[0] = -1.0f;  // flip X
+            rot.m[10] = -1.0f; // flip Z
+            Mat4 t = mat4Translate(-5.0f, 0.0f, 0.0f);
+            gLobbyMap->set_model(mat4Mul(t, rot));
         }
     }
 
