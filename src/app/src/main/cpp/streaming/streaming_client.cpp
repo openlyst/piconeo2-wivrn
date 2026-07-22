@@ -277,6 +277,11 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 				(int)p.codec[0], (int)p.codec[1], (int)p.codec[2]);
 			spdlog::warn("Received video stream description: {}x{}, fps={}",
 				p.width, p.height, p.frame_rate);
+			// App launched, clear the launching indicator
+			{
+				std::lock_guard<std::mutex> lk(app_mutex);
+				launching_app_id.clear();
+			}
 			setup_decoders();
 		}
 		else if constexpr (std::is_same_v<T, to_headset::audio_stream_description>)
@@ -423,6 +428,13 @@ void streaming_client::handle_packet(to_headset::packets & packet)
 				running_apps.clear();
 				for (auto & app : p.applications)
 					running_apps.push_back({app.name, app.id, app.overlay, app.active});
+				// Clear launching state if any app is now active
+				if (!launching_app_id.empty()) {
+					bool any_active = false;
+					for (auto & ra : running_apps)
+						if (ra.active) { any_active = true; break; }
+					if (any_active) launching_app_id.clear();
+				}
 			}
 		}
 		else
@@ -448,6 +460,7 @@ void streaming_client::reset_stream_state()
 		available_apps.clear();
 		running_apps.clear();
 		app_list_requested = false;
+		launching_app_id.clear();
 	}
 	stats_bytes_rx = 0;
 	stats_bytes_tx = 0;

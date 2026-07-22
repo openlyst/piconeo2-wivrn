@@ -266,10 +266,12 @@ static void launchBuild(std::vector<float> &v, const MenuHover &h) {
     if (!g_stream) return;
     std::vector<streaming_client::AppEntry> apps;
     bool requested;
+    std::string launching_id;
     {
         std::lock_guard<std::mutex> lk(g_stream->app_mutex);
         apps = g_stream->available_apps;
         requested = g_stream->app_list_requested;
+        launching_id = g_stream->launching_app_id;
     }
 
     float x = kCtX0 + 0.04f;
@@ -310,15 +312,18 @@ static void launchBuild(std::vector<float> &v, const MenuHover &h) {
         truncateFit(name, sizeof(name), apps[i].name.c_str(), availW, px);
         uiTextL(v, name, x, y - 0.02f, px, kUiWhite[0], kUiWhite[1], kUiWhite[2]);
 
-        // Launch button (green)
+        // Launch button (green) or "Launching..." (yellow) if waiting
         float btnW = 0.16f, btnH = 0.06f;
         float btnX = kCtX1Content - btnW - 0.03f;
         float btnY = y - rowH * 0.5f;
+        bool launching = (!launching_id.empty() && apps[i].id == launching_id);
         float gc[3] = {0.1f, 0.3f, 0.15f};
-        if (hot && h.part >= 100) { gc[0] = 0.2f; gc[1] = 0.5f; gc[2] = 0.25f; }
+        if (launching) { gc[0] = 0.3f; gc[1] = 0.25f; gc[2] = 0.05f; }
+        else if (hot && h.part >= 100) { gc[0] = 0.2f; gc[1] = 0.5f; gc[2] = 0.25f; }
         appendQuad(v, btnX, btnY + btnH*0.5f, btnX + btnW, btnY - btnH*0.5f,
                    gc[0], gc[1], gc[2]);
-        uiTextC(v, "Launch", btnX + btnW*0.5f, btnY + 3.5f * (px * 0.7f), px * 0.7f, 1, 1, 1);
+        uiTextC(v, launching ? "Launching..." : "Launch",
+                btnX + btnW*0.5f, btnY + 3.5f * (px * 0.7f), px * 0.7f, 1, 1, 1);
 
         y = yBot - rowGap;
     }
@@ -388,6 +393,10 @@ static void launchAct(const MenuHover &h, bool click, bool, float, float) {
             try {
                 g_stream->session->send_control(
                     wivrn::from_headset::start_app{apps[idx].id});
+                {
+                    std::lock_guard<std::mutex> lk(g_stream->app_mutex);
+                    g_stream->launching_app_id = apps[idx].id;
+                }
                 LOGI("start_app id=%s", apps[idx].id.c_str());
             } catch (std::exception &e) {
                 LOGI("start_app failed: %s", e.what());
