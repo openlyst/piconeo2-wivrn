@@ -839,13 +839,13 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 			constexpr float max_angle = 0.5236f; // ~30 deg
 			float pitch_n = std::clamp(pitch / max_angle, -1.0f, 1.0f);
 			float yaw_n   = std::clamp(yaw / max_angle, -1.0f, 1.0f);
-			// pitch > 0 = looking down, pitch < 0 = looking up
+			// pitch > 0 = looking up, pitch < 0 = looking down
 			if (pitch_n > 0) {
-				face.weights[14] = pitch_n; // EYES_LOOK_DOWN_L
-				face.weights[15] = pitch_n; // EYES_LOOK_DOWN_R
+				face.weights[20] = pitch_n; // EYES_LOOK_UP_L
+				face.weights[21] = pitch_n; // EYES_LOOK_UP_R
 			} else {
-				face.weights[20] = -pitch_n; // EYES_LOOK_UP_L
-				face.weights[21] = -pitch_n; // EYES_LOOK_UP_R
+				face.weights[14] = -pitch_n; // EYES_LOOK_DOWN_L
+				face.weights[15] = -pitch_n; // EYES_LOOK_DOWN_R
 			}
 			// yaw > 0 = looking left, yaw < 0 = looking right
 			if (yaw_n > 0) {
