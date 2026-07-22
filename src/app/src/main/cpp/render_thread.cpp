@@ -3509,9 +3509,12 @@ void *renderThread(void *) {
         // The streaming video path above ends with `continue`, so this lobby
         // path only runs pre-stream / between streams. The in-stream overlay
         // draws on top of the video in the path above.
-        gStreamingMode = false;   // lobby path: hide streaming-only tabs
-        // If we were on a streaming-only tab, fall back to Settings.
-        {
+        // Keep streaming tabs visible when connected to the server even with
+        // no video playing, so the user can launch apps from the headset.
+        bool wivrnConnected = g_stream && g_stream->session && g_stream->connected_ns.load() > 0;
+        gStreamingMode = wivrnConnected;
+        // If we were on a streaming-only tab but lost connection, fall back to Settings.
+        if (!gStreamingMode) {
             MenuModel &mm = settingsModel();
             if (gSettingsCat >= 0 && gSettingsCat < (int)mm.size()
                 && mm[gSettingsCat].streamingOnly)
