@@ -4,6 +4,7 @@
 #include "log.h"         // nowNs
 #include "wivrn/core/latency_tracker.h"  // g_latency
 #include "streaming/streaming_client.h"  // g_stream
+#include "cjk_text.h"    // gCjkText
 #include <cstdio>
 #include <cstring>
 
@@ -272,4 +273,41 @@ void buildDiagOverlay(std::vector<float> &v, int page) {
     snprintf(line, sizeof(line), "Fencetmo %d",  gFenceTimeouts.load()); colRow(2,3,line);
 
     uiTextC(v, "Diagnostics", 0.0f, yTop - 5.0f*dy - 0.010f, px*0.9f, 0.55f, 0.65f, 0.78f);
+}
+
+// CJK test panel: a small floating card with "Hello World" in English (bitmap font)
+// and "你好世界" in Simplified Chinese (stb_truetype atlas). Proof of concept for
+// i18n support. The background quad goes into bgV (6-float verts, existing shader);
+// the CJK text goes into textV (8-float verts, textured shader).
+int buildCjkTestPanel(std::vector<float> &bgV, std::vector<float> &textV) {
+    // Background card: 0.5m wide, 0.2m tall, dark blue.
+    appendQuad(bgV, -0.25f, 0.10f, 0.25f, -0.10f, 0.05f, 0.08f, 0.14f);
+
+    // English line with the existing 5x7 bitmap font.
+    uiTextC(bgV, "Hello World", 0.0f, 0.06f, 0.004f, 1.0f, 1.0f, 1.0f);
+
+    // Chinese line with the stb_truetype atlas. The textV vertices are pos.xyz +
+    // uv.xy + color.rgb (8 floats). Centre the 4 chars manually.
+    int textVerts = 0;
+    if (gCjkText.ready()) {
+        // 你好世界 = 4 chars. Estimate width: each CJK glyph ~0.018m at px=0.003.
+        float px = 0.003f;
+        const char *zh = "\xe4\xbd\xa0\xe5\xa5\xbd\xe4\xb8\x96\xe7\x95\x8c";  // 你好世界 UTF-8
+        // Measure width by summing advances.
+        float w = 0;
+        for (const char *p = zh; *p; ) {
+            uint8_t c = (uint8_t)*p;
+            int cp = 0, adv = 0;
+            if (c < 0x80) { cp = c; adv = 1; }
+            else if ((c & 0xE0) == 0xC0) { cp = ((c&0x1F)<<6)|((uint8_t)p[1]&0x3F); adv = 2; }
+            else if ((c & 0xF0) == 0xE0) { cp = ((c&0x0F)<<12)|(((uint8_t)p[1]&0x3F)<<6)|((uint8_t)p[2]&0x3F); adv = 3; }
+            p += adv;
+            (void)cp;
+            w += 0.018f;  // rough
+        }
+        float startX = -w * 0.5f;
+        float y = -0.04f;
+        textVerts = gCjkText.emitQuads(textV, zh, startX, y, px, 1.0f, 0.9f, 0.5f);
+    }
+    return textVerts;
 }
