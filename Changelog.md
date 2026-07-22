@@ -1,18 +1,13 @@
 # [Beta 1.1 (Unreleased)]()
 
 - Reimplementes Eye tracking
-- Adds foveated streaming toggle added to VIDEO settings
-- Fixed stereo IPD mismatch between client and server
+- Adds foveated streaming
+- Fixed stereo IPD mismatch
 - Fixed springing HMD tracking
 - Fixed passthrough warping at the edges of the view
-- Fixed passthrough stuttering when moving your head
-- Fixed race conditions on stream lifecycle flags that caused occasional lobby/stream state desync
-- Fixed lobby status text mislabeling "Disconnected" as "Connecting" due to loose substring matching
-- Fixed controllers not tracking when only one is connected
-- Fixed a broken or missing controller leaving a ghost parked at the floor 
-- Fixed one-handed 6DoF tracking
-- Fixed the right controller disconnecting when both were connected
-- Replaced unbounded with bounded copies
+- Fixed race conditions on stream lifecycle
+- Fixed lobby status text mislabeling "Disconnected" as "Connecting"
+- Fixed controllers not tracking when only one is connected 
 - Passthrough is now off by default
 - Dynamic bitrate removed 
 - "Lower resolution for wireless" option removed
