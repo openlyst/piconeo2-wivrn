@@ -1,6 +1,7 @@
 #include "eq_panel.h"
 #include "app_state.h"  // saveAllConfig
 #include "ui_kit.h"
+#include "i18n.h"
 #include "log.h"
 #include <cstdio>
 #include <cstdlib>      // getenv
@@ -40,7 +41,7 @@ void saveEqProfile() { saveAllConfig(); }
 void buildEqVerts(std::vector<float> &v, int hoverBand, bool resetHover,
                   bool headerHover, int presetHoverItem) {
     const float px = kEqText;   // 1x text
-    appendTextLine(v, "Audio EQ", kEqTitleY, px, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+    appendTextLine(v, tr(Str::AudioEQ), kEqTitleY, px, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
 
     // RESET button (centred, between the faders/readout and the preset dropdown).
     {
@@ -50,7 +51,7 @@ void buildEqVerts(std::vector<float> &v, int hoverBand, bool resetHover,
         // appendTextLine centres on x=0, so build the label there and shift to cx.
         float rpx = px * 0.78f;   // smaller so RESET fits the button
         std::vector<float> tmp;
-        appendTextLine(tmp, "Reset", (kEqResetYTop+kEqResetYBot)*0.5f + baselineOffset(rpx), rpx, 1,1,1);
+        appendTextLine(tmp, tr(Str::Reset), (kEqResetYTop+kEqResetYBot)*0.5f + baselineOffset(rpx), rpx, 1,1,1);
         for (size_t i = 0; i < tmp.size(); i += 6) tmp[i] += cx;
         v.insert(v.end(), tmp.begin(), tmp.end());
     }
@@ -90,7 +91,7 @@ void buildEqVerts(std::vector<float> &v, int hoverBand, bool resetHover,
         float hr = headerHover ? 0.40f : 0.22f, hg = headerHover ? 0.40f : 0.22f, hb = headerHover ? 0.48f : 0.28f;
         appendQuad(v, kEqPresetX0, kEqPresetYTop, kEqPresetX1, kEqPresetYBot, hr, hg, hb);
         char hbuf[40];
-        const char *pn = kEqPresetNames[gEqPresetIdx];
+        const char *pn = gEqPresetIdx == 0 ? tr(Str::Custom1) : tr(Str::Custom2);
         snprintf(hbuf, sizeof(hbuf), "Preset: %s %s", pn, gEqPresetOpen ? "^" : "~");
         appendTextLine(v, hbuf, (kEqPresetYTop+kEqPresetYBot)*0.5f + baselineOffset(px), px, 1, 1, 1);
     }
@@ -102,7 +103,7 @@ void buildEqVerts(std::vector<float> &v, int hoverBand, bool resetHover,
             bool ih = (i == presetHoverItem);
             float ir = ih ? 0.35f : 0.14f, ig = ih ? 0.35f : 0.14f, ib = ih ? 0.42f : 0.18f;
             appendQuad(v, kEqPresetX0, yT, kEqPresetX1, yB, ir, ig, ib);
-            appendTextLine(v, kEqPresetNames[i], (yT+yB)*0.5f + baselineOffset(px), px, 1, 1, 1);
+            appendTextLine(v, i == 0 ? tr(Str::Custom1) : tr(Str::Custom2), (yT+yB)*0.5f + baselineOffset(px), px, 1, 1, 1);
         }
     }
 }

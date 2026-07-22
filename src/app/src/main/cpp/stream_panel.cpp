@@ -3,6 +3,7 @@
 #include "streaming/streaming_client.h"
 #include "ui_kit.h"
 #include "cjk_text.h"
+#include "i18n.h"
 #include "log.h"
 #include <cstdio>
 #include <cstring>
@@ -54,7 +55,7 @@ static void statsBuild(std::vector<float> &v, const MenuHover &h) {
     float col2X = x + colW + 0.04f;
 
     // Title
-    uiTextL(v, "Performance", x, y, px * 1.3f, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+    uiTextL(v, tr(Str::Performance), x, y, px * 1.3f, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
     y -= lineH * 1.8f;
 
     auto writeStat = [&](float cx, float cy, const char *label, const char *val) {
@@ -84,7 +85,7 @@ static void statsBuild(std::vector<float> &v, const MenuHover &h) {
     y -= lineH * 2.5f;
 
     // Latency breakdown
-    uiTextL(v, "Latency breakdown", x, y, px * 1.1f, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+    uiTextL(v, tr(Str::LatencyBreakdown), x, y, px * 1.1f, kUiTitle[0], kUiTitle[1], kUiTitle[2]);
     y -= lineH * 1.5f;
 
     struct { const char *name; float ms; float col[3]; } bars[] = {

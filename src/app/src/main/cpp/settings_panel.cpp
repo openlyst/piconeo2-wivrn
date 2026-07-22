@@ -12,6 +12,7 @@
 #include <cstring>
 #include <cmath>
 #include <string>
+#include "i18n.h"
 
 // session state
 bool gSettingsOpen = true;   // always open: unified lobby panel
@@ -115,7 +116,7 @@ static inline MenuItem wivrnToggle(const char *label, std::atomic<bool> &val) {
 //   Bottom: ABOUT, LICENSES, EXIT
 static void buildCoreModel(MenuModel &m) {
     // SERVERS (wiVRn-style server list, first tab) --------------------------
-    MenuCategory servers; servers.name = "Servers"; servers.custom = true; servers.hideWhileStreaming = true;
+    MenuCategory servers; servers.name = tr(Str::Servers); servers.custom = true; servers.hideWhileStreaming = true;
     {
         MenuItem srv; srv.kind = MK_CUSTOM;
         srv.customH = 0.8f;
@@ -141,16 +142,16 @@ static void buildCoreModel(MenuModel &m) {
     m.push_back(servers);
 
     // SETTINGS (only options we actually support) ---------------------------
-    MenuCategory settings; settings.name = "Settings";
+    MenuCategory settings; settings.name = tr(Str::Settings);
     {
-        MenuItem ipd; ipd.kind = MK_STEPPER; ipd.label = "Software IPD";
+        MenuItem ipd; ipd.kind = MK_STEPPER; ipd.label = tr(Str::SoftwareIPD);
         ipd.vmin = kIpdMin; ipd.vmax = kIpdMax; ipd.vstep = kIpdStep;
         ipd.get = []{ return gSoftIpdMm.load(); };
         ipd.set = [](float v){ gSoftIpdMm.store(v); gIpdChangeNs.store(nowNs()); gIpdDirty.store(true); };
         ipd.valueText = [](char *b,int n){ snprintf(b,n,"%.1f mm", gSoftIpdMm.load()); };
         settings.items.push_back(ipd);
 
-        MenuItem br; br.kind = MK_FADER; br.label = "Brightness";
+        MenuItem br; br.kind = MK_FADER; br.label = tr(Str::Brightness);
         br.vmin = 0.0f; br.vmax = 1.0f;
         br.get = []{ return gBrightnessFrac.load(); };
         br.set = [](float f){ gBrightnessFrac.store(f); gBrightnessSaved.store(true); gBrightnessApply.store(true); };
@@ -158,7 +159,7 @@ static void buildCoreModel(MenuModel &m) {
         br.onCommit = []{ saveBrightness(); };
         settings.items.push_back(br);
 
-        MenuItem fov; fov.kind = MK_FADER; fov.label = "Field of view";
+        MenuItem fov; fov.kind = MK_FADER; fov.label = tr(Str::FieldOfView);
         fov.vmin = kFovMin; fov.vmax = kFovMax;
         fov.get = []{ return gStreamFovDeg.load(); };
         fov.set = [](float v){ gStreamFovDeg.store(roundf(v)); };
@@ -166,7 +167,7 @@ static void buildCoreModel(MenuModel &m) {
         fov.onCommit = []{ gFovDirty.store(true); };
         settings.items.push_back(fov);
 
-        MenuItem res; res.kind = MK_FADER; res.label = "Resolution scale";
+        MenuItem res; res.kind = MK_FADER; res.label = tr(Str::ResolutionScale);
         res.vmin = 0.5f; res.vmax = 2.0f;
         res.get = []{ return gWivrnResolutionScale.load(); };
         res.set = [](float v){ gWivrnResolutionScale.store(v); };
@@ -198,7 +199,7 @@ static void buildCoreModel(MenuModel &m) {
         };
         settings.items.push_back(res);
 
-        MenuItem bit; bit.kind = MK_FADER; bit.label = "Bitrate";
+        MenuItem bit; bit.kind = MK_FADER; bit.label = tr(Str::Bitrate);
         bit.vmin = 5.0f; bit.vmax = 200.0f;
         bit.get = []{ return gWivrnBitrateMbps.load(); };
         bit.set = [](float v){ gWivrnBitrateMbps.store(v); };
@@ -213,12 +214,12 @@ static void buildCoreModel(MenuModel &m) {
         };
         settings.items.push_back(bit);
 
-        MenuItem eyeFov = wivrnToggle("Eye-tracked foveation", gWivrnEyeFoveation);
+        MenuItem eyeFov = wivrnToggle(tr(Str::EyeTrackedFoveation), gWivrnEyeFoveation);
         eyeFov.disabled = !gEyeSupported.load();
         eyeFov.onChange = []{ saveAllConfig(); gEyeFoveationDirty.store(true); };
         settings.items.push_back(eyeFov);
 
-        MenuItem mic = wivrnToggle("Microphone", gWivrnMicrophone);
+        MenuItem mic = wivrnToggle(tr(Str::Microphone), gWivrnMicrophone);
         mic.onChange = []{
             bool on = gWivrnMicrophone.load();
             if (g_stream) {
@@ -231,7 +232,7 @@ static void buildCoreModel(MenuModel &m) {
         };
         settings.items.push_back(mic);
 
-        MenuItem vib; vib.kind = MK_FADER; vib.label = "Controller vibration";
+        MenuItem vib; vib.kind = MK_FADER; vib.label = tr(Str::ControllerVibration);
         vib.vmin = 0.0f; vib.vmax = 1.0f;
         vib.get = []{ return gWivrnCtrlVibration.load(); };
         vib.set = [](float v){ gWivrnCtrlVibration.store(v); };
@@ -239,7 +240,7 @@ static void buildCoreModel(MenuModel &m) {
         vib.onCommit = []{ saveAllConfig(); };
         settings.items.push_back(vib);
 
-        MenuItem pt = wivrnToggle("Passthrough", gWivrnPassthrough);
+        MenuItem pt = wivrnToggle(tr(Str::Passthrough), gWivrnPassthrough);
         pt.onChange = []{
             extern pico_passthrough * gPassthrough;
             if (gWivrnPassthrough.load()) {
@@ -251,22 +252,33 @@ static void buildCoreModel(MenuModel &m) {
         };
         settings.items.push_back(pt);
 
-        MenuItem rec; rec.kind = MK_BUTTON; rec.label = "Recenter";
+        MenuItem rec; rec.kind = MK_BUTTON; rec.label = tr(Str::Recenter);
         rec.onClick = []{ gWivrnRecenterReq.store(true); };
         settings.items.push_back(rec);
 
-        MenuItem eye; eye.kind = MK_TOGGLE; eye.label = "Eye debug";
+        MenuItem eye; eye.kind = MK_TOGGLE; eye.label = tr(Str::EyeDebug);
         eye.get = []{ return gEyeDebugOn.load()?1.0f:0.0f; };
         eye.set = [](float v){ gEyeDebugOn.store(v>0.5f); };
         eye.onChange = []{ saveEyeDebug(); gEyeTrackReapply.store(true); };
         settings.items.push_back(eye);
 
-        MenuItem diag; diag.kind = MK_DROPDOWN; diag.label = "Diagnostics HUD";
-        diag.options = { "Off", "Pipeline", "System" };
+        MenuItem diag; diag.kind = MK_DROPDOWN; diag.label = tr(Str::DiagnosticsHUD);
+        diag.options = { tr(Str::Off), tr(Str::Pipeline), tr(Str::System_) };
         diag.get = []{ return (float)gDiagHudMode.load(); };
         diag.set = [](float v){ gDiagHudMode.store((int)(v+0.5f)); };
         diag.onChange = []{ saveDiagHud(); };
         settings.items.push_back(diag);
+
+        MenuItem lang; lang.kind = MK_DROPDOWN; lang.label = tr(Str::Language);
+        lang.options = { tr(Str::English_), tr(Str::Chinese_), tr(Str::SystemLang) };
+        lang.get = []{ return (float)gLangSetting.load(); };
+        lang.set = [](float v){
+            int lv = (int)(v + 0.5f);
+            gLangSetting.store(lv);
+            setLanguage((Lang)lv);
+            saveLangSetting();
+        };
+        settings.items.push_back(lang);
     }
     m.push_back(settings);
 
@@ -274,7 +286,7 @@ static void buildCoreModel(MenuModel &m) {
     buildStreamCategories(m);
 
     // ABOUT (bottom) --------------------------------------------------------
-    MenuCategory about; about.name = "About"; about.custom = true;
+    MenuCategory about; about.name = tr(Str::About); about.custom = true;
     {
         MenuItem ab; ab.kind = MK_CUSTOM;
         ab.customH = 1.6f;
@@ -287,7 +299,7 @@ static void buildCoreModel(MenuModel &m) {
             // Header banner
             UiRect banner = { cx, y - 0.06f, halfW * 2.0f, 0.12f };
             uiBox(v, banner, kUiFill);
-            uiTextC(v, "WiVRn for Pico Neo 2", cx, y - 0.09f, 0.007f, 1.0f, 1.0f, 1.0f);
+            uiTextC(v, tr(Str::AppName), cx, y - 0.09f, 0.007f, 1.0f, 1.0f, 1.0f);
             y -= 0.20f;
 
             // Divider
@@ -297,9 +309,9 @@ static void buildCoreModel(MenuModel &m) {
 
             // Description
             const char *desc[] = {
-                "Stream PC VR games to your",
-                "Pico Neo 2 over Wi-Fi or USB",
-                "with low latency",
+                tr(Str::AboutDesc1),
+                tr(Str::AboutDesc2),
+                tr(Str::AboutDesc3),
             };
             for (const char *line : desc) {
                 uiTextC(v, line, cx, y, 0.0045f,
@@ -309,14 +321,14 @@ static void buildCoreModel(MenuModel &m) {
             y -= 0.03f;
 
             // Links section
-            uiTextL(v, "Upstream", -halfW + 0.02f, y, 0.004f,
+            uiTextL(v, tr(Str::Upstream), -halfW + 0.02f, y, 0.004f,
                     kUiFill[0], kUiFill[1], kUiFill[2]);
             y -= 0.06f;
             uiTextL(v, "github.com/wivrn/wivrn", -halfW + 0.02f, y, 0.004f,
                     kUiTitle[0], kUiTitle[1], kUiTitle[2]);
             y -= 0.08f;
 
-            uiTextL(v, "This client", -halfW + 0.02f, y, 0.004f,
+            uiTextL(v, tr(Str::ThisClient), -halfW + 0.02f, y, 0.004f,
                     kUiFill[0], kUiFill[1], kUiFill[2]);
             y -= 0.06f;
             uiTextL(v, "gitlab.com/httpanimations/", -halfW + 0.02f, y, 0.004f,
@@ -330,10 +342,10 @@ static void buildCoreModel(MenuModel &m) {
             appendQuad(v, -halfW, y, halfW, y - 0.005f,
                        kUiTrack[0], kUiTrack[1], kUiTrack[2]);
             y -= 0.04f;
-            uiTextC(v, "Licensed under AGPL v3", cx, y, 0.004f,
+            uiTextC(v, tr(Str::LicensedAGPL), cx, y, 0.004f,
                     kUiTitle[0], kUiTitle[1], kUiTitle[2]);
             y -= 0.06f;
-            uiTextC(v, "See Licenses tab for details", cx, y, 0.0035f,
+            uiTextC(v, tr(Str::SeeLicensesTab), cx, y, 0.0035f,
                     kUiTrack[0], kUiTrack[1], kUiTrack[2]);
         };
         about.items.push_back(ab);
@@ -341,7 +353,7 @@ static void buildCoreModel(MenuModel &m) {
     m.push_back(about);
 
     // LICENSES (bottom) -----------------------------------------------------
-    MenuCategory licenses; licenses.name = "Licenses"; licenses.custom = true;
+    MenuCategory licenses; licenses.name = tr(Str::Licenses); licenses.custom = true;
     {
         MenuItem lic; lic.kind = MK_CUSTOM;
         lic.customH = 0.9f;
@@ -353,20 +365,20 @@ static void buildCoreModel(MenuModel &m) {
 
             UiRect banner = { cx, y - 0.06f, halfW * 2.0f, 0.12f };
             uiBox(v, banner, kUiFill);
-            uiTextC(v, "AGPL v3", cx, y - 0.09f, 0.007f, 1.0f, 1.0f, 1.0f);
+            uiTextC(v, tr(Str::AGPLv3), cx, y - 0.09f, 0.007f, 1.0f, 1.0f, 1.0f);
             y -= 0.20f;
 
-            uiTextC(v, "This project is licensed under", cx, y, 0.0045f,
+            uiTextC(v, tr(Str::LicenseText1), cx, y, 0.0045f,
                     kUiTitle[0], kUiTitle[1], kUiTitle[2]);
             y -= 0.06f;
-            uiTextC(v, "the GNU Affero General", cx, y, 0.0045f,
+            uiTextC(v, tr(Str::LicenseText2), cx, y, 0.0045f,
                     kUiTitle[0], kUiTitle[1], kUiTitle[2]);
             y -= 0.06f;
-            uiTextC(v, "Public License v3", cx, y, 0.0045f,
+            uiTextC(v, tr(Str::LicenseText3), cx, y, 0.0045f,
                     kUiTitle[0], kUiTitle[1], kUiTitle[2]);
             y -= 0.10f;
 
-            uiTextC(v, "Full license text", cx, y, 0.004f,
+            uiTextC(v, tr(Str::FullLicenseText), cx, y, 0.004f,
                     kUiFill[0], kUiFill[1], kUiFill[2]);
             y -= 0.07f;
 
@@ -378,21 +390,21 @@ static void buildCoreModel(MenuModel &m) {
             y -= 0.12f;
 
             // Third-party notices
-            uiTextC(v, "Third-party components", cx, y, 0.005f,
+            uiTextC(v, tr(Str::ThirdPartyComponents), cx, y, 0.005f,
                     kUiTitle[0], kUiTitle[1], kUiTitle[2]);
             y -= 0.07f;
 
-            uiTextC(v, "ALVR client library - MIT License", cx, y, 0.0038f,
+            uiTextC(v, tr(Str::ALVRLicense), cx, y, 0.0038f,
                     kUiFill[0], kUiFill[1], kUiFill[2]);
             y -= 0.05f;
             uiTextC(v, "github.com/alvr-org/alvr", cx, y, 0.0032f,
                     kUiTitle[0], kUiTitle[1], kUiTitle[2]);
             y -= 0.08f;
 
-            uiTextC(v, "3D controller models - Pico Interactive", cx, y, 0.0038f,
+            uiTextC(v, tr(Str::ControllerModels), cx, y, 0.0038f,
                     kUiFill[0], kUiFill[1], kUiFill[2]);
             y -= 0.05f;
-            uiTextC(v, "Owned by Pico Interactive", cx, y, 0.0032f,
+            uiTextC(v, tr(Str::OwnedByPico), cx, y, 0.0032f,
                     kUiTitle[0], kUiTitle[1], kUiTitle[2]);
         };
         licenses.items.push_back(lic);
@@ -400,9 +412,9 @@ static void buildCoreModel(MenuModel &m) {
     m.push_back(licenses);
 
     // EXIT (bottom) ---------------------------------------------------------
-    MenuCategory exit; exit.name = "Exit";
+    MenuCategory exit; exit.name = tr(Str::Exit);
     {
-        MenuItem quit; quit.kind = MK_BUTTON; quit.label = "Quit WiVRn";
+        MenuItem quit; quit.kind = MK_BUTTON; quit.label = tr(Str::QuitWiVRn);
         quit.onClick = []{
             extern std::function<void()> gOnExit;
             if (gOnExit) gOnExit();
@@ -578,9 +590,9 @@ void buildSettingsPanel(std::vector<float> &v, float offX, float offY, float con
 
     // Update the Exit tab: "Disconnect" while streaming, "Quit WiVRn" otherwise.
     for (auto &c : m) {
-        if (c.name == std::string("Exit") && !c.items.empty()) {
+        if (c.name == std::string(tr(Str::Exit)) && !c.items.empty()) {
             if (gStreamingMode) {
-                c.items[0].label = "Disconnect";
+                c.items[0].label = tr(Str::Disconnect);
                 c.items[0].onClick = []{
                     if (g_stream) {
                         g_stream->shutdown = true;
@@ -589,7 +601,7 @@ void buildSettingsPanel(std::vector<float> &v, float offX, float offY, float con
                     }
                 };
             } else {
-                c.items[0].label = "Quit WiVRn";
+                c.items[0].label = tr(Str::QuitWiVRn);
                 c.items[0].onClick = []{
                     extern std::function<void()> gOnExit;
                     if (gOnExit) gOnExit();

@@ -1,6 +1,7 @@
 #pragma once
 // Lobby panel builders: streaming diagnostics overlay + low-battery popup.
-// Each builder emits pos.xyz+rgb geometry into a vertex vector (panel-local metres).
+// Each builder emits pos.xyz+uv.xy+color.rgb geometry into a vertex vector
+// (panel-local metres). Uses the stb_truetype atlas for text.
 #include <vector>
 #include "ui_kit.h"
 
@@ -8,7 +9,3 @@
 void buildDiagOverlay(std::vector<float> &v, int page);
 // Low-battery popup card, tinted by severity (<=5 red, else amber).
 void buildBatteryWarn(std::vector<float> &v, int pct);
-
-// CJK test panel: background quad (flat verts) + textured text quads (8-float verts).
-// Returns text vertex count; fills bgV with the panel background.
-int buildCjkTestPanel(std::vector<float> &bgV, std::vector<float> &textV);

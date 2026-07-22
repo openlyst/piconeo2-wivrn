@@ -537,15 +537,10 @@ static GLuint gReticleVao = 0, gReticleVbo = 0; // head-gaze crosshair (static "
 static int    gReticleVertCount = 0;
 static GLuint gEqVao = 0, gEqVbo = 0;           // lobby 16-band audio EQ panel (dynamic)
 
-// CJK test panel: stb_truetype atlas text renderer + textured shader.
+// CJK text renderer: stb_truetype atlas + textured shader.
 CjkText gCjkText;
 static GLuint gCjkProg = 0;
 static GLint  gCjkMvpLoc = 0, gCjkTexLoc = 0;
-static GLuint gCjkBgVao = 0, gCjkBgVbo = 0;     // background quad (6-float verts)
-static GLuint gCjkTextVao = 0, gCjkTextVbo = 0; // text quads (8-float verts)
-static int    gCjkTextVerts = 0;
-static int    gCjkBgVerts = 0;
-static bool   gCjkPanelBuilt = false;
 static GLuint gLaserVao = 0, gLaserVbo = 0;     // controller laser beam (dynamic, world-space)
 static GLuint gCursorVao = 0, gCursorVbo = 0;   // UI pointer cursor ring (dynamic, panel-local)
 static GLuint gDiagVao = 0, gDiagVbo = 0;       // streaming diagnostics overlay (dynamic, NDC)
@@ -650,30 +645,6 @@ static void buildTextBuffers() {
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(3*sizeof(float)));
     glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(5*sizeof(float)));
-
-    // CJK test panel: background (6-float verts, same layout as gProg) + text
-    // quads (8-float verts: pos.xyz + uv.xy + color.rgb).
-    glGenVertexArrays(1, &gCjkBgVao);
-    glBindVertexArray(gCjkBgVao);
-    glGenBuffers(1, &gCjkBgVbo);
-    glBindBuffer(GL_ARRAY_BUFFER, gCjkBgVbo);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)0);
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(3*sizeof(float)));
-    glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(5*sizeof(float)));
-
-    glGenVertexArrays(1, &gCjkTextVao);
-    glBindVertexArray(gCjkTextVao);
-    glGenBuffers(1, &gCjkTextVbo);
-    glBindBuffer(GL_ARRAY_BUFFER, gCjkTextVbo);
-    glEnableVertexAttribArray(0); // pos.xyz
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)0);
-    glEnableVertexAttribArray(1); // uv.xy
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(3*sizeof(float)));
-    glEnableVertexAttribArray(2); // color.rgb
     glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(5*sizeof(float)));
 
     // Textured shader: samples the R8 atlas, multiplies by vertex colour.
@@ -2323,19 +2294,9 @@ void *renderThread(void *) {
     buildReticle();          // head-gaze crosshair
     buildControllerMeshes(); // Neo 2 controller wireframes
 
-    // CJK test panel: load font atlas + build panel geometry once.
-    if (gCjkText.init(96.0f)) {
-        std::vector<float> bgV, textV;
-        gCjkTextVerts = buildCjkTestPanel(bgV, textV);
-        gCjkBgVerts = (int)(bgV.size() / 8);
-        glBindBuffer(GL_ARRAY_BUFFER, gCjkBgVbo);
-        glBufferData(GL_ARRAY_BUFFER, bgV.size()*sizeof(float), bgV.data(), GL_STATIC_DRAW);
-        glBindBuffer(GL_ARRAY_BUFFER, gCjkTextVbo);
-        glBufferData(GL_ARRAY_BUFFER, textV.size()*sizeof(float), textV.data(), GL_STATIC_DRAW);
-        gCjkPanelBuilt = true;
-        LOGI("CJK test panel built: %d bg verts, %d text verts", gCjkBgVerts, gCjkTextVerts);
-    } else {
-        LOGE("CJK test panel: font init failed, panel disabled");
+    // Load the stb_truetype font atlas used by all UI text rendering.
+    if (!gCjkText.init(48.0f)) {
+        LOGE("font atlas init failed, UI text will be invisible");
     }
     // Passthrough camera background replaces the dark-void environment.
     // The lobby UI panels composite on top of the live camera feed.
@@ -4023,33 +3984,6 @@ void *renderThread(void *) {
             drawSettingsPanelVerts(pi.sliderVertCount, sproj, sview, settingsWorld);
             if (pi.cursorOnPanel)
                 drawPointerCursor(pi.cursorLx, pi.cursorLy, pi.cursorPressed, sproj, sview, settingsWorld);
-
-            // CJK test panel: floats to the right of the settings panel.
-            if (gCjkPanelBuilt) {
-                // Offset right + slightly closer so it doesn't overlap.
-                Mat4 cjkOffset = mat4Translate(0.6f, 0.0f, 0.0f);
-                Mat4 cjkWorld = mat4Mul(settingsWorld, cjkOffset);
-                Mat4 cjkMvp = mat4Mul(sproj, mat4Mul(sview, cjkWorld));
-                // Background quad (flat shader).
-                glUseProgram(gCjkProg);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, gCjkText.texture());
-    glUniform1i(gCjkTexLoc, 0);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                glBindVertexArray(gCjkBgVao);
-                glUniformMatrix4fv(gCjkMvpLoc, 1, GL_FALSE, cjkMvp.m);
-                glDrawArrays(GL_TRIANGLES, 0, gCjkBgVerts);
-                glBindVertexArray(0);
-                // CJK text (textured, alpha-blended).
-                if (gCjkTextVerts > 0) {
-                    glBindVertexArray(gCjkTextVao);
-                    glUniformMatrix4fv(gCjkMvpLoc, 1, GL_FALSE, cjkMvp.m);
-                    glDrawArrays(GL_TRIANGLES, 0, gCjkTextVerts);
-                    glBindVertexArray(0);
-                    glDisable(GL_BLEND);
-                }
-            }
 
             // PIN pad overlay (shown when server requests pairing PIN).
             if (gPinEntryRequested.load()) {

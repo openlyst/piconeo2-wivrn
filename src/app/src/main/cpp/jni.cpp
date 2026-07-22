@@ -17,6 +17,7 @@
 #include "passthrough.h"     // gPassthrough (extern in render_thread.cpp)
 #include "lobby.h"
 #include "server_list.h"
+#include "i18n.h"            // detectSystemLang
 #include "log.h"
 #include "pico_sdk.h"        // Pvr_ResetSensor
 #include "streaming/streaming_client.h"
@@ -77,6 +78,37 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
         if (javaAssets) {
             gAssetManager = AAssetManager_fromJava(env, javaAssets);
             env->DeleteLocalRef(javaAssets);
+        }
+    }
+
+    // Detect the system locale for the i18n "System" language option.
+    {
+        jclass cls = env->GetObjectClass(activity);
+        jmethodID getRes = env->GetMethodID(cls, "getResources", "()Landroid/content/res/Resources;");
+        jobject res = env->CallObjectMethod(activity, getRes);
+        if (res) {
+            jclass resCls = env->GetObjectClass(res);
+            jmethodID getCfg = env->GetMethodID(resCls, "getConfiguration", "()Landroid/content/res/Configuration;");
+            jobject cfg = env->CallObjectMethod(res, getCfg);
+            if (cfg) {
+                jclass cfgCls = env->GetObjectClass(cfg);
+                jfieldID locFid = env->GetFieldID(cfgCls, "locale", "Ljava/util/Locale;");
+                jobject loc = env->GetObjectField(cfg, locFid);
+                if (loc) {
+                    jclass locCls = env->GetObjectClass(loc);
+                    jmethodID getLang = env->GetMethodID(locCls, "getLanguage", "()Ljava/lang/String;");
+                    jstring jlang = (jstring)env->CallObjectMethod(loc, getLang);
+                    if (jlang) {
+                        const char *c = env->GetStringUTFChars(jlang, nullptr);
+                        if (c) detectSystemLang(c);
+                        env->ReleaseStringUTFChars(jlang, c);
+                        env->DeleteLocalRef(jlang);
+                    }
+                    env->DeleteLocalRef(loc);
+                }
+                env->DeleteLocalRef(cfg);
+            }
+            env->DeleteLocalRef(res);
         }
     }
     jclass clazz = env->GetObjectClass(activity);

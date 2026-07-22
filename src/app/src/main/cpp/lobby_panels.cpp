@@ -274,30 +274,3 @@ void buildDiagOverlay(std::vector<float> &v, int page) {
 
     uiTextC(v, "Diagnostics", 0.0f, yTop - 5.0f*dy - 0.010f, px*0.9f, 0.55f, 0.65f, 0.78f);
 }
-
-// CJK test panel: a small floating card with "Hello World" in English (bitmap font)
-// and "你好世界" in Simplified Chinese (stb_truetype atlas). Proof of concept for
-// i18n support. The background quad goes into bgV (6-float verts, existing shader);
-// the CJK text goes into textV (8-float verts, textured shader).
-int buildCjkTestPanel(std::vector<float> &bgV, std::vector<float> &textV) {
-    // Background card: 0.5m wide, 0.2m tall, dark blue.
-    appendQuad(bgV, -0.25f, 0.10f, 0.25f, -0.10f, 0.05f, 0.08f, 0.14f);
-
-    // English line with the existing 5x7 bitmap font.
-    uiTextC(bgV, "Hello World", 0.0f, 0.06f, 0.004f, 1.0f, 1.0f, 1.0f);
-
-    // Chinese line: 你好世界. Atlas baked at 96px with 2x oversampling, so
-    // px=0.0005 gives ~48mm tall glyphs at 3x the pixel density of the old
-    // 32px bake. 4 CJK chars * ~96px advance = ~0.19m wide.
-    int textVerts = 0;
-    if (gCjkText.ready()) {
-        float px = 0.0005f;
-        const char *zh = "\xe4\xbd\xa0\xe5\xa5\xbd\xe4\xb8\x96\xe7\x95\x8c";  // 你好世界
-        float charW = 96.0f * px;  // approx advance per CJK glyph
-        float totalW = 4.0f * charW;
-        float startX = -totalW * 0.5f;
-        float y = -0.05f;
-        textVerts = gCjkText.emitQuads(textV, zh, startX, y, px, 1.0f, 0.9f, 0.5f);
-    }
-    return textVerts;
-}

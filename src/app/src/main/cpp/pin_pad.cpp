@@ -1,5 +1,6 @@
 #include "pin_pad.h"
 #include "ui_kit.h"
+#include "i18n.h"
 #include <mutex>
 
 static std::mutex gPinMutex;
@@ -66,7 +67,7 @@ bool buildPinPad(std::vector<float> &v, float cursorLx, float cursorLy,
     appendQuad(v, -bgR, bgT, bgR, -bgT, 0.05f, 0.06f, 0.10f);
 
     // Title
-    uiTextC(v, "Enter PIN", 0, bgT - 0.015f, kUiText * 0.9f, 0.7f, 0.75f, 0.85f);
+    uiTextC(v, tr(Str::EnterPIN), 0, bgT - 0.015f, kUiText * 0.9f, 0.7f, 0.75f, 0.85f);
 
     // PIN display - show actual digits typed
     std::string display;
@@ -91,6 +92,10 @@ bool buildPinPad(std::vector<float> &v, float cursorLx, float cursorLy,
             if (id == -2) continue;
             UiRect kr = keyRect(r, c);
             const char *label = kKeyLabels[r][c];
+            if      (id == -3) label = tr(Str::Close);
+            else if (id == -1) label = tr(Str::Backspace);
+            else if (id == -5) label = tr(Str::Clear);
+            else if (id == -4) label = tr(Str::OK);
             bool hot = cursorOnPanel && uiHit(kr, cursorLx, cursorLy);
             if (hot) gHoverKey = id;
 

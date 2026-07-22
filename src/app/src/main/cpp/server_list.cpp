@@ -3,6 +3,7 @@
 #include "pin_pad.h"         // gPinEntryRequested (cleared when connecting ends)
 #include "cjk_text.h"        // gCjkText.textWidth
 #include "log.h"
+#include "i18n.h"
 #include <mutex>
 #include <cstring>
 
@@ -78,9 +79,9 @@ float buildServerContent(std::vector<float> &v, float scrollY,
     float contentW = kCtX1Content - kCtX0;
 
     if (servers.empty()) {
-        uiTextC(v, "Start a WiVRn server", (kCtX0 + kCtX1Content) * 0.5f,
+        uiTextC(v, tr(Str::StartServer), (kCtX0 + kCtX1Content) * 0.5f,
                 kCtTop - 0.05f - scrollY, kUiText * 1.8f, 0.5f, 0.5f, 0.55f);
-        uiTextC(v, "on your local network", (kCtX0 + kCtX1Content) * 0.5f,
+        uiTextC(v, tr(Str::OnLocalNetwork), (kCtX0 + kCtX1Content) * 0.5f,
                 kCtTop - 0.13f - scrollY, kUiText * 1.8f, 0.5f, 0.5f, 0.55f);
         return 0.20f;
     }
@@ -139,7 +140,7 @@ float buildServerContent(std::vector<float> &v, float scrollY,
             float badgeY = yTop - 0.035f;
             appendQuad(v, badgeX, badgeY + 0.01f, badgeX + 0.02f, badgeY - 0.01f,
                        0.2f, 0.7f, 0.3f);
-            uiTextL(v, "Discovered", badgeX + 0.03f, badgeY,
+            uiTextL(v, tr(Str::Discovered), badgeX + 0.03f, badgeY,
                     kUiText * 0.7f, 0.3f, 0.7f, 0.4f);
         }
 
@@ -154,7 +155,7 @@ float buildServerContent(std::vector<float> &v, float scrollY,
         appendQuad(v, xBtnCx - xBtnW*0.5f, xBtnCy + xBtnH*0.5f,
                    xBtnCx + xBtnW*0.5f, xBtnCy - xBtnH*0.5f,
                    xc[0], xc[1], xc[2]);
-        uiTextC(v, "X", xBtnCx, xBtnCy + baselineOffset(kUiText * 0.85f),
+        uiTextC(v, tr(Str::Close), xBtnCx, xBtnCy + baselineOffset(kUiText * 0.85f),
                 kUiText * 0.85f, 1, 1, 1);
 
         // Connect button (green, wiVRn style)
@@ -172,8 +173,8 @@ float buildServerContent(std::vector<float> &v, float scrollY,
                        0.1f, 0.4f, 0.15f);
         }
         // Show "Connecting..." if this is the active connection attempt
-        const char *btnLabel = "Connect";
-        if (isConnecting() && btnHot) btnLabel = "...";
+        const char *btnLabel = tr(Str::Connect);
+        if (isConnecting() && btnHot) btnLabel = tr(Str::Connecting);
         uiTextC(v, btnLabel, btn.cx, btn.cy + baselineOffset(kUiText * 0.85f),
                 kUiText * 0.85f, 1.0f, 1.0f, 1.0f);
 
@@ -181,7 +182,7 @@ float buildServerContent(std::vector<float> &v, float scrollY,
         if (!srv.manual) {
             float togCx = btnCx - btnW * 0.5f - 0.02f - 0.25f * 0.5f;
             UiRect tog = { togCx, yTop - kRowH * 0.5f, 0.25f, 0.05f };
-            uiToggle(v, tog, "Auto", srv.autoconnect, hot && connectHot != i);
+            uiToggle(v, tog, tr(Str::Auto), srv.autoconnect, hot && connectHot != i);
         }
 
         yTop = yBot - kRowGap;
@@ -198,7 +199,7 @@ float buildServerContent(std::vector<float> &v, float scrollY,
         appendQuad(v, rBtnCx - rBtnW*0.5f, rBtnCy + rBtnH*0.5f,
                    rBtnCx + rBtnW*0.5f, rBtnCy - rBtnH*0.5f,
                    rc[0], rc[1], rc[2]);
-        uiTextC(v, "Refresh", rBtnCx, rBtnCy + baselineOffset(kUiText * 0.85f),
+        uiTextC(v, tr(Str::Refresh), rBtnCx, rBtnCy + baselineOffset(kUiText * 0.85f),
                 kUiText * 0.85f, 0.7f, 0.8f, 1.0f);
     }
 

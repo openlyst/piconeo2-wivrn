@@ -1,5 +1,6 @@
 #include "app_state.h"
 #include "eq_panel.h"   // EQ state folded into the unified config file
+#include "i18n.h"        // setLanguage on load
 #include "log.h"
 #include <cstdio>
 #include <cstdlib>   // getenv
@@ -51,6 +52,8 @@ std::atomic<int> gFenceTimeouts{0};   // warp-submit fence-wait timeouts/sec
 std::atomic<uint64_t> gBattWarnStartNs{0};
 std::atomic<int>      gBattWarnPct{0};
 
+std::atomic<int> gLangSetting{2};   // default: System
+
 // Unified persistence: one $HOME/config.txt in tagged key=value format with a
 // version header. saveAllConfig() rewrites the whole file; saveX() wrappers
 // just call it. Unknown keys on load are skipped so new fields can be inserted
@@ -90,6 +93,7 @@ void saveAllConfig() {
     fprintf(f, "wivrnEyeTracking=%d\n", gWivrnEyeTracking.load() ? 1 : 0);
     fprintf(f, "wivrnPassthrough=%d\n", gWivrnPassthrough.load() ? 1 : 0);
     fprintf(f, "wivrnEyeFoveation=%d\n", gWivrnEyeFoveation.load() ? 1 : 0);
+    fprintf(f, "lang=%d\n", gLangSetting.load());
     fclose(f);
 }
 
@@ -230,6 +234,7 @@ void loadAllConfig() {
                 else if (keyIs(key, keyLen, "wivrnEyeTracking"))     { if (sscanf(v, "%d", &iv) == 1) gWivrnEyeTracking.store(iv != 0); }
                 else if (keyIs(key, keyLen, "wivrnPassthrough"))     { if (sscanf(v, "%d", &iv) == 1) gWivrnPassthrough.store(iv != 0); }
                 else if (keyIs(key, keyLen, "wivrnEyeFoveation"))    { if (sscanf(v, "%d", &iv) == 1) gWivrnEyeFoveation.store(iv != 0); }
+                else if (keyIs(key, keyLen, "lang"))                 { if (sscanf(v, "%d", &iv) == 1) { if (iv >= 0 && iv <= 2) { gLangSetting.store(iv); setLanguage((Lang)iv); } } }
                 // unknown key -> skip (forward-compatible)
             }
             fclose(f);
@@ -258,3 +263,4 @@ void saveEyeDebug()   { saveAllConfig(); }
 void saveDiagHud()    { saveAllConfig(); }
 void saveStreamFov()  { saveAllConfig(); }
 void saveBrightness() { gBrightnessSaved.store(true); saveAllConfig(); }
+void saveLangSetting() { saveAllConfig(); }

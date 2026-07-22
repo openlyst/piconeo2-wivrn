@@ -105,3 +105,8 @@ void saveSoftIpd();
 void saveEyeDebug();
 void saveDiagHud();
 void saveBrightness();
+void saveLangSetting();
+
+// ---- UI language -----------------------------------------------------------
+// 0 = English, 1 = Chinese, 2 = System (resolve at boot via Android locale).
+extern std::atomic<int> gLangSetting;
