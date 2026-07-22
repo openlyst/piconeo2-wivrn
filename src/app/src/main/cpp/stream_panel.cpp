@@ -7,6 +7,29 @@
 #include <cstring>
 #include <cmath>
 
+// Truncate s into buf (size bufSz) so the rendered width fits availW at scale px.
+// Each char is 6 font-units wide; rendered width = (n*6 - 1) * px.
+// Appends "..." if truncated.
+static void truncateFit(char *buf, size_t bufSz, const char *s, float availW, float px) {
+    if (bufSz == 0) return;
+    size_t n = strlen(s);
+    float w = (n * 6 - 1) * px;
+    if (w <= availW || n < 4) {
+        strncpy(buf, s, bufSz - 1);
+        buf[bufSz - 1] = 0;
+        return;
+    }
+    // Reserve 3 chars for "..." and find max that fits
+    size_t maxChars = (size_t)((availW / px + 1) / 6);
+    if (maxChars < 4) maxChars = 4;
+    if (maxChars - 3 >= bufSz) maxChars = bufSz + 2; // will be clamped
+    size_t keep = maxChars - 3;
+    if (keep >= bufSz) keep = bufSz - 4;
+    strncpy(buf, s, keep);
+    buf[keep] = 0;
+    strcat(buf, "...");
+}
+
 // ===========================================================================
 // STATS category: FPS, latency, bandwidth, CPU/GPU, latency breakdown.
 // MK_CUSTOM, self-positioning. MenuHover.part encodes sub-regions (none yet).
@@ -142,10 +165,12 @@ static void appsBuild(std::vector<float> &v, const MenuHover &h) {
             uiTextL(v, ">", tx, y - 0.02f, px, 0.4f, 0.8f, 0.4f);
             tx += 0.04f;
         }
-        // App name (truncate to fit)
+        // App name (truncate to fit before the stop button)
+        float btnSz_apps = 0.05f;
+        float btnX_apps = kCtX1 - btnSz_apps - 0.03f;
+        float availW = btnX_apps - tx - 0.02f;
         char name[48];
-        strncpy(name, apps[i].name.c_str(), sizeof(name)-1);
-        name[sizeof(name)-1] = 0;
+        truncateFit(name, sizeof(name), apps[i].name.c_str(), availW, px);
         uiTextL(v, name, tx, y - 0.02f, px, kUiWhite[0], kUiWhite[1], kUiWhite[2]);
 
         if (isOverlay) {
@@ -277,10 +302,12 @@ static void launchBuild(std::vector<float> &v, const MenuHover &h) {
         if (hot) { bg[0] = 0.14f; bg[1] = 0.18f; bg[2] = 0.24f; }
         appendQuad(v, kCtX0, y, kCtX1, yBot, bg[0], bg[1], bg[2]);
 
-        // App name
+        // App name (truncate to fit before the launch button)
+        float btnW_launch = 0.14f;
+        float btnX_launch = kCtX1 - btnW_launch - 0.03f;
+        float availW = btnX_launch - x - 0.02f;
         char name[48];
-        strncpy(name, apps[i].name.c_str(), sizeof(name)-1);
-        name[sizeof(name)-1] = 0;
+        truncateFit(name, sizeof(name), apps[i].name.c_str(), availW, px);
         uiTextL(v, name, x, y - 0.02f, px, kUiWhite[0], kUiWhite[1], kUiWhite[2]);
 
         // Launch button (green)
