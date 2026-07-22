@@ -185,7 +185,7 @@ static void appsBuild(std::vector<float> &v, const MenuHover &h) {
         if (hot && h.part >= 100) { sb[0] = 0.7f; sb[1] = 0.2f; sb[2] = 0.2f; }
         appendQuad(v, btnX, btnY + btnSz*0.5f, btnX + btnSz, btnY - btnSz*0.5f,
                    sb[0], sb[1], sb[2]);
-        uiTextC(v, "X", btnX + btnSz*0.5f, btnY - btnSz*0.3f, px * 0.8f,
+        uiTextC(v, "X", btnX + btnSz*0.5f, btnY + 3.5f * (px * 0.8f), px * 0.8f,
                 1, 1, 1);
 
         y = yBot - rowGap;
@@ -311,14 +311,14 @@ static void launchBuild(std::vector<float> &v, const MenuHover &h) {
         uiTextL(v, name, x, y - 0.02f, px, kUiWhite[0], kUiWhite[1], kUiWhite[2]);
 
         // Launch button (green)
-        float btnW = 0.14f, btnH = 0.05f;
+        float btnW = 0.16f, btnH = 0.06f;
         float btnX = kCtX1 - btnW - 0.03f;
         float btnY = y - rowH * 0.5f;
         float gc[3] = {0.1f, 0.3f, 0.15f};
         if (hot && h.part >= 100) { gc[0] = 0.2f; gc[1] = 0.5f; gc[2] = 0.25f; }
         appendQuad(v, btnX, btnY + btnH*0.5f, btnX + btnW, btnY - btnH*0.5f,
                    gc[0], gc[1], gc[2]);
-        uiTextC(v, "Launch", btnX + btnW*0.5f, btnY - btnH*0.3f, px * 0.7f, 1, 1, 1);
+        uiTextC(v, "Launch", btnX + btnW*0.5f, btnY + 3.5f * (px * 0.7f), px * 0.7f, 1, 1, 1);
 
         y = yBot - rowGap;
     }
@@ -344,7 +344,7 @@ static void launchHit(float cx, float cy, MenuHover &h) {
     }
 
     float rowH = 0.08f, rowGap = 0.02f;
-    float btnW = 0.14f, btnH = 0.05f;
+    float btnW = 0.16f, btnH = 0.06f;
 
     for (int i = 0; i < (int)apps.size(); i++) {
         float y = yTop - i * (rowH + rowGap);
