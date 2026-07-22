@@ -260,5 +260,5 @@ void buildDiagOverlay(std::vector<float> &v, int page) {
     // warp-submit fence timeouts/sec (slot not GPU-complete in budget -> tear). 0 = healthy.
     snprintf(line, sizeof(line), "Fencetmo %d",  gFenceTimeouts.load()); colRow(2,3,line);
 
-    uiTextC(v, "ALVR diagnostics", 0.0f, yTop - 5.0f*dy - 0.010f, px*0.9f, 0.55f, 0.65f, 0.78f);
+    uiTextC(v, "Diagnostics", 0.0f, yTop - 5.0f*dy - 0.010f, px*0.9f, 0.55f, 0.65f, 0.78f);
 }

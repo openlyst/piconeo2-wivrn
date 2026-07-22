@@ -42,3 +42,4 @@ openxr_poc/.cxx/
 openxr_poc/local.properties
 openxr_poc/gradle.properties
 openxr_poc/app/src/main/jniLibs/arm64-v8a/libopenxr_loader.so
+.Changelog.md.kate-swp
