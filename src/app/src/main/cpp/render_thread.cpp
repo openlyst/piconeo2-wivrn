@@ -3513,6 +3513,19 @@ void *renderThread(void *) {
         // no video playing, so the user can launch apps from the headset.
         bool wivrnConnected = g_stream && g_stream->session && g_stream->connected_ns.load() > 0;
         gStreamingMode = wivrnConnected;
+        // Auto-switch to the Launch tab when we first connect.
+        static bool wasConnected = false;
+        if (wivrnConnected && !wasConnected) {
+            // Launch is the last streaming-only category (index 4: Stats, Apps, Launch).
+            MenuModel &mm = settingsModel();
+            for (int i = (int)mm.size() - 1; i >= 0; i--) {
+                if (mm[i].streamingOnly && mm[i].name == "Launch") {
+                    gSettingsCat = i;
+                    break;
+                }
+            }
+        }
+        wasConnected = wivrnConnected;
         // If we were on a streaming-only tab but lost connection, fall back to Settings.
         if (!gStreamingMode) {
             MenuModel &mm = settingsModel();
