@@ -7,6 +7,7 @@
 - Fixed passthrough warping at the edges of the view
 - Fixed race conditions on stream lifecycle
 - Fixed lobby status text mislabeling "Disconnected" as "Connecting"
+- Fixed crashing when loading some unity games like Anthro Heat. 
 - Fixed controllers not tracking when only one is connected 
 - Passthrough is now off by default
 - Dynamic bitrate removed 
