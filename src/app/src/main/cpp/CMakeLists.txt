@@ -129,6 +129,7 @@ add_library(p2wivrn SHARED
     input.cpp
     foveation.cpp
     cjk_text.cpp
+    i18n.cpp
     jni.cpp
     streaming/streaming_client.cpp
     streaming/pvr_renderer.cpp
