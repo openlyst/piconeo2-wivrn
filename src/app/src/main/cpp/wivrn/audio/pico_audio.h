@@ -56,6 +56,7 @@ public:
 
 	void operator()(wivrn::audio_data && data);
 	void set_mic_state(bool running);
+	bool has_microphone() const { return microphone != nullptr; }
 
 	static void get_audio_description(wivrn::from_headset::headset_info_packet & info);
 };
