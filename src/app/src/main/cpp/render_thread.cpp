@@ -3959,6 +3959,34 @@ void *renderThread(void *) {
             if (pi.cursorOnPanel)
                 drawPointerCursor(pi.cursorLx, pi.cursorLy, pi.cursorPressed, sproj, sview, settingsWorld);
 
+            // CJK test panel: floats to the right of the settings panel.
+            if (gCjkPanelBuilt) {
+                // Offset right + slightly closer so it doesn't overlap.
+                Mat4 cjkOffset = mat4Translate(0.6f, 0.0f, 0.0f);
+                Mat4 cjkWorld = mat4Mul(settingsWorld, cjkOffset);
+                Mat4 cjkMvp = mat4Mul(sproj, mat4Mul(sview, cjkWorld));
+                // Background quad (flat shader).
+                glUseProgram(gProg);
+                glBindVertexArray(gCjkBgVao);
+                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, cjkMvp.m);
+                glDrawArrays(GL_TRIANGLES, 0, 6 * 3);  // bg quad + "Hello World" text
+                glBindVertexArray(0);
+                // CJK text (textured, alpha-blended).
+                if (gCjkTextVerts > 0) {
+                    glEnable(GL_BLEND);
+                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                    glUseProgram(gCjkProg);
+                    glActiveTexture(GL_TEXTURE0);
+                    glBindTexture(GL_TEXTURE_2D, gCjkText.texture());
+                    glUniform1i(gCjkTexLoc, 0);
+                    glBindVertexArray(gCjkTextVao);
+                    glUniformMatrix4fv(gCjkMvpLoc, 1, GL_FALSE, cjkMvp.m);
+                    glDrawArrays(GL_TRIANGLES, 0, gCjkTextVerts);
+                    glBindVertexArray(0);
+                    glDisable(GL_BLEND);
+                }
+            }
+
             // PIN pad overlay (shown when server requests pairing PIN).
             if (gPinEntryRequested.load()) {
                 // Position the PIN pad in front of the settings panel, slightly
