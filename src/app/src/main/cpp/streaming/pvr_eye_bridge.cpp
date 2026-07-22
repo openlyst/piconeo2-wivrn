@@ -34,17 +34,17 @@ void pollEyeGaze()
 	float gz = gGazeLocal[2].load();
 
 	float pitch = std::asin(-gy);
-	float yaw = std::atan2(gx, -gz);
+	float yaw = std::atan2(-gx, -gz);
 	gGazePitch.store(pitch);
 	gGazeYaw.store(yaw);
 
-	// Gaze direction -> quaternion (looking down -Z, head-local).
+	// Gaze direction -> quaternion q = Rx(pitch) * Ry(yaw) (looking down -Z, head-local).
 	float sinp = std::sin(pitch * 0.5f);
 	float cosp = std::cos(pitch * 0.5f);
 	float siny = std::sin(yaw * 0.5f);
 	float cosy = std::cos(yaw * 0.5f);
-	gGazeQuat[0].store(cosp * siny);
-	gGazeQuat[1].store(sinp * cosy);
+	gGazeQuat[0].store(sinp * cosy);
+	gGazeQuat[1].store(cosp * siny);
 	gGazeQuat[2].store(sinp * siny);
 	gGazeQuat[3].store(cosp * cosy);
 	gGazeValid.store(true);
