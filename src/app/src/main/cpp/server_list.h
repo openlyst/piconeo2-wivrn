@@ -32,6 +32,7 @@ extern std::function<void(const ServerInfo &)> gOnServerConnect;
 extern std::function<void(const std::string &hostname, int port)> gOnServerRemove;
 extern std::function<void(const std::string &hostname, int port)> gOnServerAutoconnect;
 extern std::function<void()> gOnRefreshServers;
+extern std::function<void(bool connecting)> gOnConnectingChanged;
 
 // Build server list rows inside the panel content area.
 // Origin is top-left of content area (kCtX0, kCtTop). Scrolls vertically.

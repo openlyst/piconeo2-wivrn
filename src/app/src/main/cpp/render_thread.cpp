@@ -3853,23 +3853,22 @@ void *renderThread(void *) {
 
             // PIN pad overlay (shown when server requests pairing PIN).
             if (gPinEntryRequested.load()) {
-                // Position the PIN pad in front of the user, slightly closer
-                // than the settings panel so it's clearly on top.
-                const float kPinDist = 1.9f;
-                Mat4 pinWorld = mat4Translate(0, 0, -kPinDist);
+                // Position the PIN pad in front of the settings panel, slightly
+                // closer to the user so it's clearly on top.
+                Mat4 pinOffset = mat4Translate(0, 0, 0.1f);
+                Mat4 pinWorld = mat4Mul(settingsWorld, pinOffset);
                 // Build PIN pad verts with cursor mapped to panel-local coords.
                 float pinCursorLx = 0, pinCursorLy = 0;
                 bool pinOnPad = false;
                 // Ray-march the pointer against the PIN pad plane.
-                float pz = -kPinDist;
-                if (fabsf(pi.ptrDz) > 0.001f) {
-                    float t = (pz - pi.ptrOz) / pi.ptrDz;
-                    if (t > 0) {
-                        pinCursorLx = pi.ptrOx + pi.ptrDx * t;
-                        pinCursorLy = pi.ptrOy + pi.ptrDy * t;
-                        pinOnPad = true;
-                    }
-                }
+                // The PIN pad is at settingsWorld * (0,0,0.1) in world space.
+                // Use the same rayPanelHit logic as the settings panel.
+                float pinT = 0;
+                bool onPad = rayPanelHit(pinWorld, pi.ptrOx, pi.ptrOy, pi.ptrOz,
+                                         pi.ptrDx, pi.ptrDy, pi.ptrDz,
+                                         false, pi.laserLen,
+                                         pinCursorLx, pinCursorLy, pinT);
+                pinOnPad = onPad;
                 static std::vector<float> pinVerts;
                 pinVerts.clear();
                 bool active = buildPinPad(pinVerts, pinCursorLx, pinCursorLy,

@@ -1,5 +1,6 @@
 #include "server_list.h"
 #include "settings_panel.h"  // kCtX0, kCtX1, kCtTop, kCtBot
+#include "pin_pad.h"         // gPinEntryRequested (cleared when connecting ends)
 #include "log.h"
 #include <mutex>
 #include <cstring>
@@ -14,6 +15,7 @@ std::function<void(const ServerInfo &)> gOnServerConnect;
 std::function<void(const std::string &hostname, int port)> gOnServerRemove;
 std::function<void(const std::string &hostname, int port)> gOnServerAutoconnect;
 std::function<void()> gOnRefreshServers;
+std::function<void(bool connecting)> gOnConnectingChanged;
 
 void setServerList(const std::vector<ServerInfo> & servers) {
     std::lock_guard<std::mutex> lk(gSrvMutex);
@@ -42,6 +44,10 @@ void clearConnectionError() {
 
 void setConnecting(bool connecting) {
     gConnecting.store(connecting);
+    if (gOnConnectingChanged)
+        gOnConnectingChanged(connecting);
+    if (!connecting)
+        gPinEntryRequested.store(false);
 }
 
 bool isConnecting() {
