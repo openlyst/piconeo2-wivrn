@@ -42,7 +42,7 @@ static void statsBuild(std::vector<float> &v, const MenuHover &h) {
     float y = kMenuTopY;
     float px = kUiText * 1.4f;
     float lineH = 0.06f;
-    float colW = (kCtX1 - kCtX0 - 0.08f) * 0.5f;
+    float colW = (kCtX1Content - kCtX0 - 0.08f) * 0.5f;
     float col2X = x + colW + 0.04f;
 
     // Title
@@ -89,7 +89,7 @@ static void statsBuild(std::vector<float> &v, const MenuHover &h) {
     };
     float maxMs = 1.0f;
     for (auto &b : bars) if (b.ms > maxMs) maxMs = b.ms;
-    float barW = colW * 1.8f;
+    float barW = (kCtX1Content - x - 0.08f) * 0.6f;
     float barH = 0.025f;
     for (auto &b : bars) {
         uiTextL(v, b.name, x, y, px * 0.8f, 0.5f, 0.55f, 0.6f);
@@ -147,7 +147,7 @@ static void appsBuild(std::vector<float> &v, const MenuHover &h) {
 
     float rowH = 0.08f;
     float rowGap = 0.02f;
-    float contentW = kCtX1 - kCtX0 - 0.08f;
+    float contentW = kCtX1Content - kCtX0 - 0.08f;
 
     for (int i = 0; i < (int)apps.size(); i++) {
         float yBot = y - rowH;
@@ -157,7 +157,7 @@ static void appsBuild(std::vector<float> &v, const MenuHover &h) {
 
         float bg[3] = {0.08f, 0.09f, 0.12f};
         if (hot) { bg[0] = 0.14f; bg[1] = 0.18f; bg[2] = 0.24f; }
-        appendQuad(v, kCtX0, y, kCtX1, yBot, bg[0], bg[1], bg[2]);
+        appendQuad(v, kCtX0, y, kCtX1Content, yBot, bg[0], bg[1], bg[2]);
 
         // Active marker
         float tx = x;
@@ -167,7 +167,7 @@ static void appsBuild(std::vector<float> &v, const MenuHover &h) {
         }
         // App name (truncate to fit before the stop button)
         float btnSz_apps = 0.05f;
-        float btnX_apps = kCtX1 - btnSz_apps - 0.03f;
+        float btnX_apps = kCtX1Content - btnSz_apps - 0.03f;
         float availW = btnX_apps - tx - 0.02f;
         char name[48];
         truncateFit(name, sizeof(name), apps[i].name.c_str(), availW, px);
@@ -179,7 +179,7 @@ static void appsBuild(std::vector<float> &v, const MenuHover &h) {
 
         // Stop button (red X)
         float btnSz = 0.05f;
-        float btnX = kCtX1 - btnSz - 0.03f;
+        float btnX = kCtX1Content - btnSz - 0.03f;
         float btnY = y - rowH * 0.5f;
         float sb[3] = {0.3f, 0.1f, 0.1f};
         if (hot && h.part >= 100) { sb[0] = 0.7f; sb[1] = 0.2f; sb[2] = 0.2f; }
@@ -211,7 +211,7 @@ static void appsHit(float cx, float cy, MenuHover &h) {
         if (cy > y || cy < yBot) continue;
 
         // Stop button
-        float btnX = kCtX1 - btnSz - 0.03f;
+        float btnX = kCtX1Content - btnSz - 0.03f;
         float btnY = y - rowH * 0.5f;
         if (cx >= btnX && cx <= btnX + btnSz &&
             cy >= btnY - btnSz*0.5f && cy <= btnY + btnSz*0.5f) {
@@ -300,11 +300,11 @@ static void launchBuild(std::vector<float> &v, const MenuHover &h) {
 
         float bg[3] = {0.08f, 0.09f, 0.12f};
         if (hot) { bg[0] = 0.14f; bg[1] = 0.18f; bg[2] = 0.24f; }
-        appendQuad(v, kCtX0, y, kCtX1, yBot, bg[0], bg[1], bg[2]);
+        appendQuad(v, kCtX0, y, kCtX1Content, yBot, bg[0], bg[1], bg[2]);
 
         // App name (truncate to fit before the launch button)
-        float btnW_launch = 0.14f;
-        float btnX_launch = kCtX1 - btnW_launch - 0.03f;
+        float btnW_launch = 0.16f;
+        float btnX_launch = kCtX1Content - btnW_launch - 0.03f;
         float availW = btnX_launch - x - 0.02f;
         char name[48];
         truncateFit(name, sizeof(name), apps[i].name.c_str(), availW, px);
@@ -312,7 +312,7 @@ static void launchBuild(std::vector<float> &v, const MenuHover &h) {
 
         // Launch button (green)
         float btnW = 0.16f, btnH = 0.06f;
-        float btnX = kCtX1 - btnW - 0.03f;
+        float btnX = kCtX1Content - btnW - 0.03f;
         float btnY = y - rowH * 0.5f;
         float gc[3] = {0.1f, 0.3f, 0.15f};
         if (hot && h.part >= 100) { gc[0] = 0.2f; gc[1] = 0.5f; gc[2] = 0.25f; }
@@ -352,7 +352,7 @@ static void launchHit(float cx, float cy, MenuHover &h) {
         if (cy > y || cy < yBot) continue;
 
         // Launch button
-        float btnX = kCtX1 - btnW - 0.03f;
+        float btnX = kCtX1Content - btnW - 0.03f;
         float btnY = y - rowH * 0.5f;
         if (cx >= btnX && cx <= btnX + btnW &&
             cy >= btnY - btnH*0.5f && cy <= btnY + btnH*0.5f) {

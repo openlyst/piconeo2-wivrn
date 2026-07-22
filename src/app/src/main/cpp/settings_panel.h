@@ -37,6 +37,8 @@ constexpr float kSetContentOffX = 0.06f;
 constexpr float kSetViewportH = kCtTop - kCtBot;
 // reference scrollbar (drawn only, never interactive)
 constexpr float kSbX = 0.585f, kSbW = 0.012f;
+// Right edge for content that must not overlap the scrollbar.
+constexpr float kCtX1Content = kSbX - 0.015f;
 // sidebar tabs: auto-stacked on the left, one per category.
 UiRect settingsTabRect(int i);
 
