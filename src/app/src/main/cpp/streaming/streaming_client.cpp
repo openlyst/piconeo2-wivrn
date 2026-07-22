@@ -113,9 +113,12 @@ void streaming_client::setup_decoders()
 
 void streaming_client::setup_audio()
 {
-	if (!audio_desc || audio_handle)
+	if (!audio_desc)
 		return;
 
+	// Replace the handle every time a new description arrives: the server
+	// sends a fresh audio_stream_description when mic capability changes,
+	// and the handle must be rebuilt to pick up (or drop) the mic stream.
 	audio_handle = std::make_unique<pico_audio>(*audio_desc, *session);
 	spdlog::info("Audio initialized");
 }

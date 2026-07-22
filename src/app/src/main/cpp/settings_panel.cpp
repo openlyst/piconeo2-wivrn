@@ -223,15 +223,6 @@ static void buildCoreModel(MenuModel &m) {
                 g_stream->microphone_enabled.store(on);
                 if (g_stream->audio_handle)
                     g_stream->audio_handle->set_mic_state(on);
-                // If the mic is being enabled but the audio handle was built
-                // without a microphone stream (mic was off at connect time),
-                // tear down the handle so the next audio_stream_description
-                // from the server rebuilds it with the mic included.
-                if (on && g_stream->audio_handle && !g_stream->audio_handle->has_microphone()) {
-                    LOGI("Mic enabled mid-stream: resetting audio handle for rebuild");
-                    g_stream->audio_handle.reset();
-                    g_stream->audio_desc.reset();
-                }
                 g_stream->send_headset_info();
             }
             saveAllConfig();
