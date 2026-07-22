@@ -344,7 +344,7 @@ static void buildCoreModel(MenuModel &m) {
     MenuCategory licenses; licenses.name = "Licenses"; licenses.custom = true;
     {
         MenuItem lic; lic.kind = MK_CUSTOM;
-        lic.customH = 0.6f;
+        lic.customH = 0.9f;
         lic.cBuild = [](std::vector<float> &v, const MenuHover &h) {
             (void)h;
             float y = kMenuTopY;
@@ -374,6 +374,25 @@ static void buildCoreModel(MenuModel &m) {
             uiButton(v, urlBtn, "gitlab.com/httpanimations/", false, false);
             y -= 0.06f;
             uiTextC(v, "piconeo2-wivrn/-/raw/main/LICENSE", cx, y, 0.0035f,
+                    kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+            y -= 0.12f;
+
+            // Third-party notices
+            uiTextC(v, "Third-party components", cx, y, 0.005f,
+                    kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+            y -= 0.07f;
+
+            uiTextC(v, "ALVR client library - MIT License", cx, y, 0.0038f,
+                    kUiFill[0], kUiFill[1], kUiFill[2]);
+            y -= 0.05f;
+            uiTextC(v, "github.com/alvr-org/alvr", cx, y, 0.0032f,
+                    kUiTitle[0], kUiTitle[1], kUiTitle[2]);
+            y -= 0.08f;
+
+            uiTextC(v, "3D controller models - Pico Interactive", cx, y, 0.0038f,
+                    kUiFill[0], kUiFill[1], kUiFill[2]);
+            y -= 0.05f;
+            uiTextC(v, "Owned by Pico Interactive", cx, y, 0.0032f,
                     kUiTitle[0], kUiTitle[1], kUiTitle[2]);
         };
         licenses.items.push_back(lic);
