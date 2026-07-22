@@ -4,6 +4,7 @@
 #include "eye_tracking.h"
 #include "app_state.h"   // gManualLobby (in-stream lobby overlay flag)
 #include "server_list.h" // setConnectionError / setConnecting for lobby UI
+#include "pin_pad.h"     // requestPinEntryUI / gOnPinSubmit for pairing numpad
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/android_sink.h>
@@ -643,28 +644,13 @@ bool streaming_client::connect_to_server()
 			pin_promise = std::promise<std::string>();
 			auto future = pin_promise.get_future();
 
-			if (vm && activity)
-			{
-				JNIEnv * env = nullptr;
-				bool attached = false;
-				if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
-				{
-					if (vm->AttachCurrentThread(&env, nullptr) == JNI_OK)
-						attached = true;
-				}
-
-				if (env && activity)
-				{
-					jclass clazz = env->GetObjectClass(activity);
-					jmethodID method = env->GetMethodID(clazz, "requestPinEntry", "()V");
-					if (method)
-						env->CallVoidMethod(activity, method);
-					env->DeleteLocalRef(clazz);
-				}
-
-				if (attached)
-					vm->DetachCurrentThread();
-			}
+			// Wire the PIN pad submit callback to fulfill our promise.
+			gOnPinSubmit = [this](const std::string &pin) {
+				pairing_pin = pin;
+				try { pin_promise.set_value(pin); } catch (...) {}
+			};
+			requestPinEntryUI();
+			spdlog::info("PIN entry requested from UI");
 
 			for (int i = 0; i < 1200; ++i)
 			{

@@ -40,6 +40,7 @@
 #include "lobby.h"       // ported pico_oxr WiVRn lobby UI panel
 #include "passthrough.h" // passthrough camera background for the lobby
 #include "simple_lobby.h"// simple 3D lobby environment (floor grid + sky)
+#include "pin_pad.h"     // PIN entry numpad overlay for pairing
 #include "lobby_panels.h"// diagnostics overlay builders
 #include "input.h"       // controller + head-pose shared state
 #include "foveation.h"   // readFoveationParams() from the settings JSON
@@ -3849,6 +3850,43 @@ void *renderThread(void *) {
             drawSettingsPanelVerts(pi.sliderVertCount, sproj, sview, settingsWorld);
             if (pi.cursorOnPanel)
                 drawPointerCursor(pi.cursorLx, pi.cursorLy, pi.cursorPressed, sproj, sview, settingsWorld);
+
+            // PIN pad overlay (shown when server requests pairing PIN).
+            if (gPinEntryRequested.load()) {
+                // Position the PIN pad in front of the settings panel, slightly
+                // closer to the user so it's clearly on top.
+                Mat4 pinOffset = mat4Translate(0, 0, 0.1f);
+                Mat4 pinWorld = mat4Mul(settingsWorld, pinOffset);
+                // Build PIN pad verts with cursor mapped to panel-local coords.
+                float pinCursorLx = 0, pinCursorLy = 0;
+                bool pinOnPad = false;
+                // Ray-march the pointer against the PIN pad plane.
+                // The PIN pad is at settingsWorld * (0,0,0.1) in world space.
+                // Use the same rayPanelHit logic as the settings panel.
+                float pinT = 0;
+                bool onPad = rayPanelHit(pinWorld, pi.ptrOx, pi.ptrOy, pi.ptrOz,
+                                         pi.ptrDx, pi.ptrDy, pi.ptrDz,
+                                         false, pi.laserLen,
+                                         pinCursorLx, pinCursorLy, pinT);
+                pinOnPad = onPad;
+                static std::vector<float> pinVerts;
+                pinVerts.clear();
+                // Only process clicks on the first eye to avoid double-input
+                bool active = buildPinPad(pinVerts, pinCursorLx, pinCursorLy,
+                                           pi.clickEdge && eyeIdx == 0, pinOnPad);
+                if (active && !pinVerts.empty()) {
+                    int pinVc = (int)(pinVerts.size() / 6);
+                    glBindBuffer(GL_ARRAY_BUFFER, gSliderVbo);
+                    glBufferData(GL_ARRAY_BUFFER, pinVerts.size() * sizeof(float),
+                                 pinVerts.data(), GL_DYNAMIC_DRAW);
+                    Mat4 pinMvp = mat4Mul(sproj, mat4Mul(sview, pinWorld));
+                    glUseProgram(gProg);
+                    glBindVertexArray(gSliderVao);
+                    glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, pinMvp.m);
+                    glDrawArrays(GL_TRIANGLES, 0, pinVc);
+                    glBindVertexArray(0);
+                }
+            }
 
             glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);
         };

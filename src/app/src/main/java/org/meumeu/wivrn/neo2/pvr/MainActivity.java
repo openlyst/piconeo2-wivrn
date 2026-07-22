@@ -392,7 +392,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         Log.i(TAG, "flushing pending connection: " + pendingHost + ":" + pendingPort + " tcp=" + pendingTcpOnly);
         lastConnectFlushMs = System.currentTimeMillis();
         nativeConnect(pendingHost, pendingPort, pendingTcpOnly);
-        nativeConnecting = true;
         if (pendingPin != null && !pendingPin.isEmpty()) {
             nativeSetPin(pendingPin);
         }
@@ -888,7 +887,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             return;
         }
         Log.i(TAG, "connect requested " + hostname + ":" + port + " tcp=" + tcpOnly);
-        nativeConnecting = true;
         try { nativeConnect(hostname, port, tcpOnly); } catch (Throwable t) { Log.e(TAG, "nativeConnect failed", t); }
     }
 
@@ -908,6 +906,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     public void onRefreshServers() {
         Log.i(TAG, "refresh servers requested");
         serverDiscovery.refreshDiscovery();
+    }
+
+    // Called from C++ when the connecting state changes.
+    public void onConnectingChanged(boolean connecting) {
+        nativeConnecting = connecting;
+        Log.i(TAG, "nativeConnecting = " + connecting);
     }
 
     // Called from C++ (streaming_client.cpp) when the server requests a PIN.

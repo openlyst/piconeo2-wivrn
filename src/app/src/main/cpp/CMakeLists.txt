@@ -121,6 +121,7 @@ add_library(p2wivrn SHARED
     menu_model.cpp
     settings_panel.cpp
     server_list.cpp
+    pin_pad.cpp
     stream_panel.cpp
     lobby.cpp
     simple_lobby.cpp
