@@ -102,7 +102,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private final float[] mHaptic = new float[2];
 
     // Ported WiVRn lobby UI (matches pico_oxr).
-    private native void nativeSetServerList(String[] names, String[] hosts, int[] ports, boolean[] tcpOnly);
+    private native void nativeSetServerList(String[] names, String[] hosts, int[] ports, boolean[] tcpOnly, boolean[] discovered, boolean[] autoconnect);
     public native void nativeSetFov(float fovDeg);
     private native boolean nativeReady();
     private native void nativeConnect(String hostname, int port, boolean tcpOnly);
@@ -852,14 +852,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                     String[] hosts = new String[all.size()];
                     int[] ports = new int[all.size()];
                     boolean[] tcpOnly = new boolean[all.size()];
+                    boolean[] discovered = new boolean[all.size()];
+                    boolean[] autoconnect = new boolean[all.size()];
                     for (int i = 0; i < all.size(); i++) {
                         ServerDiscovery.ServerEntry s = all.get(i);
                         names[i] = s.name;
                         hosts[i] = s.hostname;
                         ports[i] = s.port;
                         tcpOnly[i] = s.tcpOnly;
+                        discovered[i] = s.discovered;
+                        autoconnect[i] = s.autoconnect;
                     }
-                    nativeSetServerList(names, hosts, ports, tcpOnly);
+                    nativeSetServerList(names, hosts, ports, tcpOnly, discovered, autoconnect);
                     if (++syncCount % 60 == 0)
                         Log.i(TAG, "server list synced " + syncCount + " (" + all.size() + " servers)");
                 } catch (Throwable t) {
@@ -886,6 +890,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         Log.i(TAG, "connect requested " + hostname + ":" + port + " tcp=" + tcpOnly);
         nativeConnecting = true;
         try { nativeConnect(hostname, port, tcpOnly); } catch (Throwable t) { Log.e(TAG, "nativeConnect failed", t); }
+    }
+
+    // Called from C++ when the user clicks the X button on a server entry.
+    public void onServerRemove(String hostname, int port) {
+        Log.i(TAG, "remove server " + hostname + ":" + port);
+        serverDiscovery.removeServer(hostname, port);
+    }
+
+    // Called from C++ when the user toggles the autoconnect switch.
+    public void onServerAutoconnect(String hostname, int port) {
+        Log.i(TAG, "toggle autoconnect " + hostname + ":" + port);
+        serverDiscovery.setAutoconnect(hostname, port);
     }
 
     // Called from C++ (streaming_client.cpp) when the server requests a PIN.
