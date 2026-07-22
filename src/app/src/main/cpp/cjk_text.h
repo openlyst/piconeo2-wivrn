@@ -39,3 +39,9 @@ private:
 
 // Global instance, defined in render_thread.cpp.
 extern CjkText gCjkText;
+
+// Emit a flat-coloured quad (two triangles) with 8-float verts: pos.xyz +
+// uv.xy(=0,0) + color.rgb. Uses the white pixel at UV (0,0) so the textured
+// shader renders it as solid colour.
+void appendQuad8(std::vector<float> &v, float xL, float yTop, float xR, float yBot,
+                 float r, float g, float b);

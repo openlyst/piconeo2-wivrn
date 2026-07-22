@@ -34,24 +34,25 @@ bool CjkText::init(float pxHeight) {
     }
     fontScale_ = stbtt_ScaleForPixelHeight(&font, pxHeight);
 
-    // Build the glyph list: ASCII printable + the 4 CJK chars we need.
-    // For a real i18n pass you'd bake the GB2312 set; this is a proof of concept.
+    // Build the glyph list. The font is pre-subsetted to only contain the
+    // characters we need, so we bake the full ASCII + CJK ranges and only
+    // glyphs that exist in the font get packed.
     struct Range { int first; int last; };
     static const Range ranges[] = {
         {0x20, 0x7E},           // ASCII printable
-        {0x4F60, 0x4F60},       // 你
-        {0x597D, 0x597D},       // 好
-        {0x4E16, 0x4E16},       // 世
-        {0x754C, 0x754C},       // 界
+        {0x4E00, 0x9FFF},       // CJK Unified Ideographs
+        {0x3000, 0x303F},       // CJK punctuation
+        {0xFF00, 0xFFEF},       // Fullwidth forms
     };
 
-    // First pass: count glyphs + measure atlas.
+    // First pass: count glyphs that actually exist in the font.
     int glyphCount = 0;
     for (const auto &r : ranges)
-        glyphCount += (r.last - r.first + 1);
+        for (int cp = r.first; cp <= r.last; cp++)
+            if (stbtt_FindGlyphIndex(&font, cp)) glyphCount++;
+    LOGI("cjk_text: %d glyphs available in font", glyphCount);
 
-    // Atlas: 99 glyphs at 96px need ~900K pixels; 1024x1024 gives 1M with
-    // headroom. R8 so 1MB VRAM.
+    // Atlas: 1024x1024 R8 (1MB VRAM). Fits ~250 CJK glyphs at 48px.
     atlasW_ = 1024;
     atlasH_ = 1024;
     std::vector<uint8_t> atlas(atlasW_ * atlasH_, 0);
@@ -63,8 +64,9 @@ bool CjkText::init(float pxHeight) {
     }
     stbtt_PackSetOversampling(&pack, 1, 1);
 
-    // Pack each range; store glyph metrics.
-    stbtt_packedchar packed[256];
+    // Pack each range; store glyph metrics. We use a large packedchar array
+    // since CJK ranges can have many codepoints (only existing ones get packed).
+    stbtt_packedchar packed[0xA000];   // max range size = 0x9FFF-0x4E00+1
     glyphs_.clear();
     memset(cpToIdx_, -1, sizeof(cpToIdx_));
 
@@ -75,6 +77,11 @@ bool CjkText::init(float pxHeight) {
         for (int i = 0; i < n; i++) {
             int cp = r.first + i;
             if (cp >= kMaxCp) continue;
+            // Skip glyphs that don't exist in the font (x0==x1 && y0==y1).
+            if (packed[i].x0 == 0 && packed[i].x1 == 0 && packed[i].y0 == 0 && packed[i].y1 == 0) {
+                // Still might be valid at (0,0)... check advance instead.
+                if (packed[i].xadvance == 0) continue;
+            }
             const stbtt_packedchar &pc = packed[i];
             CjkGlyph g;
             g.x0 = pc.x0 / (float)atlasW_;
@@ -92,7 +99,11 @@ bool CjkText::init(float pxHeight) {
     }
     stbtt_PackEnd(&pack);
 
-    // Upload atlas as GL_ALPHA8 -> use as luminance in shader.
+    // White pixel at (0,0) so flat quads can use UV (0,0) and render as
+    // solid vertex colour (alpha=1). Packer avoids (0,0) due to padding.
+    atlas[0] = 255;
+
+    // Upload atlas as GL_R8; shader uses .r as alpha.
     glGenTextures(1, &tex_);
     glBindTexture(GL_TEXTURE_2D, tex_);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, atlasW_, atlasH_, 0, GL_RED, GL_UNSIGNED_BYTE, atlas.data());
@@ -152,4 +163,18 @@ int CjkText::emitQuads(std::vector<float> &v, const char *utf8, float x, float y
         cursorX += gl.advance * px;
     }
     return vertCount;
+}
+
+void appendQuad8(std::vector<float> &v, float xL, float yTop, float xR, float yBot,
+                 float r, float g, float b) {
+    float q[6][8] = {
+        {xL, yTop, 0, 0, 0, r, g, b},
+        {xL, yBot, 0, 0, 0, r, g, b},
+        {xR, yBot, 0, 0, 0, r, g, b},
+        {xL, yTop, 0, 0, 0, r, g, b},
+        {xR, yBot, 0, 0, 0, r, g, b},
+        {xR, yTop, 0, 0, 0, r, g, b},
+    };
+    for (int i = 0; i < 6; i++)
+        v.insert(v.end(), q[i], q[i] + 8);
 }
