@@ -33,7 +33,7 @@ void pollEyeGaze()
 	float gy = gGazeLocal[1].load();
 	float gz = gGazeLocal[2].load();
 
-	float pitch = std::asin(-gy);
+	float pitch = std::asin(gy);
 	float yaw = std::atan2(-gx, -gz);
 	gGazePitch.store(pitch);
 	gGazeYaw.store(yaw);
