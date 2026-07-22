@@ -50,9 +50,9 @@ bool CjkText::init(float pxHeight) {
     for (const auto &r : ranges)
         glyphCount += (r.last - r.first + 1);
 
-    // Atlas: pack glyphs into a square. 256x256 is plenty for ~100 glyphs at 32px.
-    atlasW_ = 256;
-    atlasH_ = 256;
+    // Atlas: pack glyphs into a square. 512x512 fits ~100 glyphs at 96px.
+    atlasW_ = 512;
+    atlasH_ = 512;
     std::vector<uint8_t> atlas(atlasW_ * atlasH_, 0);
 
     stbtt_pack_context pack;
@@ -60,7 +60,8 @@ bool CjkText::init(float pxHeight) {
         LOGE("cjk_text: stbtt_PackBegin failed");
         return false;
     }
-    stbtt_PackSetOversampling(&pack, 1, 1);
+    // 2x2 oversampling for sharper subpixel edges.
+    stbtt_PackSetOversampling(&pack, 2, 2);
 
     // Pack each range; store glyph metrics.
     stbtt_packedchar packed[256];

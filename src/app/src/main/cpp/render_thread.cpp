@@ -2277,7 +2277,7 @@ void *renderThread(void *) {
     buildControllerMeshes(); // Neo 2 controller wireframes
 
     // CJK test panel: load font atlas + build panel geometry once.
-    if (gCjkText.init(32.0f)) {
+    if (gCjkText.init(96.0f)) {
         std::vector<float> bgV, textV;
         gCjkTextVerts = buildCjkTestPanel(bgV, textV);
         gCjkBgVerts = (int)(bgV.size() / 6);

@@ -286,13 +286,14 @@ int buildCjkTestPanel(std::vector<float> &bgV, std::vector<float> &textV) {
     // English line with the existing 5x7 bitmap font.
     uiTextC(bgV, "Hello World", 0.0f, 0.06f, 0.004f, 1.0f, 1.0f, 1.0f);
 
-    // Chinese line: 你好世界. Atlas baked at 32px, so px=0.0015 gives ~48mm tall
-    // glyphs. 4 CJK chars * ~32px advance = ~0.19m wide.
+    // Chinese line: 你好世界. Atlas baked at 96px with 2x oversampling, so
+    // px=0.0005 gives ~48mm tall glyphs at 3x the pixel density of the old
+    // 32px bake. 4 CJK chars * ~96px advance = ~0.19m wide.
     int textVerts = 0;
     if (gCjkText.ready()) {
-        float px = 0.0015f;
+        float px = 0.0005f;
         const char *zh = "\xe4\xbd\xa0\xe5\xa5\xbd\xe4\xb8\x96\xe7\x95\x8c";  // 你好世界
-        float charW = 32.0f * px;  // approx advance per CJK glyph
+        float charW = 96.0f * px;  // approx advance per CJK glyph
         float totalW = 4.0f * charW;
         float startX = -totalW * 0.5f;
         float y = -0.05f;
