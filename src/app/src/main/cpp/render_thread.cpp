@@ -46,6 +46,7 @@
 #include "foveation.h"   // readFoveationParams() from the settings JSON
 #include "render_thread.h"// shared render-thread lifetime/window/sleep state
 #include "streaming/wivrn_stream_adapter.h"
+#include "cjk_text.h"    // CJK atlas text renderer (stb_truetype)
 
 // Sleep until an ABSOLUTE CLOCK_MONOTONIC deadline. Avoids relative usleep oversleep
 // drift (1-4ms under scheduler load). A past deadline returns immediately.
@@ -533,6 +534,14 @@ static GLuint gSrvVao = 0, gSrvVbo = 0;         // lobby SERVER LIST panel (dyna
 static GLuint gReticleVao = 0, gReticleVbo = 0; // head-gaze crosshair (static "+")
 static int    gReticleVertCount = 0;
 static GLuint gEqVao = 0, gEqVbo = 0;           // lobby 16-band audio EQ panel (dynamic)
+
+// CJK test panel: stb_truetype atlas text renderer + textured shader.
+CjkText gCjkText;
+static GLuint gCjkProg = 0, gCjkMvpLoc = 0, gCjkTexLoc = 0;
+static GLuint gCjkBgVao = 0, gCjkBgVbo = 0;     // background quad (6-float verts)
+static GLuint gCjkTextVao = 0, gCjkTextVbo = 0; // text quads (8-float verts)
+static int    gCjkTextVerts = 0;
+static bool   gCjkPanelBuilt = false;
 static GLuint gLaserVao = 0, gLaserVbo = 0;     // controller laser beam (dynamic, world-space)
 static GLuint gCursorVao = 0, gCursorVbo = 0;   // UI pointer cursor ring (dynamic, panel-local)
 static GLuint gDiagVao = 0, gDiagVbo = 0;       // streaming diagnostics overlay (dynamic, NDC)
@@ -620,6 +629,69 @@ static void buildTextBuffers() {
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+
+    // CJK test panel: background (6-float verts, same layout as gProg) + text
+    // quads (8-float verts: pos.xyz + uv.xy + color.rgb).
+    glGenVertexArrays(1, &gCjkBgVao);
+    glBindVertexArray(gCjkBgVao);
+    glGenBuffers(1, &gCjkBgVbo);
+    glBindBuffer(GL_ARRAY_BUFFER, gCjkBgVbo);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+
+    glGenVertexArrays(1, &gCjkTextVao);
+    glBindVertexArray(gCjkTextVao);
+    glGenBuffers(1, &gCjkTextVbo);
+    glBindBuffer(GL_ARRAY_BUFFER, gCjkTextVbo);
+    glEnableVertexAttribArray(0); // pos.xyz
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1); // uv.xy
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(2); // color.rgb
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(5*sizeof(float)));
+
+    // Textured shader: samples the R8 atlas, multiplies by vertex colour.
+    const char *cjkVs = R"(#version 300 es
+        layout(location=0) in vec3 aPos;
+        layout(location=1) in vec2 aUV;
+        layout(location=2) in vec3 aColor;
+        uniform mat4 uMVP;
+        out vec2 vUV;
+        out vec3 vColor;
+        void main() {
+            gl_Position = uMVP * vec4(aPos, 1.0);
+            vUV = aUV;
+            vColor = aColor;
+        })";
+    const char *cjkFs = R"(#version 300 es
+        precision mediump float;
+        in vec2 vUV;
+        in vec3 vColor;
+        uniform sampler2D uTex;
+        out vec4 frag;
+        void main() {
+            float a = texture(uTex, vUV).r;
+            frag = vec4(vColor, a);
+        })";
+    gCjkProg = glCreateProgram();
+    GLuint s1 = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(s1, 1, &cjkVs, nullptr); glCompileShader(s1);
+    GLint cok; glGetShaderiv(s1, GL_COMPILE_STATUS, &cok);
+    if (!cok) { char log[1024]; glGetShaderInfoLog(s1, 1024, nullptr, log); LOGE("cjk VS: %s", log); }
+    GLuint s2 = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(s2, 1, &cjkFs, nullptr); glCompileShader(s2);
+    glGetShaderiv(s2, GL_COMPILE_STATUS, &cok);
+    if (!cok) { char log[1024]; glGetShaderInfoLog(s2, 1024, nullptr, log); LOGE("cjk FS: %s", log); }
+    glAttachShader(gCjkProg, s1); glAttachShader(gCjkProg, s2);
+    glLinkProgram(gCjkProg);
+    glGetProgramiv(gCjkProg, GL_LINK_STATUS, &cok);
+    if (!cok) { char log[1024]; glGetProgramInfoLog(gCjkProg, 1024, nullptr, log); LOGE("cjk link: %s", log); }
+    glDeleteShader(s1); glDeleteShader(s2);
+    gCjkMvpLoc = glGetUniformLocation(gCjkProg, "uMVP");
+    gCjkTexLoc = glGetUniformLocation(gCjkProg, "uTex");
+
     glBindVertexArray(0);
 }
 
