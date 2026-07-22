@@ -21,6 +21,8 @@
 #include <ctime>
 
 static jmethodID g_onServerConnectMethod = nullptr;
+static jmethodID g_onServerRemoveMethod = nullptr;
+static jmethodID g_onServerAutoconnectMethod = nullptr;
 
 // HMD home button long-press tracking for recenter (mirrors pico_oxr).
 static struct timespec g_home_press_ts = {};
@@ -61,7 +63,10 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
     gActivity = env->NewGlobalRef(activity);
     jclass clazz = env->GetObjectClass(activity);
     g_onServerConnectMethod = env->GetMethodID(clazz, "onServerConnect", "(Ljava/lang/String;IZ)V");
-    LOGI("nativeStart: onServerConnect=%p", g_onServerConnectMethod);
+    g_onServerRemoveMethod = env->GetMethodID(clazz, "onServerRemove", "(Ljava/lang/String;I)V");
+    g_onServerAutoconnectMethod = env->GetMethodID(clazz, "onServerAutoconnect", "(Ljava/lang/String;I)V");
+    LOGI("nativeStart: onServerConnect=%p onServerRemove=%p onServerAutoconnect=%p",
+         g_onServerConnectMethod, g_onServerRemoveMethod, g_onServerAutoconnectMethod);
 
     // Wire the native server list CONNECT button to Java's onServerConnect.
     gOnServerConnect = [](const ServerInfo &s) {
@@ -74,6 +79,36 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
         if (!env) return;
         jstring jhost = env->NewStringUTF(s.hostname.c_str());
         env->CallVoidMethod(gActivity, g_onServerConnectMethod, jhost, s.port, s.tcp_only);
+        env->DeleteLocalRef(jhost);
+        if (attached) gVM->DetachCurrentThread();
+    };
+
+    // Wire the native server list X (remove) button to Java's onServerRemove.
+    gOnServerRemove = [](const std::string &hostname, int port) {
+        if (!gVM || !gActivity || !g_onServerRemoveMethod) return;
+        JNIEnv *env = nullptr;
+        bool attached = false;
+        if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+            if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+        }
+        if (!env) return;
+        jstring jhost = env->NewStringUTF(hostname.c_str());
+        env->CallVoidMethod(gActivity, g_onServerRemoveMethod, jhost, port);
+        env->DeleteLocalRef(jhost);
+        if (attached) gVM->DetachCurrentThread();
+    };
+
+    // Wire the native server list autoconnect toggle to Java's onServerAutoconnect.
+    gOnServerAutoconnect = [](const std::string &hostname, int port) {
+        if (!gVM || !gActivity || !g_onServerAutoconnectMethod) return;
+        JNIEnv *env = nullptr;
+        bool attached = false;
+        if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+            if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+        }
+        if (!env) return;
+        jstring jhost = env->NewStringUTF(hostname.c_str());
+        env->CallVoidMethod(gActivity, g_onServerAutoconnectMethod, jhost, port);
         env->DeleteLocalRef(jhost);
         if (attached) gVM->DetachCurrentThread();
     };
@@ -314,7 +349,8 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStop(JNIEnv *env, jobject thiz
 extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetServerList(
         JNIEnv *env, jobject thiz, jobjectArray names, jobjectArray hosts,
-        jintArray ports, jbooleanArray tcpOnly) {
+        jintArray ports, jbooleanArray tcpOnly, jbooleanArray discovered,
+        jbooleanArray autoconnect) {
     (void) thiz;
     if (!names || !hosts) return;
     jsize n = env->GetArrayLength(names);
@@ -322,6 +358,8 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetServerList(
     std::vector<ServerInfo> servers(n);
     jint *portsArr = ports ? env->GetIntArrayElements(ports, nullptr) : nullptr;
     jboolean *tcpArr = tcpOnly ? env->GetBooleanArrayElements(tcpOnly, nullptr) : nullptr;
+    jboolean *discArr = discovered ? env->GetBooleanArrayElements(discovered, nullptr) : nullptr;
+    jboolean *autoArr = autoconnect ? env->GetBooleanArrayElements(autoconnect, nullptr) : nullptr;
     for (jsize i = 0; i < n; i++) {
         jstring jname = (jstring) env->GetObjectArrayElement(names, i);
         jstring jhost = (jstring) env->GetObjectArrayElement(hosts, i);
@@ -331,11 +369,15 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetServerList(
         servers[i].hostname = chost;
         servers[i].port = portsArr ? portsArr[i] : 0;
         servers[i].tcp_only = tcpArr ? tcpArr[i] : false;
+        servers[i].discovered = discArr ? discArr[i] : false;
+        servers[i].autoconnect = autoArr ? autoArr[i] : false;
         if (jname) { env->ReleaseStringUTFChars(jname, cname); env->DeleteLocalRef(jname); }
         if (jhost) { env->ReleaseStringUTFChars(jhost, chost); env->DeleteLocalRef(jhost); }
     }
     if (portsArr) env->ReleaseIntArrayElements(ports, portsArr, JNI_ABORT);
     if (tcpArr) env->ReleaseBooleanArrayElements(tcpOnly, tcpArr, JNI_ABORT);
+    if (discArr) env->ReleaseBooleanArrayElements(discovered, discArr, JNI_ABORT);
+    if (autoArr) env->ReleaseBooleanArrayElements(autoconnect, autoArr, JNI_ABORT);
     setServerList(servers);
 }
 
@@ -382,6 +424,7 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeConnect(JNIEnv *env, jobject t
     env->ReleaseStringUTFChars(hostname, host);
 
     LOGI("nativeConnect: %s:%d tcp=%d", g_stream->server_host.c_str(), g_stream->server_port, g_stream->tcp_only ? 1 : 0);
+    setConnecting(true);
     g_stream->try_connect();
 }
 

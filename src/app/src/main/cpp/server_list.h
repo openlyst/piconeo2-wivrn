@@ -13,12 +13,24 @@ struct ServerInfo {
     bool tcp_only = false;
     bool manual = false;
     bool autoconnect = false;
+    bool discovered = false;
 };
 
 void setServerList(const std::vector<ServerInfo> & servers);
 std::vector<ServerInfo> getServerList();
 
+// Set/get the last connection error message (shown in the server list UI).
+void setConnectionError(const std::string & msg);
+std::string getConnectionError();
+void clearConnectionError();
+
+// Set/get whether we are currently attempting to connect.
+void setConnecting(bool connecting);
+bool isConnecting();
+
 extern std::function<void(const ServerInfo &)> gOnServerConnect;
+extern std::function<void(const std::string &hostname, int port)> gOnServerRemove;
+extern std::function<void(const std::string &hostname, int port)> gOnServerAutoconnect;
 
 // Build server list rows inside the panel content area.
 // Origin is top-left of content area (kCtX0, kCtTop). Scrolls vertically.
@@ -39,3 +51,4 @@ float serverContentHeight();
 
 // Apply a click on a server entry.
 void applyServerClick(const SrvHover &h, bool click);
+// part: 0 = row, 1 = connect, 2 = autoconnect toggle, 3 = remove (X)

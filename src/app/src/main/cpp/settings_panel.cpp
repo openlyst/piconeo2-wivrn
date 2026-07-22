@@ -122,6 +122,7 @@ static void buildCoreModel(MenuModel &m) {
         srv.cBuild = [](std::vector<float> &v, const MenuHover &h) {
             int hoverItem = (h.item >= 0) ? h.item : -1;
             int connectHot = (h.item >= 0 && h.part == 1) ? h.item : -1;
+            if (h.item >= 0 && h.part == 3) connectHot = -2;  // X button hover
             float scrollY = settingsScroll();
             buildServerContent(v, scrollY, hoverItem, connectHot);
         };

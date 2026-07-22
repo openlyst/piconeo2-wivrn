@@ -3,6 +3,7 @@
 #include "latency_tracker.h"
 #include "eye_tracking.h"
 #include "app_state.h"   // gManualLobby (in-stream lobby overlay flag)
+#include "server_list.h" // setConnectionError / setConnecting for lobby UI
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/android_sink.h>
@@ -570,11 +571,13 @@ void streaming_client::network_loop()
 		}
 	}
 
-	spdlog::info("Network loop ended, cleaning up session");
+	spdlog::info("network_loop ended, cleaning up session");
 	if (auto_reconnect.load())
 		spdlog::info("network_loop: auto_reconnect set, will retry");
 	else
 		spdlog::info("network_loop: disconnected: {}", last_error.empty() ? "Disconnected" : last_error);
+	if (!last_error.empty() && !auto_reconnect.load())
+		setConnectionError(last_error);
 	spdlog::info("network_loop: setting tracker.session=nullptr");
 	tracker.session = nullptr;
 	spdlog::info("network_loop: calling tracker.stop()");
@@ -943,6 +946,7 @@ void streaming_client::run_connect_loop()
 	ALOGI("run_connect_loop: entered, this=%p", (void*)this);
 	spdlog::info("Connection attempt");
 	ALOGI("run_connect_loop: after spdlog info");
+	setConnecting(true);
 
 	if (connect_to_server())
 	{
@@ -961,6 +965,7 @@ void streaming_client::run_connect_loop()
 			send_headset_info();
 			connected_ns.store(get_timestamp_ns());
 			last_shard_ns.store(0);
+			clearConnectionError();
 			network_thread = std::thread([this] { network_loop(); });
 			tracker.session = session.get();
 			tracker.start();
@@ -972,6 +977,7 @@ void streaming_client::run_connect_loop()
 		{
 			spdlog::error("Failed to start client: {}", e.what());
 			last_error = e.what();
+			setConnectionError(e.what());
 			if (network_thread.joinable())
 				network_thread.join();
 			tracker.session = nullptr;
@@ -985,8 +991,12 @@ void streaming_client::run_connect_loop()
 		if (session)
 			session.reset();
 		if (!shutdown)
+		{
 			spdlog::warn("Connection failed: {}", last_error);
+			setConnectionError(last_error);
+		}
 	}
+	setConnecting(false);
 
 	while (auto_reconnect.load() && !shutdown.load())
 	{

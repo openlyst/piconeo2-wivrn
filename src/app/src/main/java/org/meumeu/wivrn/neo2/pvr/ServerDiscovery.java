@@ -166,6 +166,23 @@ public class ServerDiscovery {
         saveServers();
     }
 
+    public boolean removeServer(String hostname, int port) {
+        boolean removed = false;
+        for (int i = servers.size() - 1; i >= 0; i--) {
+            ServerEntry s = servers.get(i);
+            if (s.hostname.equals(hostname) && s.port == port) {
+                servers.remove(i);
+                removed = true;
+            }
+        }
+        if (removed) saveServers();
+        // Also clear from discovered so it doesn't reappear while still on the network
+        synchronized (discoveredServers) {
+            discoveredServers.values().removeIf(s -> s.hostname.equals(hostname) && s.port == port);
+        }
+        return removed;
+    }
+
     public void setAutoconnect(String hostname, int port) {
         boolean currentlyOn = false;
         for (ServerEntry s : servers) {
