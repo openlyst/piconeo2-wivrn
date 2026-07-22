@@ -1,6 +1,7 @@
 #include "server_list.h"
 #include "settings_panel.h"  // kCtX0, kCtX1, kCtTop, kCtBot
 #include "pin_pad.h"         // gPinEntryRequested (cleared when connecting ends)
+#include "cjk_text.h"        // gCjkText.textWidth
 #include "log.h"
 #include <mutex>
 #include <cstring>
@@ -133,7 +134,7 @@ float buildServerContent(std::vector<float> &v, float scrollY,
         if (srv.discovered) {
             float badgeX = kCtX0 + 0.03f;
             // measure name width to place badge after it
-            float nameW = (srv.name.length() * 6 - 1) * (kUiText * 1.5f);
+            float nameW = gCjkText.textWidth(srv.name.c_str()) * (kUiText * 1.5f);
             badgeX += nameW + 0.04f;
             float badgeY = yTop - 0.035f;
             appendQuad(v, badgeX, badgeY + 0.01f, badgeX + 0.02f, badgeY - 0.01f,
@@ -153,7 +154,7 @@ float buildServerContent(std::vector<float> &v, float scrollY,
         appendQuad(v, xBtnCx - xBtnW*0.5f, xBtnCy + xBtnH*0.5f,
                    xBtnCx + xBtnW*0.5f, xBtnCy - xBtnH*0.5f,
                    xc[0], xc[1], xc[2]);
-        uiTextC(v, "X", xBtnCx, xBtnCy + 3.5f * (kUiText * 0.85f),
+        uiTextC(v, "X", xBtnCx, xBtnCy + baselineOffset(kUiText * 0.85f),
                 kUiText * 0.85f, 1, 1, 1);
 
         // Connect button (green, wiVRn style)
@@ -173,7 +174,7 @@ float buildServerContent(std::vector<float> &v, float scrollY,
         // Show "Connecting..." if this is the active connection attempt
         const char *btnLabel = "Connect";
         if (isConnecting() && btnHot) btnLabel = "...";
-        uiTextC(v, btnLabel, btn.cx, btn.cy + 3.5f * kUiText * 0.85f,
+        uiTextC(v, btnLabel, btn.cx, btn.cy + baselineOffset(kUiText * 0.85f),
                 kUiText * 0.85f, 1.0f, 1.0f, 1.0f);
 
         // Autoconnect toggle (non-manual only)
@@ -197,7 +198,7 @@ float buildServerContent(std::vector<float> &v, float scrollY,
         appendQuad(v, rBtnCx - rBtnW*0.5f, rBtnCy + rBtnH*0.5f,
                    rBtnCx + rBtnW*0.5f, rBtnCy - rBtnH*0.5f,
                    rc[0], rc[1], rc[2]);
-        uiTextC(v, "Refresh", rBtnCx, rBtnCy + 3.5f * kUiText * 0.85f,
+        uiTextC(v, "Refresh", rBtnCx, rBtnCy + baselineOffset(kUiText * 0.85f),
                 kUiText * 0.85f, 0.7f, 0.8f, 1.0f);
     }
 

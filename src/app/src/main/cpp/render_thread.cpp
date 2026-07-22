@@ -303,16 +303,18 @@ static void buildGazeMarker() {
         v.insert(v.end(), { cosf(a0)*kR, sinf(a0)*kR, 0, g[0],g[1],g[2] });
         v.insert(v.end(), { cosf(a1)*kR, sinf(a1)*kR, 0, g[0],g[1],g[2] });
     }
-    gGazeVertCount = (int)(v.size() / 6);
+    gGazeVertCount = (int)(v.size() / 8);
     glGenVertexArrays(1, &gGazeVao);
     glBindVertexArray(gGazeVao);
     glGenBuffers(1, &gGazeVbo);
     glBindBuffer(GL_ARRAY_BUFFER, gGazeVbo);
     glBufferData(GL_ARRAY_BUFFER, v.size()*sizeof(float), v.data(), GL_STATIC_DRAW);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(5*sizeof(float)));
     glBindVertexArray(0);
     LOGI("gaze marker built verts=%d", gGazeVertCount);
 }
@@ -537,7 +539,8 @@ static GLuint gEqVao = 0, gEqVbo = 0;           // lobby 16-band audio EQ panel 
 
 // CJK test panel: stb_truetype atlas text renderer + textured shader.
 CjkText gCjkText;
-static GLuint gCjkProg = 0, gCjkMvpLoc = 0, gCjkTexLoc = 0;
+static GLuint gCjkProg = 0;
+static GLint  gCjkMvpLoc = 0, gCjkTexLoc = 0;
 static GLuint gCjkBgVao = 0, gCjkBgVbo = 0;     // background quad (6-float verts)
 static GLuint gCjkTextVao = 0, gCjkTextVbo = 0; // text quads (8-float verts)
 static int    gCjkTextVerts = 0;
@@ -555,81 +558,99 @@ static void buildTextBuffers() {
     glGenBuffers(1, &gTextVbo);
     glBindBuffer(GL_ARRAY_BUFFER, gTextVbo);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(5*sizeof(float)));
     // slider panel
     glGenVertexArrays(1, &gSliderVao);
     glBindVertexArray(gSliderVao);
     glGenBuffers(1, &gSliderVbo);
     glBindBuffer(GL_ARRAY_BUFFER, gSliderVbo);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(5*sizeof(float)));
     // server list panel
     glGenVertexArrays(1, &gSrvVao);
     glBindVertexArray(gSrvVao);
     glGenBuffers(1, &gSrvVbo);
     glBindBuffer(GL_ARRAY_BUFFER, gSrvVbo);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(5*sizeof(float)));
     // 16-band EQ panel
     glGenVertexArrays(1, &gEqVao);
     glBindVertexArray(gEqVao);
     glGenBuffers(1, &gEqVbo);
     glBindBuffer(GL_ARRAY_BUFFER, gEqVbo);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(5*sizeof(float)));
     // controller laser beam (world-space line)
     glGenVertexArrays(1, &gLaserVao);
     glBindVertexArray(gLaserVao);
     glGenBuffers(1, &gLaserVbo);
     glBindBuffer(GL_ARRAY_BUFFER, gLaserVbo);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(5*sizeof(float)));
     // UI pointer cursor ring (panel-local, dynamic)
     glGenVertexArrays(1, &gCursorVao);
     glBindVertexArray(gCursorVao);
     glGenBuffers(1, &gCursorVbo);
     glBindBuffer(GL_ARRAY_BUFFER, gCursorVbo);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(5*sizeof(float)));
     // diagnostics overlay
     glGenVertexArrays(1, &gDiagVao);
     glBindVertexArray(gDiagVao);
     glGenBuffers(1, &gDiagVbo);
     glBindBuffer(GL_ARRAY_BUFFER, gDiagVbo);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(5*sizeof(float)));
     // low-battery warning pop-up
     glGenVertexArrays(1, &gWarnVao);
     glBindVertexArray(gWarnVao);
     glGenBuffers(1, &gWarnVbo);
     glBindBuffer(GL_ARRAY_BUFFER, gWarnVbo);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(5*sizeof(float)));
     // simple 2D box + text test overlay
     glGenVertexArrays(1, &gTestVao);
     glBindVertexArray(gTestVao);
     glGenBuffers(1, &gTestVbo);
     glBindBuffer(GL_ARRAY_BUFFER, gTestVbo);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(5*sizeof(float)));
 
     // CJK test panel: background (6-float verts, same layout as gProg) + text
     // quads (8-float verts: pos.xyz + uv.xy + color.rgb).
@@ -638,9 +659,11 @@ static void buildTextBuffers() {
     glGenBuffers(1, &gCjkBgVbo);
     glBindBuffer(GL_ARRAY_BUFFER, gCjkBgVbo);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(5*sizeof(float)));
 
     glGenVertexArrays(1, &gCjkTextVao);
     glBindVertexArray(gCjkTextVao);
@@ -802,16 +825,18 @@ static void buildReticle() {
     std::vector<float> v;
     appendQuad(v, -0.020f,  0.0025f, 0.020f, -0.0025f, 0.85f, 0.90f, 1.0f);  // horizontal arm
     appendQuad(v, -0.0025f, 0.020f,  0.0025f, -0.020f, 0.85f, 0.90f, 1.0f);  // vertical arm
-    gReticleVertCount = (int)(v.size() / 6);
+    gReticleVertCount = (int)(v.size() / 8);
     glGenVertexArrays(1, &gReticleVao);
     glBindVertexArray(gReticleVao);
     glGenBuffers(1, &gReticleVbo);
     glBindBuffer(GL_ARRAY_BUFFER, gReticleVbo);
     glBufferData(GL_ARRAY_BUFFER, v.size()*sizeof(float), v.data(), GL_STATIC_DRAW);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(5*sizeof(float)));
     glBindVertexArray(0);
 }
 
@@ -819,25 +844,27 @@ static void buildReticle() {
 static void buildTestOverlay() {
     std::vector<float> v;
     const char *msg = "NI HAO WO SHI ZHENXI";
-    const float px = 0.004f;
-    int n = (int)strlen(msg);
-    float lineW = (n * 6 - 1) * px;
+    const float px = 0.000583f;   // ~same physical size as old 0.004 * 7/48
+    float lineW = gCjkText.textWidth(msg) * px;
     float x0 = -lineW * 0.5f;
-    float y0 = 0.05f;             // slightly above centre
+    float y0 = 0.05f;
     float pad = 0.02f;
-    appendQuad(v, x0 - pad, y0 + pad * 1.5f, x0 + lineW + pad, y0 - 7 * px - pad,
+    float textH = 48.0f * px;     // bake height * px
+    appendQuad(v, x0 - pad, y0 + pad * 1.5f, x0 + lineW + pad, y0 - textH - pad,
                0.10f, 0.10f, 0.10f);
     appendTextLine(v, msg, y0, px, 0.95f, 0.95f, 0.95f);
-    gTestVertCount = (int)(v.size() / 6);
+    gTestVertCount = (int)(v.size() / 8);
     glGenVertexArrays(1, &gTestVao);
     glBindVertexArray(gTestVao);
     glGenBuffers(1, &gTestVbo);
     glBindBuffer(GL_ARRAY_BUFFER, gTestVbo);
     glBufferData(GL_ARRAY_BUFFER, v.size()*sizeof(float), v.data(), GL_STATIC_DRAW);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8*sizeof(float), (void*)(5*sizeof(float)));
     glBindVertexArray(0);
 }
 
@@ -891,7 +918,7 @@ static void drawBatteryWarn(int eye) {
     if (sWarnKey != bwStart) {   // rebuild geometry once per activation
         sWarnV.clear();
         buildBatteryWarn(sWarnV, gBattWarnPct.load());
-        sWarnCount = (int)(sWarnV.size()/6);
+        sWarnCount = (int)(sWarnV.size()/8);
         glBindBuffer(GL_ARRAY_BUFFER, gWarnVbo);
         glBufferData(GL_ARRAY_BUFFER, sWarnV.size()*sizeof(float), sWarnV.data(), GL_DYNAMIC_DRAW);
         sWarnKey = bwStart;
@@ -918,9 +945,14 @@ static void drawBatteryWarn(int eye) {
     Mat4 mvp = mat4Mul(proj, mat4Mul(mat4Translate(-exh,0,0), model));
 
     glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_SCISSOR_TEST);
-    glUseProgram(gProg);
+    glUseProgram(gCjkProg);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, gCjkText.texture());
+    glUniform1i(gCjkTexLoc, 0);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glBindVertexArray(gWarnVao);
-    glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, mvp.m);
+    glUniformMatrix4fv(gCjkMvpLoc, 1, GL_FALSE, mvp.m);
     glDrawArrays(GL_TRIANGLES, 0, sWarnCount);
     glBindVertexArray(0);
 }
@@ -1187,7 +1219,7 @@ static void updateLobbyPanel(PanelInteract &pi, const Mat4 &settingsWorld)
     }
     if (!sPanelHave || panelSig != sPanelSig) {
         buildSettingsPanel(sverts, setOffX, setOffY, setContentH, mh, setTabHover, setCloseHover);
-        sSliderVertCount = (int)(sverts.size() / 6);
+        sSliderVertCount = (int)(sverts.size() / 8);
         if (sSliderVertCount > 0) uploadDynamicVbo(gSliderVbo, sverts, sSetCap);
         sPanelSig = panelSig; sPanelHave = true;
     }
@@ -1204,9 +1236,14 @@ static void drawLaserBeam(float ox, float oy, float oz,
     glBindBuffer(GL_ARRAY_BUFFER, gLaserVbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(lv), lv, GL_DYNAMIC_DRAW);
     Mat4 mvp = mat4Mul(sproj, sview);
-    glUseProgram(gProg);
+    glUseProgram(gCjkProg);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, gCjkText.texture());
+    glUniform1i(gCjkTexLoc, 0);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glBindVertexArray(gLaserVao);
-    glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, mvp.m);
+    glUniformMatrix4fv(gCjkMvpLoc, 1, GL_FALSE, mvp.m);
     glDrawArrays(GL_LINES, 0, 2);
     glBindVertexArray(0);
 }
@@ -1215,9 +1252,14 @@ static void drawSettingsPanelVerts(int sliderVertCount, const Mat4 &sproj, const
 {
     if (sliderVertCount <= 0) return;
     Mat4 mvp = mat4Mul(sproj, mat4Mul(sview, settingsWorld));
-    glUseProgram(gProg);
+    glUseProgram(gCjkProg);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, gCjkText.texture());
+    glUniform1i(gCjkTexLoc, 0);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glBindVertexArray(gSliderVao);
-    glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, mvp.m);
+    glUniformMatrix4fv(gCjkMvpLoc, 1, GL_FALSE, mvp.m);
     glDrawArrays(GL_TRIANGLES, 0, sliderVertCount);
     glBindVertexArray(0);
 }
@@ -1261,9 +1303,14 @@ static void drawPointerCursor(float cursorLx, float cursorLy, bool cursorPressed
     glBindBuffer(GL_ARRAY_BUFFER, gCursorVbo);
     glBufferData(GL_ARRAY_BUFFER, vi * sizeof(float), cv, GL_DYNAMIC_DRAW);
     Mat4 mvp = mat4Mul(sproj, mat4Mul(sview, settingsWorld));
-    glUseProgram(gProg);
+    glUseProgram(gCjkProg);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, gCjkText.texture());
+    glUniform1i(gCjkTexLoc, 0);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glBindVertexArray(gCursorVao);
-    glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, mvp.m);
+    glUniformMatrix4fv(gCjkMvpLoc, 1, GL_FALSE, mvp.m);
     glDrawArrays(GL_TRIANGLES, 0, cursorVerts);
     glBindVertexArray(0);
 }
@@ -2280,7 +2327,7 @@ void *renderThread(void *) {
     if (gCjkText.init(96.0f)) {
         std::vector<float> bgV, textV;
         gCjkTextVerts = buildCjkTestPanel(bgV, textV);
-        gCjkBgVerts = (int)(bgV.size() / 6);
+        gCjkBgVerts = (int)(bgV.size() / 8);
         glBindBuffer(GL_ARRAY_BUFFER, gCjkBgVbo);
         glBufferData(GL_ARRAY_BUFFER, bgV.size()*sizeof(float), bgV.data(), GL_STATIC_DRAW);
         glBindBuffer(GL_ARRAY_BUFFER, gCjkTextVbo);
@@ -3225,7 +3272,7 @@ void *renderThread(void *) {
                             sDiagV.clear();
                             buildDiagOverlay(sDiagV, diagPage);
                             sDiagPage = diagPage;
-                            sDiagCount = (int)(sDiagV.size()/6);
+                            sDiagCount = (int)(sDiagV.size()/8);
                             glBindBuffer(GL_ARRAY_BUFFER, gDiagVbo);
                             glBufferData(GL_ARRAY_BUFFER, sDiagV.size()*sizeof(float),
                                          sDiagV.data(), GL_DYNAMIC_DRAW);
@@ -3248,7 +3295,12 @@ void *renderThread(void *) {
                             // 1.125 uniform (no glyph squish; columns condensed in layout).
                             Mat4 sc = mat4Identity(); sc.m[0]=1.125f; sc.m[5]=1.125f; sc.m[10]=1.125f;
                             Mat4 model = mat4Mul(mat4Mul(mat4Translate(0.0f, -0.34f, -1.0f), rx), sc);
-                            glUseProgram(gProg);
+                            glUseProgram(gCjkProg);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, gCjkText.texture());
+    glUniform1i(gCjkTexLoc, 0);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
                             glBindVertexArray(gDiagVao);
                             // PERF: this draw goes into gSwap, which ALVR's
                             // de-foveation pass already rendered. On the Adreno
@@ -3264,7 +3316,7 @@ void *renderThread(void *) {
                                 Mat4 mvp = mat4Mul(proj, mat4Mul(mat4Translate(-exh,0,0), model));
                                 glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                                                        GL_TEXTURE_2D, gSwap[e][gSwapIdx], 0);
-                                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, mvp.m);
+                                glUniformMatrix4fv(gCjkMvpLoc, 1, GL_FALSE, mvp.m);
                                 // Project the panel's local AABB to pixels and
                                 // scissor to its bounding box (+8px margin).
                                 const float cx[4] = { -0.30f, 0.30f, 0.30f, -0.30f };
@@ -3909,6 +3961,7 @@ void *renderThread(void *) {
                 glBindVertexArray(0);
             }
             glDisable(GL_DEPTH_TEST);
+            glDisable(GL_BLEND);   // controller models are opaque, don't blend
             // Eye-gaze debug marker: the green disc at the live RAW Tobii gaze
             // point. Gated by the persisted EYE DEBUG toggle.
             if (gEyeDebugOn.load() && gEyeOnline.load() && gGazeValid.load() && gGazeVertCount > 0) {
@@ -3938,9 +3991,14 @@ void *renderThread(void *) {
                 face.m[8]=nx; face.m[9]=ny; face.m[10]=nz;
                 Mat4 mk = mat4Mul(mat4Translate(px+dx*gd, py+dy*gd, pz+dz*gd), face);
                 Mat4 mkMvp = mat4Mul(sproj, mat4Mul(sview, mk));
-                glUseProgram(gProg);
+                glUseProgram(gCjkProg);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, gCjkText.texture());
+    glUniform1i(gCjkTexLoc, 0);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
                 glBindVertexArray(gGazeVao);
-                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, mkMvp.m);
+                glUniformMatrix4fv(gCjkMvpLoc, 1, GL_FALSE, mkMvp.m);
                 glDrawArrays(GL_TRIANGLES, 0, gGazeVertCount);
                 glBindVertexArray(0);
             }
@@ -3950,9 +4008,14 @@ void *renderThread(void *) {
             if (gReticleVertCount > 0 && showReticle) {
                 const float kReticleDist = 1.5f;
                 Mat4 rMvp = mat4Mul(sproj, mat4Mul(sEyeShift, mat4Translate(0, 0, -kReticleDist)));
-                glUseProgram(gProg);
+                glUseProgram(gCjkProg);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, gCjkText.texture());
+    glUniform1i(gCjkTexLoc, 0);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
                 glBindVertexArray(gReticleVao);
-                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, rMvp.m);
+                glUniformMatrix4fv(gCjkMvpLoc, 1, GL_FALSE, rMvp.m);
                 glDrawArrays(GL_TRIANGLES, 0, gReticleVertCount);
                 glBindVertexArray(0);
             }
@@ -3968,19 +4031,18 @@ void *renderThread(void *) {
                 Mat4 cjkWorld = mat4Mul(settingsWorld, cjkOffset);
                 Mat4 cjkMvp = mat4Mul(sproj, mat4Mul(sview, cjkWorld));
                 // Background quad (flat shader).
-                glUseProgram(gProg);
+                glUseProgram(gCjkProg);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, gCjkText.texture());
+    glUniform1i(gCjkTexLoc, 0);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
                 glBindVertexArray(gCjkBgVao);
-                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, cjkMvp.m);
+                glUniformMatrix4fv(gCjkMvpLoc, 1, GL_FALSE, cjkMvp.m);
                 glDrawArrays(GL_TRIANGLES, 0, gCjkBgVerts);
                 glBindVertexArray(0);
                 // CJK text (textured, alpha-blended).
                 if (gCjkTextVerts > 0) {
-                    glEnable(GL_BLEND);
-                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                    glUseProgram(gCjkProg);
-                    glActiveTexture(GL_TEXTURE0);
-                    glBindTexture(GL_TEXTURE_2D, gCjkText.texture());
-                    glUniform1i(gCjkTexLoc, 0);
                     glBindVertexArray(gCjkTextVao);
                     glUniformMatrix4fv(gCjkMvpLoc, 1, GL_FALSE, cjkMvp.m);
                     glDrawArrays(GL_TRIANGLES, 0, gCjkTextVerts);
@@ -4013,14 +4075,19 @@ void *renderThread(void *) {
                 bool active = buildPinPad(pinVerts, pinCursorLx, pinCursorLy,
                                            pi.clickEdge && eyeIdx == 0, pinOnPad);
                 if (active && !pinVerts.empty()) {
-                    int pinVc = (int)(pinVerts.size() / 6);
+                    int pinVc = (int)(pinVerts.size() / 8);
                     glBindBuffer(GL_ARRAY_BUFFER, gSliderVbo);
                     glBufferData(GL_ARRAY_BUFFER, pinVerts.size() * sizeof(float),
                                  pinVerts.data(), GL_DYNAMIC_DRAW);
                     Mat4 pinMvp = mat4Mul(sproj, mat4Mul(sview, pinWorld));
-                    glUseProgram(gProg);
+                    glUseProgram(gCjkProg);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, gCjkText.texture());
+    glUniform1i(gCjkTexLoc, 0);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
                     glBindVertexArray(gSliderVao);
-                    glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, pinMvp.m);
+                    glUniformMatrix4fv(gCjkMvpLoc, 1, GL_FALSE, pinMvp.m);
                     glDrawArrays(GL_TRIANGLES, 0, pinVc);
                     glBindVertexArray(0);
                 }

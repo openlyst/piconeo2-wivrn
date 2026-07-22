@@ -10,6 +10,9 @@ void appendTextLine(std::vector<float> &v, const char *s, float yTop,
 void appendQuad(std::vector<float> &v, float xL, float yTop, float xR, float yBot,
                 float r, float g, float b);
 
+// Vertical offset to center text on a Y coordinate (accounts for ascent/descent).
+float baselineOffset(float px);
+
 // ---- widget kit ----------------------------------------------------------
 struct UiRect { float cx, cy, w, h; };   // centre + full size (panel-local metres)
 static inline bool uiHit(const UiRect &r, float lx, float ly) {

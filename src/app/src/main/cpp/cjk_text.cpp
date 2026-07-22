@@ -165,6 +165,22 @@ int CjkText::emitQuads(std::vector<float> &v, const char *utf8, float x, float y
     return vertCount;
 }
 
+float CjkText::textWidth(const char *utf8) const {
+    if (!tex_) return 0;
+    int len = (int)strlen(utf8);
+    int i = 0;
+    float w = 0;
+    while (i < len) {
+        int cp = 0;
+        int adv = utf8Decode(utf8 + i, len - i, &cp);
+        if (adv == 0) { i++; continue; }
+        i += adv;
+        if (cp >= kMaxCp || cpToIdx_[cp] < 0) continue;
+        w += glyphs_[cpToIdx_[cp]].advance;
+    }
+    return w;
+}
+
 void appendQuad8(std::vector<float> &v, float xL, float yTop, float xR, float yBot,
                  float r, float g, float b) {
     float q[6][8] = {

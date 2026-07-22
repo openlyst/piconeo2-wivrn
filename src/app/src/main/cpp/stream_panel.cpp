@@ -2,28 +2,36 @@
 #include "settings_panel.h"
 #include "streaming/streaming_client.h"
 #include "ui_kit.h"
+#include "cjk_text.h"
 #include "log.h"
 #include <cstdio>
 #include <cstring>
 #include <cmath>
 
 // Truncate s into buf (size bufSz) so the rendered width fits availW at scale px.
-// Each char is 6 font-units wide; rendered width = (n*6 - 1) * px.
 // Appends "..." if truncated.
 static void truncateFit(char *buf, size_t bufSz, const char *s, float availW, float px) {
     if (bufSz == 0) return;
     size_t n = strlen(s);
-    float w = (n * 6 - 1) * px;
+    float w = gCjkText.textWidth(s) * px;
     if (w <= availW || n < 4) {
         strncpy(buf, s, bufSz - 1);
         buf[bufSz - 1] = 0;
         return;
     }
-    // Reserve 3 chars for "..." and find max that fits
-    size_t maxChars = (size_t)((availW / px + 1) / 6);
-    if (maxChars < 4) maxChars = 4;
-    if (maxChars - 3 >= bufSz) maxChars = bufSz + 2; // will be clamped
-    size_t keep = maxChars - 3;
+    // Binary search for the max prefix that fits with "..."
+    size_t lo = 1, hi = n - 3;
+    if (hi < 1) hi = 1;
+    if (hi >= bufSz) hi = bufSz - 4;
+    while (lo < hi) {
+        size_t mid = (lo + hi + 1) / 2;
+        char tmp[128];
+        size_t cl = mid; if (cl >= sizeof(tmp)) cl = sizeof(tmp) - 4;
+        strncpy(tmp, s, cl); tmp[cl] = 0; strcat(tmp, "...");
+        if (gCjkText.textWidth(tmp) * px <= availW) lo = mid;
+        else hi = mid - 1;
+    }
+    size_t keep = lo;
     if (keep >= bufSz) keep = bufSz - 4;
     strncpy(buf, s, keep);
     buf[keep] = 0;
@@ -185,7 +193,7 @@ static void appsBuild(std::vector<float> &v, const MenuHover &h) {
         if (hot && h.part >= 100) { sb[0] = 0.7f; sb[1] = 0.2f; sb[2] = 0.2f; }
         appendQuad(v, btnX, btnY + btnSz*0.5f, btnX + btnSz, btnY - btnSz*0.5f,
                    sb[0], sb[1], sb[2]);
-        uiTextC(v, "X", btnX + btnSz*0.5f, btnY + 3.5f * (px * 0.8f), px * 0.8f,
+        uiTextC(v, "X", btnX + btnSz*0.5f, btnY + baselineOffset(px * 0.8f), px * 0.8f,
                 1, 1, 1);
 
         y = yBot - rowGap;
@@ -323,7 +331,7 @@ static void launchBuild(std::vector<float> &v, const MenuHover &h) {
         appendQuad(v, btnX, btnY + btnH*0.5f, btnX + btnW, btnY - btnH*0.5f,
                    gc[0], gc[1], gc[2]);
         uiTextC(v, launching ? "Launching..." : "Launch",
-                btnX + btnW*0.5f, btnY + 3.5f * (px * 0.7f), px * 0.7f, 1, 1, 1);
+                btnX + btnW*0.5f, btnY + baselineOffset(px * 0.7f), px * 0.7f, 1, 1, 1);
 
         y = yBot - rowGap;
     }

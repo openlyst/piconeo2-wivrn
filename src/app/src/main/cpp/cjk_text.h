@@ -26,6 +26,9 @@ public:
     unsigned int texture() const { return tex_; }
     bool ready() const { return tex_ != 0; }
 
+    // Measure text width in atlas pixels (multiply by px for metres).
+    float textWidth(const char *utf8) const;
+
 private:
     unsigned int tex_ = 0;
     int atlasW_ = 0, atlasH_ = 0;

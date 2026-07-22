@@ -108,7 +108,7 @@ bool buildPinPad(std::vector<float> &v, float cursorLx, float cursorLy,
             appendQuad(v, kr.cx - kr.w*0.5f, kr.cy + kr.h*0.5f,
                        kr.cx + kr.w*0.5f, kr.cy - kr.h*0.5f,
                        col[0], col[1], col[2]);
-            uiTextC(v, label, kr.cx, kr.cy + 3.5f * kUiText * 0.9f,
+            uiTextC(v, label, kr.cx, kr.cy + baselineOffset(kUiText * 0.9f),
                     kUiText * 0.9f, 1, 1, 1);
         }
     }

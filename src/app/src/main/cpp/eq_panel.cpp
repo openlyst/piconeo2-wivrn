@@ -50,7 +50,7 @@ void buildEqVerts(std::vector<float> &v, int hoverBand, bool resetHover,
         // appendTextLine centres on x=0, so build the label there and shift to cx.
         float rpx = px * 0.78f;   // smaller so RESET fits the button
         std::vector<float> tmp;
-        appendTextLine(tmp, "Reset", (kEqResetYTop+kEqResetYBot)*0.5f + 3.5f*rpx, rpx, 1,1,1);
+        appendTextLine(tmp, "Reset", (kEqResetYTop+kEqResetYBot)*0.5f + baselineOffset(rpx), rpx, 1,1,1);
         for (size_t i = 0; i < tmp.size(); i += 6) tmp[i] += cx;
         v.insert(v.end(), tmp.begin(), tmp.end());
     }
@@ -92,7 +92,7 @@ void buildEqVerts(std::vector<float> &v, int hoverBand, bool resetHover,
         char hbuf[40];
         const char *pn = kEqPresetNames[gEqPresetIdx];
         snprintf(hbuf, sizeof(hbuf), "Preset: %s %s", pn, gEqPresetOpen ? "^" : "~");
-        appendTextLine(v, hbuf, (kEqPresetYTop+kEqPresetYBot)*0.5f + 3.5f*px, px, 1, 1, 1);
+        appendTextLine(v, hbuf, (kEqPresetYTop+kEqPresetYBot)*0.5f + baselineOffset(px), px, 1, 1, 1);
     }
     // Dropdown items (when open), stacked below the header.
     if (gEqPresetOpen) {
@@ -102,7 +102,7 @@ void buildEqVerts(std::vector<float> &v, int hoverBand, bool resetHover,
             bool ih = (i == presetHoverItem);
             float ir = ih ? 0.35f : 0.14f, ig = ih ? 0.35f : 0.14f, ib = ih ? 0.42f : 0.18f;
             appendQuad(v, kEqPresetX0, yT, kEqPresetX1, yB, ir, ig, ib);
-            appendTextLine(v, kEqPresetNames[i], (yT+yB)*0.5f + 3.5f*px, px, 1, 1, 1);
+            appendTextLine(v, kEqPresetNames[i], (yT+yB)*0.5f + baselineOffset(px), px, 1, 1, 1);
         }
     }
 }
