@@ -178,6 +178,7 @@ struct streaming_client
 	std::vector<AppEntry>    available_apps;
 	std::vector<RunningApp>  running_apps;
 	bool app_list_requested = false;
+	std::string launching_app_id;   // app currently being launched (empty = idle)
 
 	std::string server_host;
 	int server_port = 0;
