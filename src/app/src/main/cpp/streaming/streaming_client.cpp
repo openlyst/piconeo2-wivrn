@@ -805,6 +805,9 @@ bool streaming_client::connect_to_server()
 
 void streaming_client::send_headset_info()
 {
+	if (!session)
+		return;
+
 	from_headset::headset_info_packet info{};
 
 	info.render_eye_width = eye_width.load();
