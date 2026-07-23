@@ -1,5 +1,8 @@
 #pragma once
 #include <GLES3/gl3.h>
+#include <string>
+#include <vector>
+#include "server_list.h"
 
 // Android View-based UI rendered to a bitmap in Java, uploaded to a GL
 // texture here, and composited onto the 3D lobby panel.
@@ -7,6 +10,14 @@
 // Replaces the ImGui manager + compositor. The Java side (VrUiPanel +
 // VrUiController) handles all UI layout, input, and rendering. The native
 // side just uploads the bitmap pixels to a texture and draws it.
+
+// JNI bridge functions (defined in jni.cpp) for pushing data to Java.
+void androidUiPushTouch(float x, float y, bool pressed, bool clickEdge);
+void androidUiPushServers(const std::vector<ServerInfo> &servers);
+void androidUiPushConnecting(bool connecting);
+void androidUiPushConnError(const std::string &err);
+void androidUiPushStreaming(bool streaming);
+void androidUiPushSettings();
 
 class AndroidUi {
 public:

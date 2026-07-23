@@ -20,11 +20,26 @@
 #include "log.h"
 #include "pico_sdk.h"        // Pvr_ResetSensor
 #include "streaming/streaming_client.h"
+#include "android_ui.h"
 #include <ctime>
 
 // Font data loaded from assets, used by ImGuiManager::init().
 std::vector<unsigned char> gFontData;
 std::vector<unsigned char> gFontDataBold;
+
+// Android View-based UI (replaces ImGui)
+AndroidUi gAndroidUi;
+static jmethodID g_uiPushPixelsMethod = nullptr;
+static jmethodID g_uiSetTouchMethod = nullptr;
+static jmethodID g_uiSetServersMethod = nullptr;
+static jmethodID g_uiSetConnectingMethod = nullptr;
+static jmethodID g_uiSetConnErrorMethod = nullptr;
+static jmethodID g_uiSetStatsMethod = nullptr;
+static jmethodID g_uiSetRunningAppsMethod = nullptr;
+static jmethodID g_uiSetAvailableAppsMethod = nullptr;
+static jmethodID g_uiSetStreamingMethod = nullptr;
+static jmethodID g_uiUpdateSettingsMethod = nullptr;
+static jobject gUiPanel = nullptr;
 
 static jmethodID g_onServerConnectMethod = nullptr;
 static jmethodID g_onServerRemoveMethod = nullptr;
@@ -664,6 +679,159 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStopApp(JNIEnv *, jobject, jin
     } catch (std::exception & e) {
         LOGE("Failed to stop app: %s", e.what());
     }
+}
+
+// ---- Android View UI bridge ----
+// Java calls this to register the VrUiPanel object and its callback methods.
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_VrUiPanel_nativeInit(JNIEnv *env, jobject panel) {
+    if (gUiPanel) { env->DeleteGlobalRef(gUiPanel); }
+    gUiPanel = env->NewGlobalRef(panel);
+    jclass cls = env->GetObjectClass(panel);
+
+    g_uiPushPixelsMethod     = env->GetMethodID(cls, "renderIfNeeded", "()Ljava/nio/ByteBuffer;");
+    g_uiSetTouchMethod       = env->GetMethodID(cls, "setTouchState", "(FFZZ)V");
+    g_uiSetServersMethod     = env->GetMethodID(cls, "setServersFromNative", "([Ljava/lang/String;[Ljava/lang/String;[I[Z[Z[Z)V");
+    g_uiSetConnectingMethod  = env->GetMethodID(cls, "setConnectingFromNative", "(Z)V");
+    g_uiSetConnErrorMethod   = env->GetMethodID(cls, "setConnectionErrorFromNative", "(Ljava/lang/String;)V");
+    g_uiSetStatsMethod       = env->GetMethodID(cls, "setStatsFromNative", "(IFFFFFFFFFIIIZ)V");
+    g_uiSetRunningAppsMethod = env->GetMethodID(cls, "setRunningAppsFromNative", "([Ljava/lang/String;[I[Z)V");
+    g_uiSetAvailableAppsMethod = env->GetMethodID(cls, "setAvailableAppsFromNative", "([Ljava/lang/String;[Ljava/lang/String;)V");
+    g_uiSetStreamingMethod   = env->GetMethodID(cls, "setStreamingFromNative", "(Z)V");
+    g_uiUpdateSettingsMethod = env->GetMethodID(cls, "updateSettingsFromNative", "(FFFFFZZZFIZ)V");
+
+    env->DeleteLocalRef(cls);
+    LOGI("VrUiPanel nativeInit: panel=%p pushPixels=%p", gUiPanel, g_uiPushPixelsMethod);
+}
+
+// Render thread calls this to get the latest pixel buffer from Java.
+// Returns a direct ByteBuffer of kUiW*kUiH*4 bytes (RGBA8888), or null.
+extern "C" JNIEXPORT jobject JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_VrUiPanel_nativeGetPixels(JNIEnv *env, jobject) {
+    if (!gUiPanel || !g_uiPushPixelsMethod) return nullptr;
+    return env->CallObjectMethod(gUiPanel, g_uiPushPixelsMethod);
+}
+
+// Push touch state from native to Java for dispatch to the View hierarchy.
+void androidUiPushTouch(float x, float y, bool pressed, bool clickEdge)
+{
+    if (!gUiPanel || !g_uiSetTouchMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    env->CallVoidMethod(gUiPanel, g_uiSetTouchMethod, x, y, pressed ? JNI_TRUE : JNI_FALSE,
+                        clickEdge ? JNI_TRUE : JNI_FALSE);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+// Push server list from native to Java.
+void androidUiPushServers(const std::vector<ServerInfo> &servers)
+{
+    if (!gUiPanel || !g_uiSetServersMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    int n = (int)servers.size();
+    jclass strCls = env->FindClass("java/lang/String");
+    jobjectArray names = env->NewObjectArray(n, strCls, nullptr);
+    jobjectArray hosts = env->NewObjectArray(n, strCls, nullptr);
+    jintArray ports = env->NewIntArray(n);
+    jbooleanArray tcpOnly = env->NewBooleanArray(n);
+    jbooleanArray discovered = env->NewBooleanArray(n);
+    jbooleanArray autoconnect = env->NewBooleanArray(n);
+    jint *portsArr = env->GetIntArrayElements(ports, nullptr);
+    jboolean *tcpArr = env->GetBooleanArrayElements(tcpOnly, nullptr);
+    jboolean *discArr = env->GetBooleanArrayElements(discovered, nullptr);
+    jboolean *autoArr = env->GetBooleanArrayElements(autoconnect, nullptr);
+    for (int i = 0; i < n; i++) {
+        env->SetObjectArrayElement(names, i, env->NewStringUTF(servers[i].name.c_str()));
+        env->SetObjectArrayElement(hosts, i, env->NewStringUTF(servers[i].hostname.c_str()));
+        portsArr[i] = servers[i].port;
+        tcpArr[i] = servers[i].tcp_only ? JNI_TRUE : JNI_FALSE;
+        discArr[i] = servers[i].discovered ? JNI_TRUE : JNI_FALSE;
+        autoArr[i] = servers[i].autoconnect ? JNI_TRUE : JNI_FALSE;
+    }
+    env->ReleaseIntArrayElements(ports, portsArr, 0);
+    env->ReleaseBooleanArrayElements(tcpOnly, tcpArr, 0);
+    env->ReleaseBooleanArrayElements(discovered, discArr, 0);
+    env->ReleaseBooleanArrayElements(autoconnect, autoArr, 0);
+    env->CallVoidMethod(gUiPanel, g_uiSetServersMethod, names, hosts, ports, tcpOnly, discovered, autoconnect);
+    env->DeleteLocalRef(names);
+    env->DeleteLocalRef(hosts);
+    env->DeleteLocalRef(ports);
+    env->DeleteLocalRef(tcpOnly);
+    env->DeleteLocalRef(discovered);
+    env->DeleteLocalRef(autoconnect);
+    env->DeleteLocalRef(strCls);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+void androidUiPushConnecting(bool connecting)
+{
+    if (!gUiPanel || !g_uiSetConnectingMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    env->CallVoidMethod(gUiPanel, g_uiSetConnectingMethod, connecting ? JNI_TRUE : JNI_FALSE);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+void androidUiPushConnError(const std::string &err)
+{
+    if (!gUiPanel || !g_uiSetConnErrorMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    jstring jerr = env->NewStringUTF(err.c_str());
+    env->CallVoidMethod(gUiPanel, g_uiSetConnErrorMethod, jerr);
+    env->DeleteLocalRef(jerr);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+void androidUiPushStreaming(bool streaming)
+{
+    if (!gUiPanel || !g_uiSetStreamingMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    env->CallVoidMethod(gUiPanel, g_uiSetStreamingMethod, streaming ? JNI_TRUE : JNI_FALSE);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+void androidUiPushSettings()
+{
+    if (!gUiPanel || !g_uiUpdateSettingsMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    extern std::atomic<bool> gEyeSupported;
+    env->CallVoidMethod(gUiPanel, g_uiUpdateSettingsMethod,
+        gSoftIpdMm.load(), gBrightnessFrac.load(), gStreamFovDeg.load(),
+        gWivrnResolutionScale.load(), gWivrnBitrateMbps.load(),
+        gWivrnEyeFoveation.load() ? JNI_TRUE : JNI_FALSE,
+        gWivrnMicrophone.load() ? JNI_TRUE : JNI_FALSE,
+        gWivrnPassthrough.load() ? JNI_TRUE : JNI_FALSE,
+        gWivrnCtrlVibration.load(), gDiagHudMode.load(),
+        gEyeSupported.load() ? JNI_TRUE : JNI_FALSE);
+    if (attached) gVM->DetachCurrentThread();
 }
 
 
