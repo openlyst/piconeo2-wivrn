@@ -100,35 +100,39 @@ target_include_directories(wivrn-common PUBLIC
     ${CMAKE_BINARY_DIR}
     ${WIVRN_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/core
     ${THIRD_PARTY_DIR}/magic_enum
 )
 target_include_directories(wivrn-common SYSTEM PUBLIC ${VULKAN_INCLUDE_DIR} ${SPDLOG_INCLUDE_DIR} ${BOOST_INCLUDE_DIR})
 target_compile_definitions(wivrn-common PUBLIC VMA_VULKAN_VERSION=1001000 VULKAN_HPP_NO_STRUCT_CONSTRUCTORS SPDLOG_FMT_EXTERNAL FMT_HEADER_ONLY)
 target_compile_options(wivrn-common PUBLIC -fconstexpr-steps=268435456 -fconstexpr-depth=2048)
-target_compile_options(wivrn-common PUBLIC "-include${CMAKE_CURRENT_SOURCE_DIR}/openxr_ext_stubs.h" "-include${WIVRN_DIR}/common/openxr_body_compat.h")
+target_compile_options(wivrn-common PUBLIC "-include${CMAKE_CURRENT_SOURCE_DIR}/core/openxr_ext_stubs.h" "-include${WIVRN_DIR}/common/openxr_body_compat.h")
 target_link_libraries(wivrn-common PUBLIC OpenSSL::Crypto)
 
 # --- p2wivrn (PVR client with WiVRn streaming) ---
 add_library(p2wivrn SHARED
-    render_thread.cpp
-    gl_util.cpp
-    eye_tracking.cpp
-    device_info.cpp
-    ui_kit.cpp
-    eq_panel.cpp
-    app_state.cpp
-    lobby_panels.cpp
-    menu_model.cpp
-    settings_panel.cpp
-    server_list.cpp
-    pin_pad.cpp
-    stream_panel.cpp
-    lobby.cpp
-    simple_lobby.cpp
-    passthrough.cpp
-    input.cpp
-    foveation.cpp
-    jni.cpp
+    core/jni.cpp
+    core/app_state.cpp
+    core/device_info.cpp
+    core/eye_tracking.cpp
+    core/foveation.cpp
+    render/render_thread.cpp
+    render/gl_util.cpp
+    render/passthrough.cpp
+    render/menu_model.cpp
+    render/lobby.cpp
+    input/input.cpp
+    ui/ui_kit.cpp
+    ui/eq_panel.cpp
+    ui/lobby_panels.cpp
+    ui/settings_panel.cpp
+    ui/server_list.cpp
+    ui/pin_pad.cpp
+    ui/stream_panel.cpp
+    ui/simple_lobby.cpp
+    ui/imgui_manager.cpp
+    ui/imgui_compositor.cpp
+    ui/imgui_ui.cpp
     streaming/streaming_client.cpp
     streaming/pvr_renderer.cpp
     streaming/pvr_eye_bridge.cpp
@@ -139,9 +143,6 @@ add_library(p2wivrn SHARED
     ${WIVRN_DIR}/audio/pico_audio.cpp
     ${WIVRN_DIR}/render/pico_blit.cpp
     ${WIVRN_DIR}/tracking/pico_tracking.cpp
-    imgui_manager.cpp
-    imgui_compositor.cpp
-    imgui_ui.cpp
     third_party/imgui/imgui.cpp
     third_party/imgui/imgui_draw.cpp
     third_party/imgui/imgui_tables.cpp
@@ -156,6 +157,10 @@ target_link_options(p2wivrn PRIVATE -flto=thin)
 
 target_include_directories(p2wivrn PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/render
+    ${CMAKE_CURRENT_SOURCE_DIR}/input
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui
     ${CMAKE_CURRENT_SOURCE_DIR}/streaming
     ${CMAKE_CURRENT_SOURCE_DIR}/openxr
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui
