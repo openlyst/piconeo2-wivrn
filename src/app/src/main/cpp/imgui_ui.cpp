@@ -285,12 +285,13 @@ static void buildServersTab()
         ImGui::PopStyleColor(3);
 
         // Connect button
-        ImGui::SetCursorScreenPos(ImVec2(rightEdge - 32 - 8 - 110, btnY));
+        float connW = 160;
+        ImGui::SetCursorScreenPos(ImVec2(rightEdge - 32 - 8 - connW, btnY));
         const char *btnLabel = isConnecting() ? "..." : "Connect";
         ImGui::PushStyleColor(ImGuiCol_Button, kColConnect);
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kColConnectH);
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, kColConnectH);
-        if (ImGui::Button(btnLabel, ImVec2(110, 32))) {
+        if (ImGui::Button(btnLabel, ImVec2(connW, 32))) {
             clearConnectionError();
             if (gOnServerConnect) gOnServerConnect(srv);
         }
@@ -302,7 +303,7 @@ static void buildServersTab()
             float checkH = ImGui::GetFrameHeight();
             float checkY = pos.y + (rowH - checkH) * 0.5f;
             float autoW = ImGui::CalcTextSize("Auto").x + checkH + 12;
-            ImGui::SetCursorScreenPos(ImVec2(rightEdge - 32 - 8 - 110 - 12 - autoW, checkY));
+            ImGui::SetCursorScreenPos(ImVec2(rightEdge - 32 - 8 - connW - 12 - autoW, checkY));
             if (ImGui::Checkbox("Auto", &autoConn)) {
                 if (gOnServerAutoconnect)
                     gOnServerAutoconnect(srv.hostname, srv.port);
