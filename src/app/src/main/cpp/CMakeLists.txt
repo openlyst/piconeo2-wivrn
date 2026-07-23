@@ -115,6 +115,7 @@ add_library(p2wivrn SHARED
     eye_tracking.cpp
     device_info.cpp
     ui_kit.cpp
+    font_atlas.cpp
     eq_panel.cpp
     app_state.cpp
     lobby_panels.cpp
