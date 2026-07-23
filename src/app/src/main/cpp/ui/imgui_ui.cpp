@@ -249,11 +249,6 @@ static void buildServersTab()
         }
         if (srv.discovered) {
             ImGui::SameLine();
-            ImVec2 dotPos = ImGui::GetCursorScreenPos();
-            dotPos.y += 6;
-            ImGui::GetWindowDrawList()->AddCircleFilled(dotPos, 4,
-                    ImGui::ColorConvertFloat4ToU32(kColBadgeDot), 12);
-            ImGui::SameLine();
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 2);
             ImGui::TextColored(kColBadgeTxt, "Discovered");
         }

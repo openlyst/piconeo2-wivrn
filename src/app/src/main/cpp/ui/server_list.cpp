@@ -129,16 +129,14 @@ float buildServerContent(std::vector<float> &v, float scrollY,
         uiTextL(v, hostport, kCtX0 + 0.03f, yTop - 0.075f,
                 kUiText * 0.9f, 0.5f, 0.55f, 0.6f);
 
-        // Discovered badge (green dot + "Discovered" text)
+        // Discovered badge ("Discovered" text)
         if (srv.discovered) {
             float badgeX = kCtX0 + 0.03f;
             // measure name width to place badge after it
             float nameW = (srv.name.length() * 6 - 1) * (kUiText * 1.5f);
             badgeX += nameW + 0.04f;
             float badgeY = yTop - 0.035f;
-            appendQuad(v, badgeX, badgeY + 0.01f, badgeX + 0.02f, badgeY - 0.01f,
-                       0.2f, 0.7f, 0.3f);
-            uiTextL(v, "Discovered", badgeX + 0.03f, badgeY,
+            uiTextL(v, "Discovered", badgeX, badgeY,
                     kUiText * 0.7f, 0.3f, 0.7f, 0.4f);
         }
 
