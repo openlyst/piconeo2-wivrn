@@ -2,6 +2,7 @@
 
 - Reimplements Eye tracking
 - Adds foveated streaming
+- Rewrote passthrough to use the native Pico SDK see-through API instead of Android Camera2 NDK
 - Fixed stereo IPD mismatch
 - Fixed springing HMD tracking
 - Fixed passthrough warping at the edges of the view
