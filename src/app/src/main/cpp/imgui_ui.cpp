@@ -749,6 +749,10 @@ static void buildLicensesTab()
 
     ImGui::TextColored(kColFill, "3D controller models - Pico Interactive");
     ImGui::TextColored(kColDim, "Owned by Pico Interactive");
+    ImGui::Dummy(ImVec2(0, 8));
+    ImGui::TextColored(kColFill, "ALVR Pico Legacy - MIT License");
+    linkLabel("github.com/Juspertinry/alvr-pico-legacy",
+              "https://github.com/Juspertinry/alvr-pico-legacy");
 }
 
 // ---- Exit tab ----
