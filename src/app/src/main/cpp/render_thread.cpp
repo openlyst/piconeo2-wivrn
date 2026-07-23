@@ -999,129 +999,21 @@ static bool rayPanelHit(const Mat4 &W,
 
 static void updateLobbyPanel(PanelInteract &pi, const Mat4 &settingsWorld)
 {
-    static int   sDragMode = 0;
-    static float sScrollLastLy = 0;
-    static uint32_t sPanelSig = 0; static bool sPanelHave = false;
-    static int sSliderVertCount = 0; static GLsizeiptr sSetCap = 0;
-    static std::vector<float> sverts; sverts.clear();
-
-    float setOffX = 0, setOffY = 0;
-    float setContentH = 0;
-    settingsMeasure(setOffX, setOffY, setContentH);
-    bool scrollable = setContentH > kSetViewportH + 1e-4f;
-    MenuModel &model = settingsModel();
-    MenuCategory &cat = model[gSettingsCat];
-
+    // ImGui owns all UI input and rendering. We only need the ray-panel
+    // hit test for cursor position tracking (used by the laser/cursor
+    // visual and fed to ImGui via gImGui.setInput).
     float lx, ly, t;
     bool onPanel = rayPanelHit(settingsWorld, pi.ptrOx, pi.ptrOy, pi.ptrOz,
                                pi.ptrDx, pi.ptrDy, pi.ptrDz,
                                pi.ptrFromController, pi.laserLen, lx, ly, t);
-    bool inContent = onPanel && lx >= kCtX0 && lx <= kCtX1 && ly <= kCtTop && ly >= kCtBot;
-    float cx = lx - setOffX, cy = ly - setOffY;
-
-    if (onPanel) { pi.cursorLx = lx; pi.cursorLy = ly; pi.cursorOnPanel = true; pi.cursorPressed = pi.ptrGrab; }
-
-    MenuHover mh;
-    int  setTabHover   = -1;
-    bool setCloseHover = false;
-
     if (onPanel) {
-        if (uiHit(kSetClose, lx, ly)) { setCloseHover = true; pi.lobbyHover = true; }
-        for (int i = 0; i < (int)model.size(); i++) {
-            if (model[i].streamingOnly && !gStreamingMode) continue;
-            if (model[i].hideWhileStreaming && gStreamingMode) continue;
-            if (uiHit(settingsTabRect(i), lx, ly)) { setTabHover = i; pi.lobbyHover = true; }
-        }
+        pi.cursorLx = lx;
+        pi.cursorLy = ly;
+        pi.cursorOnPanel = true;
+        pi.cursorPressed = pi.ptrGrab;
+        pi.lobbyHover = true;
     }
-    if (inContent) mh = menuHit(cat, cx, cy);
-    if (mh.item >= 0 || setTabHover >= 0 || setCloseHover) pi.lobbyHover = true;
-
-    if (pi.grabEdge) {
-        if (inContent && setTabHover < 0 && !setCloseHover)
-            sDragMode = mh.grab ? 2 : (scrollable ? 1 : 2);
-        else
-            sDragMode = 2;
-        sScrollLastLy = ly;
-    }
-    if (!pi.ptrGrab) sDragMode = 0;
-
-    if (sDragMode == 1 && pi.ptrGrab && scrollable) {
-        gSettingsScroll[gSettingsCat] += (ly - sScrollLastLy);
-        sScrollLastLy = ly;
-    }
-
-    float scrollStickY = pi.ptrStickY;
-    if (scrollable && fabsf(scrollStickY) > 0.18f)
-        gSettingsScroll[gSettingsCat] -= scrollStickY * 0.01875f;
-
-    if (pi.clickEdge && setCloseHover) { /* panel always open, close disabled */ }
-    if (pi.clickEdge && setTabHover >= 0 && setTabHover != gSettingsCat) {
-        gSettingsCat = setTabHover; sDragMode = 0;
-        if (g_stream && g_stream->session && setTabHover == 4 /* Launch */) {
-            std::lock_guard<std::mutex> lk(g_stream->app_mutex);
-            if (g_stream->available_apps.empty() && !g_stream->app_list_requested) {
-                try { g_stream->session->send_control(
-                    wivrn::from_headset::get_application_list{"en","US",""}); }
-                catch (...) {}
-            }
-        }
-    }
-    if (g_stream && g_stream->session && gSettingsCat == 3 /* Apps */) {
-        static uint64_t lastAppPoll = 0;
-        uint64_t now = nowNs();
-        if (now - lastAppPoll > 1000000000ULL) {
-            lastAppPoll = now;
-            try { g_stream->session->send_control(
-                wivrn::from_headset::get_running_applications{}); }
-            catch (...) {}
-        }
-    }
-    if (sDragMode != 1)
-        menuApply(gSettingsCat, cat, mh, pi.clickEdge, pi.ptrGrab, cx, cy);
-    if (!pi.ptrGrab && gEqGrabbing) { gEqGrabbing = false; gEqActiveBand = -1; }
-    if (gEqDirty && nowNs() - gEqChangeNs > 500000000ULL) { saveEqProfile(); gEqDirty = false; }
-
-    uint32_t panelSig = 2166136261u;
-    auto pmix = [&](long x){ for (int b = 0; b < 8; b++) { panelSig = (panelSig ^ (unsigned char)(x & 0xff)) * 16777619u; x >>= 8; } };
-    pmix(gSettingsCat);
-    pmix(gStreamingMode ? 1 : 0);
-    pmix(setTabHover); pmix(setCloseHover ? 1 : 0);
-    pmix(mh.item); pmix(mh.part); pmix(mh.grab ? 1 : 0);
-    pmix(lroundf(setOffX * 2000.0f)); pmix(lroundf(setOffY * 2000.0f)); pmix(lroundf(setContentH * 2000.0f));
-    pmix((long)menuValueSig(cat));
-    for (const auto &it : cat.items) pmix(it.dropOpen ? 1 : 0);
-    pmix(gEqActiveBand); pmix(gEqPresetOpen ? 1 : 0); pmix(gEqPresetIdx);
-    for (int i = 0; i < kEqBands; i++) pmix(lroundf(gEqGains[i] * 2000.0f));
-    if (g_stream) {
-        pmix(g_stream->stats_fps);
-        pmix(lroundf(g_stream->stats_total_latency_ms * 10));
-        pmix(lroundf(g_stream->stats_bandwidth_rx * 1e-6f * 10));
-        pmix(lroundf(g_stream->stats_bandwidth_tx * 1e-6f * 10));
-        pmix(lroundf(g_stream->stats_cpu_time_ms * 10));
-        pmix(lroundf(g_stream->stats_gpu_time_ms * 10));
-        pmix(lroundf(g_stream->stats_encode_ms * 10));
-        pmix(lroundf(g_stream->stats_send_ms * 10));
-        pmix(lroundf(g_stream->stats_network_ms * 10));
-        pmix(lroundf(g_stream->stats_decode_ms * 10));
-        pmix(lroundf(g_stream->stats_render_wait_ms * 10));
-        pmix(lroundf(g_stream->stats_blit_ms * 10));
-        pmix(g_stream->current_bitrate_mbps.load());
-        pmix(g_stream->stream_eye_width.load());
-        pmix(g_stream->stream_eye_height.load());
-        pmix(g_stream->microphone_enabled.load() ? 1 : 0);
-        int nAvail = 0, nRun = 0;
-        { std::lock_guard<std::mutex> lk(g_stream->app_mutex);
-          nAvail = (int)g_stream->available_apps.size();
-          nRun = (int)g_stream->running_apps.size(); }
-        pmix(nAvail); pmix(nRun);
-    }
-    if (!sPanelHave || panelSig != sPanelSig) {
-        buildSettingsPanel(sverts, setOffX, setOffY, setContentH, mh, setTabHover, setCloseHover);
-        sSliderVertCount = (int)(sverts.size() / 6);
-        if (sSliderVertCount > 0) uploadDynamicVbo(gSliderVbo, sverts, sSetCap);
-        sPanelSig = panelSig; sPanelHave = true;
-    }
-    pi.sliderVertCount = sSliderVertCount;
+    pi.sliderVertCount = 0;
 }
 
 static void drawLaserBeam(float ox, float oy, float oz,

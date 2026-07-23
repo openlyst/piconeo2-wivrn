@@ -519,6 +519,18 @@ static void buildAppsTab()
 
     if (apps.empty()) { ImGui::TextDisabled("No apps running"); return; }
 
+    // Poll running apps list once per second
+    if (g_stream->session) {
+        static uint64_t lastAppPoll = 0;
+        uint64_t now = nowNs();
+        if (now - lastAppPoll > 1000000000ULL) {
+            lastAppPoll = now;
+            try { g_stream->session->send_control(
+                wivrn::from_headset::get_running_applications{}); }
+            catch (...) {}
+        }
+    }
+
     for (int i = 0; i < (int)apps.size(); i++) {
         ImGui::PushID(i);
         float rowH = 48;
@@ -575,6 +587,13 @@ static void buildLaunchTab()
       apps = g_stream->available_apps;
       requested = g_stream->app_list_requested;
       launching_id = g_stream->launching_app_id; }
+
+    // Auto-request app list when entering the tab with an empty list
+    if (apps.empty() && !requested && g_stream->session) {
+        try { g_stream->session->send_control(
+            wivrn::from_headset::get_application_list{"en","US",""}); }
+        catch (...) {}
+    }
 
     if (apps.empty()) {
         ImGui::TextDisabled("%s", requested ? "Loading..." : "No apps available");
