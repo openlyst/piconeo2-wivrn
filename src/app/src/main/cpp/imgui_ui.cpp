@@ -198,14 +198,15 @@ static void buildServersTab()
     auto err = getConnectionError();
     if (!err.empty()) {
         ImVec2 pos = ImGui::GetCursorScreenPos();
+        float localY = ImGui::GetCursorPosY();
         float w = ImGui::GetContentRegionAvail().x;
         float h = 36;
         ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + w, pos.y + h),
                 ImGui::ColorConvertFloat4ToU32(kColErrBg), 4.0f);
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 10);
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8);
+        ImGui::SetCursorPosY(localY + 8);
         ImGui::TextColored(kColErrTxt, "%s", err.c_str());
-        ImGui::SetCursorPosY(pos.y + h + 8);
+        ImGui::SetCursorPosY(localY + h + 8);
     }
 
     auto servers = getServerList();
