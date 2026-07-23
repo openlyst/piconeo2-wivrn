@@ -19,7 +19,7 @@ class FontAtlas {
 public:
     static constexpr int kFirstChar = 32;
     static constexpr int kNumChars = 95;   // 32..126
-    static constexpr int kAtlasW = 1024;
+    static constexpr int kAtlasW = 2048;
     static constexpr int kAtlasH = 64;
     static constexpr int kPixelHeight = 40;  // rasterization size
 
