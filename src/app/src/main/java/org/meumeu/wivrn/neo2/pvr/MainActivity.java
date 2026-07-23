@@ -783,6 +783,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 || keyCode == KeyEvent.KEYCODE_BUTTON_A;
     }
 
+    // Called from native to open a URL in the system browser.
+    public void openUrl(String url) {
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            startActivity(intent);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to open URL: " + url, e);
+        }
+    }
+
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         nativeKeyEvent(keyCode, true);

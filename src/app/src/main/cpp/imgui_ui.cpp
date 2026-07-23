@@ -7,7 +7,9 @@
 #include "eye_tracking.h"
 #include "passthrough.h"
 #include "streaming/streaming_client.h"
+#include "render_thread.h"
 #include "log.h"
+#include <jni.h>
 #include <cstdio>
 #include <cstring>
 #include <cmath>
@@ -645,6 +647,44 @@ static void buildLaunchTab()
     }
 }
 
+// ---- clickable link helper ----
+static void openUrlOnDevice(const char *url)
+{
+    if (!gVM || !gActivity) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    jstring jurl = env->NewStringUTF(url);
+    jclass cls = env->GetObjectClass(gActivity);
+    jmethodID mid = env->GetMethodID(cls, "openUrl", "(Ljava/lang/String;)V");
+    if (mid) env->CallVoidMethod(gActivity, mid, jurl);
+    env->DeleteLocalRef(jurl);
+    env->DeleteLocalRef(cls);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+static void linkLabel(const char *label, const char *url)
+{
+    ImVec4 linkCol(0.35f, 0.65f, 1.0f, 1.0f);
+    ImVec4 hoverCol(0.5f, 0.8f, 1.0f, 1.0f);
+    ImVec2 pos = ImGui::GetCursorScreenPos();
+    ImVec2 size = ImGui::CalcTextSize(label);
+    bool hovered = ImGui::IsMouseHoveringRect(pos, ImVec2(pos.x + size.x, pos.y + size.y));
+    ImGui::TextColored(hovered ? hoverCol : linkCol, "%s", label);
+    // underline
+    ImGui::GetWindowDrawList()->AddLine(
+        ImVec2(pos.x, pos.y + size.y),
+        ImVec2(pos.x + size.x, pos.y + size.y),
+        ImGui::ColorConvertFloat4ToU32(hovered ? hoverCol : linkCol));
+    if (hovered && ImGui::IsMouseClicked(0))
+        openUrlOnDevice(url);
+    ImGui::SetCursorPosY(pos.y + size.y + 2);
+    ImGui::Dummy(ImVec2(0, 0));
+}
+
 // ---- About tab ----
 static void buildAboutTab()
 {
@@ -667,11 +707,10 @@ static void buildAboutTab()
     ImGui::Dummy(ImVec2(0, 6));
 
     ImGui::TextColored(kColFill, "Upstream");
-    ImGui::TextColored(kColTitle, "github.com/wivrn/wivrn");
+    linkLabel("github.com/wivrn/wivrn", "https://github.com/wivrn/wivrn");
     ImGui::Dummy(ImVec2(0, 8));
     ImGui::TextColored(kColFill, "This client");
-    ImGui::TextColored(kColTitle, "gitlab.com/httpanimations/");
-    ImGui::TextColored(kColTitle, "piconeo2-wivrn");
+    linkLabel("gitlab.com/httpanimations/piconeo2-wivrn", "https://gitlab.com/httpanimations/piconeo2-wivrn");
     ImGui::Dummy(ImVec2(0, 12));
 
     ImGui::Separator();
@@ -699,8 +738,8 @@ static void buildLicensesTab()
 
     ImGui::TextColored(kColFill, "Full license text");
     ImGui::Dummy(ImVec2(0, 4));
-    ImGui::TextColored(kColTitle, "gitlab.com/httpanimations/");
-    ImGui::TextColored(kColTitle, "piconeo2-wivrn/-/raw/main/LICENSE");
+    linkLabel("gitlab.com/httpanimations/piconeo2-wivrn/-/raw/main/LICENSE",
+              "https://gitlab.com/httpanimations/piconeo2-wivrn/-/raw/main/LICENSE");
     ImGui::Dummy(ImVec2(0, 12));
 
     ImGui::Separator();
