@@ -2,6 +2,8 @@
 
 - Reimplements Eye tracking
 - Adds foveated streaming
+- Adds controller models
+- Adds MIT sub moduled lieance* (Will be removed in the fu)
 - Fixed stereo IPD mismatch
 - Fixed springing HMD tracking
 - Fixed passthrough warping at the edges of the view
@@ -13,8 +15,6 @@
 - Dynamic bitrate removed 
 - "Lower resolution for wireless" option removed
 - Resolution slider now is %'ge
-- Ports a heavily modified version of Jasper's ALVR 3D UI to WiVRn.
-- Update licensing so we are not breaking MIT license and the Pico SDK licensing.
 
 # [Beta 1.0](https://github.com/openlyst/piconeo2-wivrn/releases/download/Beta-1.0/wivrn-pvr-Beta-1.0.apk)
 
