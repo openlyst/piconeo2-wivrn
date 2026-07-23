@@ -220,7 +220,7 @@ static void buildServersTab()
         const auto &srv = servers[i];
         ImGui::PushID(i);
 
-        float rowH = 100;
+        float rowH = 80;
         ImVec2 pos = ImGui::GetCursorScreenPos();
         float w = ImGui::GetContentRegionAvail().x;
         bool hovered = ImGui::IsMouseHoveringRect(pos, ImVec2(pos.x + w, pos.y + rowH));
@@ -228,12 +228,13 @@ static void buildServersTab()
         ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + w, pos.y + rowH),
                 ImGui::ColorConvertFloat4ToU32(bg), 4.0f);
 
-        // Left side: name + hostname (reserve 280px for buttons on the right)
-        float textW = w - 280 - 24;
-        ImGui::SetCursorPosX(pos.x + 12);
-        ImGui::SetCursorPosY(pos.y + 10);
+        // Text area width (leave room for buttons on the right)
+        float btnAreaW = 250;
+        float textW = w - btnAreaW - 24;
 
-        // Server name (truncate if too long)
+        // Line 1: server name + discovered badge
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 12);
+        ImGui::SetCursorPosY(pos.y + 8);
         ImVec2 nameSize = ImGui::CalcTextSize(srv.name.c_str());
         if (nameSize.x > textW) {
             char trunc[128];
@@ -253,8 +254,8 @@ static void buildServersTab()
             ImGui::TextColored(kColBadgeTxt, "Discovered");
         }
 
-        // hostname on second line (truncate)
-        ImGui::SetCursorPosX(pos.x + 12);
+        // Line 2: hostname
+        ImGui::SetCursorPosX(pos.x - ImGui::GetWindowPos().x + 12);
         char hp[160]; snprintf(hp, sizeof(hp), "%s:%d", srv.hostname.c_str(), srv.port);
         ImVec2 hostSize = ImGui::CalcTextSize(hp);
         if (hostSize.x > textW) {
@@ -265,12 +266,12 @@ static void buildServersTab()
             ImGui::TextColored(kColHost, "%s", hp);
         }
 
-        // Right side: buttons, vertically centered in the row
+        // Right side: buttons positioned with screen coords via SetCursorScreenPos
         float btnY = pos.y + rowH * 0.5f - 16;
-        float rightX = pos.x + w - 12;
+        float rightEdge = pos.x + w - 12;
 
         // X button (rightmost)
-        ImGui::SetCursorPos(ImVec2(rightX - 32, btnY));
+        ImGui::SetCursorScreenPos(ImVec2(rightEdge - 32, btnY));
         ImGui::PushStyleColor(ImGuiCol_Button, kColXBtn);
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kColXBtnH);
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, kColXBtnH);
@@ -280,7 +281,7 @@ static void buildServersTab()
         ImGui::PopStyleColor(3);
 
         // Connect button
-        ImGui::SetCursorPos(ImVec2(rightX - 32 - 8 - 110, btnY));
+        ImGui::SetCursorScreenPos(ImVec2(rightEdge - 32 - 8 - 110, btnY));
         const char *btnLabel = isConnecting() ? "..." : "Connect";
         ImGui::PushStyleColor(ImGuiCol_Button, kColConnect);
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kColConnectH);
@@ -294,14 +295,15 @@ static void buildServersTab()
         // Auto checkbox (left of Connect)
         if (!srv.manual) {
             bool autoConn = srv.autoconnect;
-            ImGui::SetCursorPos(ImVec2(rightX - 32 - 8 - 110 - 8 - 80, btnY + 4));
+            ImGui::SetCursorScreenPos(ImVec2(rightEdge - 32 - 8 - 110 - 8 - 70, btnY + 4));
             if (ImGui::Checkbox("Auto", &autoConn)) {
                 if (gOnServerAutoconnect)
                     gOnServerAutoconnect(srv.hostname, srv.port);
             }
         }
 
-        ImGui::SetCursorPosY(pos.y + rowH + 6);
+        // Advance cursor past this row
+        ImGui::SetCursorScreenPos(ImVec2(pos.x, pos.y + rowH + 6));
         ImGui::Dummy(ImVec2(0, 0));
         ImGui::PopID();
     }
