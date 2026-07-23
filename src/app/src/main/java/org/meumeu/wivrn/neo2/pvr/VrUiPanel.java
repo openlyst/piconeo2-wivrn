@@ -2,19 +2,20 @@ package org.meumeu.wivrn.neo2.pvr;
 
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.graphics.Canvas;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
 import java.nio.ByteBuffer;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Wraps WivrnLobbyView (pure Canvas/Paint 2D UI) and exposes pixels
  * for upload to an OpenGL texture by the native render thread.
+ *
+ * Rendering happens on a dedicated background thread so the native
+ * render loop never blocks waiting for Java. renderIfNeeded() just
+ * returns the latest pixel buffer immediately.
  */
 public class VrUiPanel {
     private static final String TAG = "wivrn";
@@ -26,10 +27,20 @@ public class VrUiPanel {
     private final Handler mMainHandler;
     private WivrnLobbyView mLobbyView;
     private Bitmap mBitmap;
-    private ByteBuffer mPixelBuffer;
-    private int[] mPixelInts;
+
+    // Double-buffered pixel storage: render thread writes to backBuffer,
+    // native reads from frontBuffer. Swap is atomic.
+    private final ByteBuffer mBufA = ByteBuffer.allocateDirect(UI_WIDTH * UI_HEIGHT * 4);
+    private final ByteBuffer mBufB = ByteBuffer.allocateDirect(UI_WIDTH * UI_HEIGHT * 4);
+    private volatile ByteBuffer mFrontBuffer = mBufA;
+    private volatile ByteBuffer mBackBuffer = mBufB;
+    private final int[] mPixelInts = new int[UI_WIDTH * UI_HEIGHT];
+    private final Object mSwapLock = new Object();
+
     private final AtomicBoolean mDirty = new AtomicBoolean(true);
     private final AtomicBoolean mAttached = new AtomicBoolean(false);
+    private final AtomicBoolean mRenderRunning = new AtomicBoolean(false);
+    private Thread mRenderThread;
 
     // Native methods
     private native void nativeInit();
@@ -45,21 +56,19 @@ public class VrUiPanel {
         mMainHandler.post(() -> {
             mLobbyView = new WivrnLobbyView(mContext);
             mBitmap = mLobbyView.getBitmap();
-            mPixelBuffer = ByteBuffer.allocateDirect(UI_WIDTH * UI_HEIGHT * 4);
-            mPixelInts = new int[UI_WIDTH * UI_HEIGHT];
             markDirty();
             try { nativeInit(); } catch (Throwable t) { Log.e(TAG, "nativeInit failed", t); }
+            startRenderThread();
             Log.i(TAG, "VrUiPanel attached " + UI_WIDTH + "x" + UI_HEIGHT);
         });
     }
 
     public void detach() {
         if (!mAttached.getAndSet(false)) return;
+        stopRenderThread();
         mMainHandler.post(() -> {
             mLobbyView = null;
             mBitmap = null;
-            mPixelBuffer = null;
-            mPixelInts = null;
         });
     }
 
@@ -68,39 +77,57 @@ public class VrUiPanel {
     public void markDirty() { mDirty.set(true); }
     public boolean isDirty() { return mDirty.get(); }
 
+    private void startRenderThread() {
+        if (mRenderRunning.getAndSet(true)) return;
+        mRenderThread = new Thread(() -> {
+            while (mRenderRunning.get()) {
+                try {
+                    if (!mDirty.get() && (mLobbyView == null || !mLobbyView.isDirty())) {
+                        Thread.sleep(4);
+                        continue;
+                    }
+                    mDirty.set(false);
+                    if (mLobbyView == null || mBitmap == null) continue;
+
+                    mLobbyView.render();
+                    mBitmap.getPixels(mPixelInts, 0, UI_WIDTH, 0, 0, UI_WIDTH, UI_HEIGHT);
+
+                    ByteBuffer back = mBackBuffer;
+                    back.position(0);
+                    back.asIntBuffer().put(mPixelInts);
+                    back.rewind();
+
+                    synchronized (mSwapLock) {
+                        mBackBuffer = mFrontBuffer;
+                        mFrontBuffer = back;
+                    }
+                } catch (InterruptedException e) {
+                    break;
+                } catch (Throwable t) {
+                    Log.e(TAG, "render thread error", t);
+                    try { Thread.sleep(16); } catch (InterruptedException e) { break; }
+                }
+            }
+        }, "ui-canvas-render");
+        mRenderThread.start();
+    }
+
+    private void stopRenderThread() {
+        mRenderRunning.set(false);
+        if (mRenderThread != null) {
+            mRenderThread.interrupt();
+            try { mRenderThread.join(100); } catch (InterruptedException e) {}
+            mRenderThread = null;
+        }
+    }
+
     /**
-     * Render the WivrnLobbyView to the bitmap if dirty, return pixels for GL upload.
-     * Called from the native render thread.
+     * Returns the latest rendered pixel buffer for GL texture upload.
+     * Never blocks - the background render thread keeps the buffer fresh.
      */
     public ByteBuffer renderIfNeeded() {
-        if (!mAttached.get() || mBitmap == null || mPixelBuffer == null) return null;
-        if (!mDirty.getAndSet(false)) {
-            // Still check if lobbyView is dirty (internal state changes)
-            if (mLobbyView == null || !mLobbyView.isDirty()) return mPixelBuffer;
-        }
-
-        CountDownLatch latch = new CountDownLatch(1);
-        mMainHandler.post(() -> {
-            try {
-                if (mLobbyView == null || mBitmap == null || mPixelBuffer == null) return;
-                mLobbyView.render();
-                mBitmap.getPixels(mPixelInts, 0, UI_WIDTH, 0, 0, UI_WIDTH, UI_HEIGHT);
-                mPixelBuffer.position(0);
-                mPixelBuffer.asIntBuffer().put(mPixelInts);
-                mPixelBuffer.rewind();
-            } catch (Throwable t) {
-                Log.e(TAG, "renderIfNeeded failed", t);
-            } finally {
-                latch.countDown();
-            }
-        });
-        try {
-            if (!latch.await(50, TimeUnit.MILLISECONDS))
-                Log.w(TAG, "renderIfNeeded timed out");
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        return mPixelBuffer;
+        if (!mAttached.get()) return null;
+        return mFrontBuffer;
     }
 
     /**
@@ -108,7 +135,6 @@ public class VrUiPanel {
      */
     public void setTouchState(float x, float y, boolean pressed, boolean clickEdge) {
         if (mLobbyView == null) return;
-        // WivrnLobbyView.handleTouch uses normalized 0..1 coordinates
         float nx = (x < 0) ? -1 : x / UI_WIDTH;
         float ny = (y < 0) ? -1 : y / UI_HEIGHT;
         mLobbyView.handleTouch(nx, ny, pressed, clickEdge, 0);
@@ -193,7 +219,6 @@ public class VrUiPanel {
             boolean passthrough, float ctrlVib, int diagHud, boolean eyeSupported) {
         mMainHandler.post(() -> {
             if (mLobbyView == null) return;
-            // WivrnLobbyView manages its own settings; this is a no-op for now
             markDirty();
         });
     }

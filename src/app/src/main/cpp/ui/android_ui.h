@@ -26,7 +26,7 @@ void androidUiFetchAndUpload();
 class AndroidUi {
 public:
     static constexpr int kUiW = 1400;
-    static constexpr int kUiH = 1000;
+    static constexpr int kUiH = 900;
 
     // Panel bounds in metres (same as the old ImGui panel)
     static constexpr float kPanelL = -0.80f;
@@ -72,4 +72,8 @@ private:
     float m_touchX = -1, m_touchY = -1;
     bool  m_touchPressed = false;
     bool  m_touchClickEdge = false;
+
+    // Staging buffer: copy pixels here before GL upload so the Java
+    // ByteBuffer can be safely reused by the render thread.
+    std::vector<uint8_t> m_staging;
 };

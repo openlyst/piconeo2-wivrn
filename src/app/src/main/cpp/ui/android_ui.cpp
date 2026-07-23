@@ -89,9 +89,12 @@ bool AndroidUi::init()
 void AndroidUi::uploadPixels(const void *pixels)
 {
     if (!m_tex || !pixels) return;
+    size_t sz = (size_t)kUiW * kUiH * 4;
+    if (m_staging.size() != sz) m_staging.resize(sz);
+    memcpy(m_staging.data(), pixels, sz);
     glBindTexture(GL_TEXTURE_2D, m_tex);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kUiW, kUiH,
-                    GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+                    GL_RGBA, GL_UNSIGNED_BYTE, m_staging.data());
 }
 
 void AndroidUi::setInput(float lx, float ly, bool pressed, bool onPanel, bool clickEdge)
