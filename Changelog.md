@@ -1,6 +1,5 @@
 # [Beta 1.1 (Unreleased)]()
 
-- Updates licensing so we are not breaking MIT license and the Pico SDK licensing.
 - Reimplements Eye tracking
 - Adds foveated streaming
 - Fixed stereo IPD mismatch
@@ -15,7 +14,7 @@
 - "Lower resolution for wireless" option removed
 - Resolution slider now is %'ge
 - Ports a heavily modified version of Jasper's ALVR 3D UI to WiVRn.
-
+- Update licensing so we are not breaking MIT license and the Pico SDK licensing.
 
 # [Beta 1.0](https://github.com/openlyst/piconeo2-wivrn/releases/download/Beta-1.0/wivrn-pvr-Beta-1.0.apk)
 
