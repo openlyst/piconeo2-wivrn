@@ -139,6 +139,14 @@ add_library(p2wivrn SHARED
     ${WIVRN_DIR}/audio/pico_audio.cpp
     ${WIVRN_DIR}/render/pico_blit.cpp
     ${WIVRN_DIR}/tracking/pico_tracking.cpp
+    imgui_manager.cpp
+    imgui_compositor.cpp
+    imgui_ui.cpp
+    third_party/imgui/imgui.cpp
+    third_party/imgui/imgui_draw.cpp
+    third_party/imgui/imgui_tables.cpp
+    third_party/imgui/imgui_widgets.cpp
+    third_party/imgui/imgui_impl_gles3.cpp
 )
 
 # Thin LTO on OUR translation units + link only (imported prebuilt libs are
@@ -150,6 +158,7 @@ target_include_directories(p2wivrn PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/streaming
     ${CMAKE_CURRENT_SOURCE_DIR}/openxr
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui
     ${WIVRN_DIR}
     ${WIVRN_DIR}/core
     ${WIVRN_DIR}/net

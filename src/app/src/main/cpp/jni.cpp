@@ -2,6 +2,8 @@
 // and start/stop the render thread.
 #include <jni.h>
 #include <android/native_window_jni.h>
+#include <android/asset_manager.h>
+#include <android/asset_manager_jni.h>
 #include <pthread.h>
 #include <sys/socket.h>
 #include <thread>
@@ -19,6 +21,10 @@
 #include "pico_sdk.h"        // Pvr_ResetSensor
 #include "streaming/streaming_client.h"
 #include <ctime>
+
+// Font data loaded from assets, used by ImGuiManager::init().
+std::vector<unsigned char> gFontData;
+std::vector<unsigned char> gFontDataBold;
 
 static jmethodID g_onServerConnectMethod = nullptr;
 static jmethodID g_onServerRemoveMethod = nullptr;
@@ -63,6 +69,33 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
     if (gRunning.load()) { LOGI("nativeStart ignored (already running)"); return; }
     env->GetJavaVM(&gVM);
     gActivity = env->NewGlobalRef(activity);
+    clearConnectionError();   // don't show stale errors from a previous session
+
+    // Load ImGui fonts from APK assets.
+    {
+        jclass actClass = env->GetObjectClass(activity);
+        jmethodID getAssets = env->GetMethodID(actClass, "getAssets", "()Landroid/content/res/AssetManager;");
+        jobject javaAssetMgr = env->CallObjectMethod(activity, getAssets);
+        AAssetManager *mgr = AAssetManager_fromJava(env, javaAssetMgr);
+        if (mgr) {
+            auto loadFont = [&](const char *path, std::vector<unsigned char> &out) {
+                AAsset *a = AAssetManager_open(mgr, path, AASSET_MODE_BUFFER);
+                if (!a) { LOGE("Failed to open asset: %s", path); return; }
+                size_t sz = AAsset_getLength(a);
+                out.resize(sz);
+                AAsset_read(a, out.data(), sz);
+                AAsset_close(a);
+                LOGI("Loaded font asset: %s (%zu bytes)", path, sz);
+            };
+            loadFont("fonts/Roboto-Regular.ttf", gFontData);
+            loadFont("fonts/Roboto-Bold.ttf", gFontDataBold);
+        } else {
+            LOGE("Failed to get AAssetManager for fonts");
+        }
+        env->DeleteLocalRef(javaAssetMgr);
+        env->DeleteLocalRef(actClass);
+    }
+
     jclass clazz = env->GetObjectClass(activity);
     g_onServerConnectMethod = env->GetMethodID(clazz, "onServerConnect", "(Ljava/lang/String;IZ)V");
     g_onServerRemoveMethod = env->GetMethodID(clazz, "onServerRemove", "(Ljava/lang/String;I)V");
@@ -452,6 +485,7 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeConnect(JNIEnv *env, jobject t
     g_stream->tcp_only = (tcpOnly == JNI_TRUE);
     g_stream->shutdown = false;
     g_stream->auto_reconnect.store(false);
+    g_stream->user_initiated.store(true);
     env->ReleaseStringUTFChars(hostname, host);
 
     LOGI("nativeConnect: %s:%d tcp=%d", g_stream->server_host.c_str(), g_stream->server_port, g_stream->tcp_only ? 1 : 0);
@@ -467,6 +501,7 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeDisconnect(JNIEnv *env, jobjec
     LOGI("nativeDisconnect");
     g_stream->shutdown = true;
     g_stream->auto_reconnect.store(false);
+    g_stream->user_initiated.store(false);
     if (g_stream->session)
     {
         int fd = g_stream->session->get_control_fd();
