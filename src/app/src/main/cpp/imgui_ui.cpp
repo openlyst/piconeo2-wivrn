@@ -708,9 +708,6 @@ static void buildLicensesTab()
     ImGui::TextColored(kColTitle, "Third-party components");
     ImGui::Dummy(ImVec2(0, 8));
 
-    ImGui::TextColored(kColFill, "ALVR client library - MIT License");
-    ImGui::TextColored(kColTitle, "github.com/alvr-org/alvr");
-    ImGui::Dummy(ImVec2(0, 8));
     ImGui::TextColored(kColFill, "3D controller models - Pico Interactive");
     ImGui::TextColored(kColDim, "Owned by Pico Interactive");
 }
