@@ -79,9 +79,12 @@ bool FontAtlas::init(const char *path)
         g.bl = (float)bl;
         g.bt = (float)bt;
         g.tx = (float)x / kAtlasW;
-        g.ty = (float)yOff / kAtlasH;
+        // Flip V: stb bitmap row 0 is top, but GL texture row 0 is bottom.
+        // So the top of the glyph in the atlas buffer is at V = (yOff+bh)/kAtlasH,
+        // and we use a negative th so the quad maps top->top, bottom->bottom.
+        g.ty = (float)(yOff + bh) / kAtlasH;
         g.tw = (float)bw / kAtlasW;
-        g.th = (float)bh / kAtlasH;
+        g.th = -(float)bh / kAtlasH;
 
         int adv, lsb;
         stbtt_GetCodepointHMetrics(&font, codepoint, &adv, &lsb);
