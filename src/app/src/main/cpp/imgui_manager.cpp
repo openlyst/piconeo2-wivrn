@@ -27,6 +27,7 @@ bool ImGuiManager::init()
     ImGuiIO &io = ImGui::GetIO();
     io.IniFilename = nullptr;   // don't write imgui.ini
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+    io.MouseDrawCursor = false; // no software cursor on the offscreen texture
 
     // Load Roboto TTF at a size readable in VR. The font data is loaded
     // from APK assets by jni.cpp::nativeStart. Fall back to the default

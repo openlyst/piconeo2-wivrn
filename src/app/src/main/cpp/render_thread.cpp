@@ -3253,8 +3253,6 @@ void *renderThread(void *) {
                             if (ptrFromController)
                                 drawLaserBeam(ptrOx, ptrOy, ptrOz, ptrDx, ptrDy, ptrDz, pi.laserLen, sproj, view);
                             drawSettingsPanelVerts(pi.sliderVertCount, sproj, view, settingsWorld);
-                            if (pi.cursorOnPanel)
-                                drawPointerCursor(pi.cursorLx, pi.cursorLy, pi.cursorPressed, sproj, view, settingsWorld);
                         }
                         glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     }
@@ -3777,8 +3775,6 @@ void *renderThread(void *) {
                 gImGuiComposite.draw(mvp.m, gImGui.texture());
                 glDisable(GL_BLEND);
             }
-            if (pi.cursorOnPanel)
-                drawPointerCursor(pi.cursorLx, pi.cursorLy, pi.cursorPressed, sproj, sview, settingsWorld);
 
             // PIN pad overlay (shown when server requests pairing PIN).
             if (gPinEntryRequested.load()) {
