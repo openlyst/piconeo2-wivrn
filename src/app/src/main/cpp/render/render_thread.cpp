@@ -1875,11 +1875,87 @@ static void applyHmdBrightness(float frac, JNIEnv *env) {
 
 void *renderThread(void *) {
     // Reset file-scope statics that survive a nativeStop->nativeStart in the same
-    // process: a relaunch builds a fresh EGL context, so any "already done" latch
-    // left true would skip the re-setup.
+    // process: a relaunch builds a fresh EGL context, so any GL object name or
+    // "already done" latch left from the previous context is stale and must be
+    // zeroed. Without this, guards like `if (gCtrlProg) return;` skip re-creation
+    // and the render loop draws with invalid GL names -> missing faces, dead UI.
     gWarpToWindow = false;
     gAtwEnabled = false;
     gPerfBaseCaptured = false;
+
+    // GL programs
+    gProg = 0;
+    gMvpLoc = -1;
+    gCtrlProg = 0;
+    gCtrlMvpLoc = 0;
+    gCtrlTexLoc = 0;
+
+    // Controller mesh GL resources
+    for (int h = 0; h < 2; h++) {
+        gCtrlVao[h] = 0;
+        gCtrlVbo[h] = 0;
+        gCtrlVertCount[h] = 0;
+    }
+    for (int t = 0; t < 5; t++) gCtrlTex[t] = 0;
+    // Force OBJ reload so VBOs get rebuilt with fresh vertex data.
+    for (int h = 0; h < 2; h++) {
+        gCtrlPosData[h].clear();
+        gCtrlUvData[h].clear();
+    }
+
+    // Lobby eye-texture ring + FBO
+    for (int e = 0; e < 2; e++)
+        for (int i = 0; i < kLobbyRing; i++) gLobbyEye[e][i] = 0;
+    gLobbyFbo = 0;
+    gLobbyDepth = 0;
+    gLobbyEyeReady = false;
+    for (int i = 0; i < kLobbyRing; i++) gLobbyFence[i] = 0;
+
+    // Stream swapchain
+    for (int e = 0; e < 2; e++)
+        for (int i = 0; i < kSwapLen; i++) gSwap[e][i] = 0;
+    gStreamFbo = 0;
+    gSwapIdx = 0;
+    gPrevSwapIdx = -1;
+    gPrevSwapValid = false;
+    for (int i = 0; i < kSwapLen; i++) gSwapFence[i] = 0;
+    gStreamW = 0;
+    gStreamH = 0;
+
+    // UI VAOs/VBOs
+    gTextVao = 0; gTextVbo = 0;
+    gSliderVao = 0; gSliderVbo = 0;
+    gSrvVao = 0; gSrvVbo = 0;
+    gReticleVao = 0; gReticleVbo = 0;
+    gReticleVertCount = 0;
+    gEqVao = 0; gEqVbo = 0;
+    gLaserVao = 0; gLaserVbo = 0;
+    gCursorVao = 0; gCursorVbo = 0;
+    gDiagVao = 0; gDiagVbo = 0;
+    gWarnVao = 0; gWarnVbo = 0;
+    gTestVao = 0; gTestVbo = 0;
+    gTestVertCount = 0;
+
+    // Eye-gaze marker
+    gGazeVao = 0; gGazeVbo = 0;
+    gGazeVertCount = 0;
+
+    // Stream / foveation state
+    gFoveOn = false;
+    gFovResyncPending = false;
+    gResetPacer = false;
+    gStreaming = false;
+    gDecoderReady = false;
+    gAlvrGlReady = false;
+    gSlept = false;
+
+    // Passthrough and simple_lobby: their init() guards on a bool that survives
+    // across launches. Delete and recreate so they build fresh GL resources.
+    if (gSimpleLobby) { delete gSimpleLobby; gSimpleLobby = nullptr; }
+    if (gPassthrough) { delete gPassthrough; gPassthrough = new pico_passthrough(); }
+    // ImGui manager + compositor: global objects with m_initialized guards.
+    gImGui.reset();
+    gImGuiComposite.reset();
     JNIEnv *env = nullptr;
     gVM->AttachCurrentThread(&env, nullptr);
     int reservedCpu = pinSubmitThreadForLowLatency();   // big-core affinity + prio; returns core reserved for warp

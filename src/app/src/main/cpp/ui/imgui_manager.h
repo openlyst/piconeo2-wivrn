@@ -15,6 +15,10 @@ public:
     ImGuiManager() = default;
     ~ImGuiManager();
 
+    // Release all GL resources and ImGui state. Called before a relaunch
+    // re-inits with a fresh EGL context.
+    void reset();
+
     // Initialize ImGui + GLES3 backend + offscreen FBO. Call once from the
     // render thread after GL context is created.
     bool init();

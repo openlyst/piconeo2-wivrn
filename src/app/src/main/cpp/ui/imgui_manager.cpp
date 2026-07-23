@@ -20,6 +20,19 @@ ImGuiManager::~ImGuiManager()
     if (m_tex) glDeleteTextures(1, &m_tex);
 }
 
+void ImGuiManager::reset()
+{
+    // The EGL context is already destroyed by the time this is called (the
+    // previous render thread exited), so don't call ImGui_ImplOpenGL3_Shutdown
+    // or glDelete* - just zero the latches so init() re-runs cleanly.
+    if (m_initialized) {
+        ImGui::DestroyContext();
+    }
+    m_fbo = 0;
+    m_tex = 0;
+    m_initialized = false;
+}
+
 bool ImGuiManager::init()
 {
     IMGUI_CHECKVERSION();
