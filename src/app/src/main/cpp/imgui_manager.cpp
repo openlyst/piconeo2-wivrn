@@ -2,6 +2,11 @@
 #include "log.h"
 #include "third_party/imgui/imgui.h"
 #include "third_party/imgui/imgui_impl_gles3.h"
+#include <vector>
+
+// Font data loaded from APK assets by jni.cpp.
+extern std::vector<unsigned char> gFontData;
+extern std::vector<unsigned char> gFontDataBold;
 
 ImGuiManager gImGui;
 
@@ -23,9 +28,31 @@ bool ImGuiManager::init()
     io.IniFilename = nullptr;   // don't write imgui.ini
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
 
-    // Default font at a readable size for VR. Can add more fonts later.
-    io.Fonts->AddFontDefault();
-    io.FontGlobalScale = 2.0f;  // scale up for VR readability
+    // Load Roboto TTF at a size readable in VR. The font data is loaded
+    // from APK assets by jni.cpp::nativeStart. Fall back to the default
+    // bitmap font if the TTF isn't available.
+    ImFontConfig cfg;
+    cfg.OversampleH = 3;
+    cfg.OversampleV = 1;
+    cfg.PixelSnapH = false;
+
+    float fontSize = 32.0f;
+    ImFont *regular = nullptr, *bold = nullptr;
+    if (!gFontData.empty()) {
+        regular = io.Fonts->AddFontFromMemoryTTF(gFontData.data(), (int)gFontData.size(),
+                                                  fontSize, &cfg);
+        // Merge bold into the same atlas (range 0x0020-0x00FF shared).
+        if (!gFontDataBold.empty()) {
+            cfg.MergeMode = true;
+            bold = io.Fonts->AddFontFromMemoryTTF(gFontDataBold.data(), (int)gFontDataBold.size(),
+                                                  fontSize, &cfg);
+            cfg.MergeMode = false;
+        }
+    } else {
+        LOGE("ImGui: TTF font data not available, falling back to default");
+        io.Fonts->AddFontDefault();
+    }
+    io.FontGlobalScale = 1.0f;
 
     if (!ImGui_ImplOpenGL3_Init("#version 300 es")) {
         LOGE("ImGui_ImplOpenGL3_Init failed");

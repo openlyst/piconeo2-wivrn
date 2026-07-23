@@ -127,13 +127,11 @@ static float beginCard(float cardH, const ImVec4 &bg = kColRowNormal)
     return pos.y;
 }
 
-// Section header text (slightly larger, accent-coloured)
+// Section header text (title coloured, with separator)
 static void sectionHeader(const char *text)
 {
     ImGui::Dummy(ImVec2(0, 4));
-    ImGui::PushFont(nullptr);
     ImGui::TextColored(kColTitle, "%s", text);
-    ImGui::PopFont();
     ImGui::Separator();
     ImGui::Dummy(ImVec2(0, 6));
 }
