@@ -233,8 +233,11 @@ static void buildServersTab()
         float textW = w - btnAreaW - 24;
 
         // Line 1: server name + discovered badge
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 12);
-        ImGui::SetCursorPosY(pos.y + 8);
+        float line1Y = pos.y + 8;
+        float line2Y = line1Y + ImGui::GetTextLineHeight() + 4;
+        float textX = pos.x + 12;
+
+        ImGui::SetCursorScreenPos(ImVec2(textX, line1Y));
         ImVec2 nameSize = ImGui::CalcTextSize(srv.name.c_str());
         if (nameSize.x > textW) {
             char trunc[128];
@@ -255,7 +258,7 @@ static void buildServersTab()
         }
 
         // Line 2: hostname
-        ImGui::SetCursorPosX(pos.x - ImGui::GetWindowPos().x + 12);
+        ImGui::SetCursorScreenPos(ImVec2(textX, line2Y));
         char hp[160]; snprintf(hp, sizeof(hp), "%s:%d", srv.hostname.c_str(), srv.port);
         ImVec2 hostSize = ImGui::CalcTextSize(hp);
         if (hostSize.x > textW) {
