@@ -112,16 +112,35 @@ void simple_lobby::init() {
 
 void simple_lobby::buildGrid() {
     std::vector<float> verts;
-    float halfSize = 25.0f;
-    float step = 1.0f;
-    int lines = (int)(halfSize / step) * 2 + 1;
+    auto pushLine = [&](float x0, float z0, float x1, float z1) {
+        verts.push_back(x0); verts.push_back(0.0f); verts.push_back(z0);
+        verts.push_back(x1); verts.push_back(0.0f); verts.push_back(z1);
+    };
 
-    for (int i = 0; i < lines; i++) {
-        float x = -halfSize + i * step;
-        verts.push_back(x); verts.push_back(0.0f); verts.push_back(-halfSize);
-        verts.push_back(x); verts.push_back(0.0f); verts.push_back(halfSize);
-        verts.push_back(-halfSize); verts.push_back(0.0f); verts.push_back(x);
-        verts.push_back(halfSize); verts.push_back(0.0f); verts.push_back(x);
+    // SteamVR-style floor: three concentric loops at the center, then straight
+    // radial lines that expand outward to the fade distance.
+    const float fadeRadius = 25.0f;
+    const float loopRadii[3] = {1.0f, 2.0f, 3.0f};
+    const int   loopSegs    = 96;
+    const int   spokeCount  = 24;       // every 15 degrees
+
+    // Three concentric circles.
+    for (int r = 0; r < 3; r++) {
+        float rad = loopRadii[r];
+        for (int s = 0; s < loopSegs; s++) {
+            float a0 = (float)s / loopSegs * 2.0f * M_PI;
+            float a1 = (float)(s + 1) / loopSegs * 2.0f * M_PI;
+            pushLine(cosf(a0) * rad, sinf(a0) * rad,
+                     cosf(a1) * rad, sinf(a1) * rad);
+        }
+    }
+
+    // Straight radial lines from the outermost loop out to the fade radius.
+    for (int s = 0; s < spokeCount; s++) {
+        float a = (float)s / spokeCount * 2.0f * M_PI;
+        float dx = cosf(a), dz = sinf(a);
+        pushLine(dx * loopRadii[2], dz * loopRadii[2],
+                 dx * fadeRadius,   dz * fadeRadius);
     }
 
     grid_vert_count_ = (int)(verts.size() / 3);
