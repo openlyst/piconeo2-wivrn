@@ -33,9 +33,7 @@
 #include "eye_tracking.h"// readEyeGazes() + gaze/openness state
 #include "device_info.h" // IP / status / model strings + readers
 #include "ui_kit.h"      // font + appendTextLine/Quad + immediate-mode widget kit
-#include "imgui_manager.h"     // ImGui offscreen rendering
-#include "imgui_compositor.h"  // composite ImGui texture as 3D quad
-#include "imgui_ui.h"          // ImGui UI panel code
+#include "android_ui.h"  // Android View-based UI (replaces ImGui)
 #include "eq_panel.h"    // 16-band audio EQ: state + persistence + buildEqVerts
 #include "settings_panel.h"  // unified lobby SETTINGS window (sidebar + scroll)
 #include "server_list.h"     // wiVRn-style server list panel
@@ -1965,9 +1963,8 @@ void *renderThread(void *) {
     // across launches. Delete and recreate so they build fresh GL resources.
     if (gSimpleLobby) { delete gSimpleLobby; gSimpleLobby = nullptr; }
     if (gPassthrough) { delete gPassthrough; gPassthrough = new pico_passthrough(); }
-    // ImGui manager + compositor: global objects with m_initialized guards.
-    gImGui.reset();
-    gImGuiComposite.reset();
+    // Android View UI: global object with init guard.
+    gAndroidUi.reset();
     JNIEnv *env = nullptr;
     gVM->AttachCurrentThread(&env, nullptr);
     int reservedCpu = pinSubmitThreadForLowLatency();   // big-core affinity + prio; returns core reserved for warp
@@ -2185,9 +2182,8 @@ void *renderThread(void *) {
     buildTextBuffers();      // dynamic VBOs for lobby HUD text + slider
     buildReticle();          // head-gaze crosshair
     buildControllerMeshes(); // Neo 2 controller wireframes
-    // Initialize ImGui + offscreen FBO + composite shader.
-    gImGui.init();
-    gImGuiComposite.init();
+    // Initialize Android View UI + GL texture + composite shader.
+    gAndroidUi.init();
     // Passthrough camera background replaces the dark-void environment.
     // The lobby UI panels composite on top of the live camera feed.
     if (gPassthrough) {
@@ -3343,15 +3339,11 @@ void *renderThread(void *) {
                         glBindFramebuffer(GL_FRAMEBUFFER, gStreamFbo);
                         glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_SCISSOR_TEST);
 
-                        // Build ImGui frame once for both eyes.
-                        gImGui.setInput(pi.cursorLx, pi.cursorLy, pi.cursorPressed, pi.cursorOnPanel, pi.clickEdge);
-                        gImGui.newFrame();
-                        buildImGuiUI();
-                        gImGui.render();
-                        // gImGui.render() leaves FBO 0 bound; rebind gStreamFbo
-                        // so the per-eye draws go into the swapchain textures.
-                        glBindFramebuffer(GL_FRAMEBUFFER, gStreamFbo);
-                        glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_SCISSOR_TEST);
+                        // Set input + upload pixels from Java's View rendering.
+                        gAndroidUi.setInput(pi.cursorLx, pi.cursorLy, pi.cursorPressed, pi.cursorOnPanel, pi.clickEdge);
+                        androidUiPushTouch(AndroidUi::mToPxX(pi.cursorLx), AndroidUi::mToPxY(pi.cursorLy),
+                                           pi.cursorPressed, pi.clickEdge);
+                        androidUiFetchAndUpload();
 
                         for (int e = 0; e < 2; e++) {
                             float ex = (e == 0 ? -softIpdM()*0.5f : softIpdM()*0.5f);
@@ -3365,11 +3357,11 @@ void *renderThread(void *) {
                                 drawLaserBeam(ptrOx, ptrOy, ptrOz, ptrDx, ptrDy, ptrDz, pi.laserLen, sproj, view);
                             drawSettingsPanelVerts(pi.sliderVertCount, sproj, view, settingsWorld);
 
-                            // Composite ImGui UI texture on top of the panel.
+                            // Composite Android UI texture on top of the panel.
                             Mat4 mvp = mat4Mul(sproj, mat4Mul(view, settingsWorld));
                             glEnable(GL_BLEND);
                             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                            gImGuiComposite.draw(mvp.m, gImGui.texture());
+                            gAndroidUi.draw(mvp.m);
                             glDisable(GL_BLEND);
                         }
                         glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -3878,7 +3870,7 @@ void *renderThread(void *) {
                 glDisable(GL_DEPTH_TEST);
                 glEnable(GL_BLEND);
                 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                gImGuiComposite.draw(mvp.m, gImGui.texture());
+                gAndroidUi.draw(mvp.m);
                 glDisable(GL_BLEND);
             }
             // Pointer cursor: ring when hovering, filled disc when pressed.
@@ -3947,11 +3939,11 @@ void *renderThread(void *) {
                 {
                     eglMakeCurrent(dpy, pbuf, pbuf, ctx);   // stay offscreen; warp owns the window
                     if (gGridThemeDirty.exchange(false)) { buildControllerMeshes(); }   // recolour controllers (grid floor removed, passthrough replaces it)
-                    // Build ImGui frame once per frame (not per eye).
-                    gImGui.setInput(pi.cursorLx, pi.cursorLy, pi.cursorPressed, pi.cursorOnPanel, pi.clickEdge);
-                    gImGui.newFrame();
-                    buildImGuiUI();
-                    gImGui.render();
+                    // Set input + fetch pixels from Java's View rendering once per frame.
+                    gAndroidUi.setInput(pi.cursorLx, pi.cursorLy, pi.cursorPressed, pi.cursorOnPanel, pi.clickEdge);
+                    androidUiPushTouch(AndroidUi::mToPxX(pi.cursorLx), AndroidUi::mToPxY(pi.cursorLy),
+                                       pi.cursorPressed, pi.clickEdge);
+                    androidUiFetchAndUpload();
                     for (int eye = 0; eye < 2; eye++) {
                         float ex = (eye == 0 ? -softIpdM()*0.5f : softIpdM()*0.5f);
                         Mat4 eyeShift = mat4Translate(-ex, 0, 0);

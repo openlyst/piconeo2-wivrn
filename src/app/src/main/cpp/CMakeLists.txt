@@ -130,9 +130,7 @@ add_library(p2wivrn SHARED
     ui/pin_pad.cpp
     ui/stream_panel.cpp
     ui/simple_lobby.cpp
-    ui/imgui_manager.cpp
-    ui/imgui_compositor.cpp
-    ui/imgui_ui.cpp
+    ui/android_ui.cpp
     streaming/streaming_client.cpp
     streaming/pvr_renderer.cpp
     streaming/pvr_eye_bridge.cpp
@@ -143,11 +141,6 @@ add_library(p2wivrn SHARED
     ${WIVRN_DIR}/audio/pico_audio.cpp
     ${WIVRN_DIR}/render/pico_blit.cpp
     ${WIVRN_DIR}/tracking/pico_tracking.cpp
-    third_party/imgui/imgui.cpp
-    third_party/imgui/imgui_draw.cpp
-    third_party/imgui/imgui_tables.cpp
-    third_party/imgui/imgui_widgets.cpp
-    third_party/imgui/imgui_impl_gles3.cpp
 )
 
 # Thin LTO on OUR translation units + link only (imported prebuilt libs are
@@ -163,7 +156,6 @@ target_include_directories(p2wivrn PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/ui
     ${CMAKE_CURRENT_SOURCE_DIR}/streaming
     ${CMAKE_CURRENT_SOURCE_DIR}/openxr
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui
     ${WIVRN_DIR}
     ${WIVRN_DIR}/core
     ${WIVRN_DIR}/net

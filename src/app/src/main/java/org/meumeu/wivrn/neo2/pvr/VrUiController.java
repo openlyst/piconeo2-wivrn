@@ -164,7 +164,7 @@ public class VrUiController {
     }
 
     public void rebuild() {
-        ViewGroup root = buildLayout();
+        View root = buildLayout();
         mPanel.setContentView(root);
     }
 
@@ -506,7 +506,7 @@ public class VrUiController {
 
         // Eye-tracked foveation toggle
         if (mEyeSupported) {
-            container.addView(card(toggleRow("Eye-tracked foveation", mEyeFoveation, val -> {
+            container.addView(card(toggleRow("Eye-tracked foveation", mEyeFoveation, (v, val) -> {
                 mEyeFoveation = val;
                 if (mCb != null) mCb.onSetEyeFoveation(val);
             })));
@@ -514,7 +514,7 @@ public class VrUiController {
         }
 
         // Microphone toggle
-        container.addView(card(toggleRow("Microphone", mMicrophone, val -> {
+        container.addView(card(toggleRow("Microphone", mMicrophone, (v, val) -> {
             mMicrophone = val;
             if (mCb != null) mCb.onSetMicrophone(val);
         })));
@@ -529,7 +529,7 @@ public class VrUiController {
         container.addView(spacer(dp(6)));
 
         // Passthrough toggle
-        container.addView(card(toggleRow("Passthrough", mPassthrough, val -> {
+        container.addView(card(toggleRow("Passthrough", mPassthrough, (v, val) -> {
             mPassthrough = val;
             if (mCb != null) mCb.onSetPassthrough(val);
         })));
@@ -863,8 +863,12 @@ public class VrUiController {
         return btn;
     }
 
+    private interface OnIntValueChange {
+        void onChange(int value);
+    }
+
     private View sliderRow(String label, int current, int min, int max, String fmt,
-                           Slider.OnChangeListener listener) {
+                           OnIntValueChange listener) {
         LinearLayout col = new LinearLayout(mContext);
         col.setOrientation(LinearLayout.VERTICAL);
 
@@ -879,13 +883,13 @@ public class VrUiController {
         slider.setValueTo(max);
         slider.setValue(current);
         slider.setStepSize(1);
-        slider.addOnChangeListener(listener);
+        slider.addOnChangeListener((s, val, fromUser) -> listener.onChange((int)val));
         col.addView(slider);
 
         return col;
     }
 
-    private View toggleRow(String label, boolean on, Switch.OnCheckedChangeListener listener) {
+    private View toggleRow(String label, boolean on, CompoundButton.OnCheckedChangeListener listener) {
         LinearLayout row = new LinearLayout(mContext);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);

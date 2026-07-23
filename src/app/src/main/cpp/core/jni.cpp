@@ -834,4 +834,22 @@ void androidUiPushSettings()
     if (attached) gVM->DetachCurrentThread();
 }
 
+void androidUiFetchAndUpload()
+{
+    if (!gUiPanel || !g_uiPushPixelsMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    jobject buf = env->CallObjectMethod(gUiPanel, g_uiPushPixelsMethod);
+    if (buf) {
+        void *pixels = env->GetDirectBufferAddress(buf);
+        if (pixels) gAndroidUi.uploadPixels(pixels);
+        env->DeleteLocalRef(buf);
+    }
+    if (attached) gVM->DetachCurrentThread();
+}
+
 
