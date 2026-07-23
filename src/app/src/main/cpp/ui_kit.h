@@ -1,12 +1,16 @@
 #pragma once
-// Immediate-mode lobby UI kit + 5x7 bitmap font. Pure geometry emitters: each
-// widget appends pos.xyz+rgb triangles into a vertex vector (panel-local metres).
+// Immediate-mode lobby UI kit + stb_truetype font renderer. Pure geometry
+// emitters: each widget appends pos.xyz+uv.xy+rgb triangles into a vertex
+// vector (panel-local metres). Text quads sample from the font atlas
+// texture; non-text quads use UV (0,0) which maps to a solid white texel
+// so their per-vertex colour passes through unchanged.
 #include <vector>
 
-// Append one centred line of text as filled quads. px = metres per font pixel.
+// Append one centred line of text as textured quads. px = metres per font pixel.
 void appendTextLine(std::vector<float> &v, const char *s, float yTop,
                     float px, float r, float g, float b);
 // Filled rectangle (two triangles, z=0), top-left (xL,yTop) to bottom-right (xR,yBot).
+// UVs are (0,0) so the quad samples the solid white texel in the font atlas.
 void appendQuad(std::vector<float> &v, float xL, float yTop, float xR, float yBot,
                 float r, float g, float b);
 
