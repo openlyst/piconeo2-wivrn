@@ -8,6 +8,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.util.TypedValue;
+import android.view.ContextThemeWrapper;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -110,7 +111,7 @@ public class VrUiController {
     private boolean mEyeSupported = true;
 
     public VrUiController(Context context, VrUiPanel panel) {
-        mContext = context;
+        mContext = new ContextThemeWrapper(context, R.style.VrMaterialTheme);
         mPanel = panel;
         mHandler = new Handler(Looper.getMainLooper());
     }

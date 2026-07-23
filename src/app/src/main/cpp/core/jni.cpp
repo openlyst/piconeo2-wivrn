@@ -694,7 +694,7 @@ Java_org_meumeu_wivrn_neo2_pvr_VrUiPanel_nativeInit(JNIEnv *env, jobject panel) 
     g_uiSetServersMethod     = env->GetMethodID(cls, "setServersFromNative", "([Ljava/lang/String;[Ljava/lang/String;[I[Z[Z[Z)V");
     g_uiSetConnectingMethod  = env->GetMethodID(cls, "setConnectingFromNative", "(Z)V");
     g_uiSetConnErrorMethod   = env->GetMethodID(cls, "setConnectionErrorFromNative", "(Ljava/lang/String;)V");
-    g_uiSetStatsMethod       = env->GetMethodID(cls, "setStatsFromNative", "(IFFFFFFFFFIIIZ)V");
+    g_uiSetStatsMethod       = env->GetMethodID(cls, "setStatsFromNative", "(IFFFFFFFFFFFIIIZ)V");
     g_uiSetRunningAppsMethod = env->GetMethodID(cls, "setRunningAppsFromNative", "([Ljava/lang/String;[I[Z)V");
     g_uiSetAvailableAppsMethod = env->GetMethodID(cls, "setAvailableAppsFromNative", "([Ljava/lang/String;[Ljava/lang/String;)V");
     g_uiSetStreamingMethod   = env->GetMethodID(cls, "setStreamingFromNative", "(Z)V");

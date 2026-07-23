@@ -1,6 +1,7 @@
 package org.meumeu.wivrn.neo2.pvr;
 
 import android.content.Context;
+import android.content.ContextWrapper;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -8,6 +9,7 @@ import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.ContextThemeWrapper;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -56,7 +58,9 @@ public class VrUiPanel {
     public native ByteBuffer nativeGetPixels();
 
     public VrUiPanel(Context context) {
-        mContext = context;
+        // Material components require a Material theme; wrap the activity context
+        // since the app theme is Theme.Black.NoTitleBar.Fullscreen.
+        mContext = new ContextThemeWrapper(context, R.style.VrMaterialTheme);
         mMainHandler = new Handler(Looper.getMainLooper());
     }
 
