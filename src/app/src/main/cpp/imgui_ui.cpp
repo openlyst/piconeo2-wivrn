@@ -317,7 +317,9 @@ static void buildSettingsTab()
 
     // Brightness
     float bright = gBrightnessFrac.load();
-    if (ImGui::SliderFloat("Brightness", &bright, 0.0f, 1.0f, "%.0f%%")) {
+    int brightPct = (int)(bright * 100.0f + 0.5f);
+    if (ImGui::SliderInt("Brightness", &brightPct, 0, 100, "%d%%")) {
+        bright = brightPct / 100.0f;
         gBrightnessFrac.store(bright);
         gBrightnessSaved.store(true);
         gBrightnessApply.store(true);
@@ -402,8 +404,9 @@ static void buildSettingsTab()
 
     // Controller vibration
     float vib = gWivrnCtrlVibration.load();
-    if (ImGui::SliderFloat("Controller vibration", &vib, 0.0f, 1.0f, "%.0f%%")) {
-        gWivrnCtrlVibration.store(vib);
+    int vibPct = (int)(vib * 100.0f + 0.5f);
+    if (ImGui::SliderInt("Controller vibration", &vibPct, 0, 100, "%d%%")) {
+        gWivrnCtrlVibration.store(vibPct / 100.0f);
     }
     if (ImGui::IsItemDeactivatedAfterEdit()) saveAllConfig();
     ImGui::Dummy(ImVec2(0, 4));
