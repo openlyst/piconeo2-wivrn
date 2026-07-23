@@ -2205,6 +2205,9 @@ void *renderThread(void *) {
     buildTextBuffers();      // dynamic VBOs for lobby HUD text + slider
     buildReticle();          // head-gaze crosshair
     buildControllerMeshes(); // Neo 2 controller wireframes
+    // Initialize ImGui + offscreen FBO + composite shader.
+    gImGui.init();
+    gImGuiComposite.init();
     // Passthrough camera background replaces the dark-void environment.
     // The lobby UI panels composite on top of the live camera feed.
     if (gPassthrough) {
