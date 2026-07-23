@@ -837,6 +837,7 @@ void buildImGuiUI()
 {
     applyImGuiTheme();
     sStreamingMode = gStreamingMode;
+    if (sStreamingMode && sCurrentTab == 0) sCurrentTab = 1;
 
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
@@ -861,16 +862,17 @@ void buildImGuiUI()
     ImGui::Dummy(ImVec2(0, 8));
 
     // Top group
-    struct TabDef { const char *name; int id; bool streamingOnly; };
+    struct TabDef { const char *name; int id; bool streamingOnly; bool hideWhileStreaming; };
     TabDef topTabs[] = {
-        {"Servers",  0, false},
-        {"Settings", 1, false},
-        {"Stats",    2, true},
-        {"Apps",     3, true},
-        {"Launch",   4, true},
+        {"Servers",  0, false, true},
+        {"Settings", 1, false, false},
+        {"Stats",    2, true,  false},
+        {"Apps",     3, true,  false},
+        {"Launch",   4, true,  false},
     };
     for (auto &t : topTabs) {
         if (t.streamingOnly && !sStreamingMode) continue;
+        if (t.hideWhileStreaming && sStreamingMode) continue;
         tabButton(t.name, t.id, sCurrentTab == t.id);
     }
 
