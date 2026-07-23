@@ -3763,6 +3763,10 @@ void *renderThread(void *) {
                 gImGuiComposite.draw(mvp.m, gImGui.texture());
                 glDisable(GL_BLEND);
             }
+            // Pointer cursor: ring when hovering, filled disc when pressed.
+            // Drawn on top of the ImGui quad so the user sees where the ray hits.
+            if (pi.cursorOnPanel)
+                drawPointerCursor(pi.cursorLx, pi.cursorLy, pi.cursorPressed, sproj, sview, settingsWorld);
 
             // PIN pad overlay (shown when server requests pairing PIN).
             if (gPinEntryRequested.load()) {
