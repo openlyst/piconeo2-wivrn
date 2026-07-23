@@ -7,6 +7,7 @@ import android.os.Looper;
 import android.util.Log;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -30,8 +31,8 @@ public class VrUiPanel {
 
     // Double-buffered pixel storage: render thread writes to backBuffer,
     // native reads from frontBuffer. Swap is atomic.
-    private final ByteBuffer mBufA = ByteBuffer.allocateDirect(UI_WIDTH * UI_HEIGHT * 4);
-    private final ByteBuffer mBufB = ByteBuffer.allocateDirect(UI_WIDTH * UI_HEIGHT * 4);
+    private final ByteBuffer mBufA = ByteBuffer.allocateDirect(UI_WIDTH * UI_HEIGHT * 4).order(ByteOrder.nativeOrder());
+    private final ByteBuffer mBufB = ByteBuffer.allocateDirect(UI_WIDTH * UI_HEIGHT * 4).order(ByteOrder.nativeOrder());
     private volatile ByteBuffer mFrontBuffer = mBufA;
     private volatile ByteBuffer mBackBuffer = mBufB;
     private final int[] mPixelInts = new int[UI_WIDTH * UI_HEIGHT];

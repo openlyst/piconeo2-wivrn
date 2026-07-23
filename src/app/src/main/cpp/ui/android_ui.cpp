@@ -93,7 +93,18 @@ void AndroidUi::uploadPixels(const void *pixels)
     if (!m_tex || !pixels) return;
     size_t sz = (size_t)kUiW * kUiH * 4;
     if (m_staging.size() != sz) m_staging.resize(sz);
-    memcpy(m_staging.data(), pixels, sz);
+    // Java Bitmap.getPixels returns ARGB ints; with native-order ByteBuffer
+    // the bytes in memory are BGRA. Swap to RGBA for GL.
+    const uint8_t *src = (const uint8_t *)pixels;
+    uint8_t *dst = m_staging.data();
+    for (size_t i = 0; i < (size_t)kUiW * kUiH; i++) {
+        dst[0] = src[2];  // R <- B
+        dst[1] = src[1];  // G
+        dst[2] = src[0];  // B <- R
+        dst[3] = src[3];  // A
+        src += 4;
+        dst += 4;
+    }
     glBindTexture(GL_TEXTURE_2D, m_tex);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, kUiW, kUiH,
                     GL_RGBA, GL_UNSIGNED_BYTE, m_staging.data());
