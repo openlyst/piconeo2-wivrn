@@ -18,6 +18,7 @@ struct ServerInfo {
 
 void setServerList(const std::vector<ServerInfo> & servers);
 std::vector<ServerInfo> getServerList();
+void updateAutoconnect(const std::string &hostname, int port, bool on);
 
 // Set/get the last connection error message (shown in the server list UI).
 void setConnectionError(const std::string & msg);
