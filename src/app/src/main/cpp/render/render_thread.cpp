@@ -92,6 +92,13 @@ std::atomic<bool> gRunning{false};   // render-thread lifetime
 // the tracking packet rate over Wi-Fi.
 static pthread_t        gTrackThread;
 static std::atomic<bool> gTrackRunning{false};   // tracking-thread lifetime
+// Pause flag: when true, the tracking thread sleeps instead of calling
+// Pvr_GetMainSensorState_. The SDK's internal render-thread state (that
+// Pvr_GetMainSensorState_ dereferences) is null/unstable during a surface
+// teardown -> recreate cycle, causing a null-deref crash in
+// Pvr_GetPredictedDisplayTime_. Pausing the tracker for the duration of
+// the surface swap avoids the race.
+static std::atomic<bool> gTrackPaused{false};
 
 // ALVR path ids, file scope so both the render thread and tracking thread can
 // see them. Populated once after alvr_initialize().
@@ -1459,6 +1466,11 @@ static void *trackingThread(void *) {
     clock_gettime(CLOCK_MONOTONIC, &nextTick);
 
     while (gTrackRunning.load()) {
+        // The PVR SDK nulls its internal render-thread state during a surface
+        // swap, and Pvr_GetMainSensorState_ dereferences it without a null
+        // check. Sleep while the render thread is doing the surface teardown +
+        // warp re-point to avoid the crash.
+        if (gTrackPaused.load()) { usleep(2000); continue; }
         float qx=0,qy=0,qz=0,qw=1, px=0,py=0,pz=0, vfov=90, hfov=90; int viewNumber=0;
         Pvr_GetMainSensorState(&qx,&qy,&qz,&qw,&px,&py,&pz,&vfov,&hfov,&viewNumber);
         // Publish head pose for the Java controller poller and the render thread's
@@ -2233,6 +2245,11 @@ void *renderThread(void *) {
                 gWindowDirty.store(false);
             }
             if (newWin != curWin) {
+                // Pause the tracking thread: Pvr_GetMainSensorState_ dereferences
+                // the SDK's internal render-thread state which gets nulled during
+                // the surface swap. Without this, repeated close/reopen cycles
+                // crash with a null-deref in Pvr_GetPredictedDisplayTime_.
+                gTrackPaused.store(true);
                 // RESUME FIX (HW mode): the warp thread captured this window surface
                 // at EV_InitRenderThread and presents to it forever. Before we destroy
                 // it, tell the warp to PAUSE so it stops presenting to a dying surface.
@@ -2303,6 +2320,9 @@ void *renderThread(void *) {
                             re(EV_InitRenderThread);   // re-capture the new window surface
                             re(EV_Resume);             // unpause the warp
                             eglMakeCurrent(dpy, pbuf, pbuf, ctx);  // our ctx -> offscreen
+                            // EV_InitRenderThread resets the SDK's internal ATW state,
+                            // so force re-enable on the next submit.
+                            gAtwEnabled = false;
                             LOGI("HW compositor: warp RE-POINTED to new surface (resume)");
                         }
                     }
@@ -2310,6 +2330,10 @@ void *renderThread(void *) {
                     LOGI("window surface destroyed -> pausing render");
                 }
             }
+            // Surface swap complete (or surface destroyed): the SDK's internal
+            // state is stable again, so the tracking thread can safely resume
+            // calling Pvr_GetMainSensorState_.
+            gTrackPaused.store(false);
         }
 
         // --- proximity power-sleep (don/doff) --------------------------------
@@ -3935,6 +3959,10 @@ void *renderThread(void *) {
                         glBindFramebuffer(GL_FRAMEBUFFER, gLobbyFbo);
                         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                                                GL_TEXTURE_2D, gLobbyEye[eye][lobbyEyeIdx], 0);
+                        // Re-attach depth every frame: the Adreno driver drops FBO
+                        // attachments after EGL surface destroy/recreate cycles.
+                        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                                  GL_RENDERBUFFER, gLobbyDepth);
                         glDisable(GL_SCISSOR_TEST);
                         glViewport(0, 0, kLobbySz, kLobbySz);
                         // Always clear colour to black first. If the passthrough

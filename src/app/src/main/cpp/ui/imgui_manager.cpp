@@ -149,6 +149,13 @@ void ImGuiManager::render()
 {
     ImGui::Render();
     glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+    // Re-attach the color texture every frame: the Adreno driver silently
+    // drops FBO attachments when the EGL window surface is destroyed and
+    // recreated (Home button -> reopen). Without this, the FBO becomes
+    // GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT after a few surface
+    // cycles and ImGui stops rendering -> frozen UI.
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_2D, m_tex, 0);
     glViewport(0, 0, kUiW, kUiH);
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_DEPTH_TEST);
