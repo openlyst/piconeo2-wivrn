@@ -782,8 +782,10 @@ void buildImGuiUI()
             ImVec2(sbPos.x + sidebarW, sbPos.y + ImGui::GetContentRegionAvail().y),
             ImGui::ColorConvertFloat4ToU32(kColSidebar));
 
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::BeginChild("##sidebar", ImVec2(sidebarW, 0), false,
                       ImGuiWindowFlags_NoScrollbar);
+    ImGui::PopStyleVar();
 
     ImGui::Dummy(ImVec2(0, 8));
 
@@ -804,10 +806,10 @@ void buildImGuiUI()
     // Flexible spacer
     float remaining = ImGui::GetContentRegionAvail().y;
     int bottomCount = 3;
-    float tabStep = 44 + 6 + ImGui::GetStyle().ItemSpacing.y;  // h + manual gap + item spacing
-    float bottomH = bottomCount * tabStep;
-    if (remaining > bottomH + 4)
-        ImGui::Dummy(ImVec2(0, remaining - bottomH - 4));
+    float tabStep = 44 + 6 + ImGui::GetStyle().ItemSpacing.y;
+    float bottomH = bottomCount * tabStep - ImGui::GetStyle().ItemSpacing.y;  // no trailing spacing
+    if (remaining > bottomH)
+        ImGui::Dummy(ImVec2(0, remaining - bottomH));
 
     // Bottom group
     TabDef bottomTabs[] = {
