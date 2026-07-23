@@ -27,10 +27,9 @@ static inline void emitQuad(std::vector<float> &v,
 void appendTextLine(std::vector<float> &v, const char *s, float yTop,
                     float px, float r, float g, float b)
 {
-    // Calculate total width for centering. px is metres per font pixel;
-    // the font was rasterized at kPixelHeight, so we scale glyph metrics
-    // by px to get panel-local metres.
-    float scale = px;
+    // px is "metres per old-bitmap-font-pixel" (the old font was 7px tall).
+    // Convert to metres per font-pixel at the rasterized size.
+    float scale = px * FontAtlas::pxScale();
     float totalW = gFont.textWidth(s) * scale;
     float x = -totalW * 0.5f;
 
@@ -91,22 +90,20 @@ void uiTextC(std::vector<float> &v, const char *s, float cx, float yTop, float p
 // Left-aligned text starting at xLeft.
 void uiTextL(std::vector<float> &v, const char *s, float xLeft, float yTop, float px,
              float r, float g, float b) {
-    float lineW = gFont.textWidth(s) * px;
+    float lineW = gFont.textWidth(s) * px * FontAtlas::pxScale();
     uiTextC(v, s, xLeft + lineW * 0.5f, yTop, px, r, g, b);
 }
 // Plain label (centred), baseline auto from rect centre.
 void uiLabel(std::vector<float> &v, const char *s, float cx, float cy, float px,
              const float col[3]) {
-    // The font's ascent is roughly 0.8 * lineHeight; offset so the text
-    // is vertically centred in the rect.
-    float ascent = gFont.lineHeight() * px * 0.75f;
+    float ascent = gFont.lineHeight() * px * FontAtlas::pxScale() * 0.5f;
     uiTextC(v, s, cx, cy + ascent, px, col[0], col[1], col[2]);
 }
 void uiButton(std::vector<float> &v, const UiRect &r, const char *label, bool hot, bool disabled) {
     const float *bg = disabled ? kUiTrack : (hot ? kUiBgHot : kUiBg);
     uiBox(v, r, bg);
     float txt[3] = { disabled ? 0.50f : 1.0f, disabled ? 0.52f : 1.0f, disabled ? 0.56f : 1.0f };
-    float ascent = gFont.lineHeight() * kUiText * 0.5f;
+    float ascent = gFont.lineHeight() * kUiText * FontAtlas::pxScale() * 0.5f;
     uiTextC(v, label, r.cx, r.cy + ascent, kUiText, txt[0], txt[1], txt[2]);
 }
 void uiToggle(std::vector<float> &v, const UiRect &r, const char *label, bool on, bool hot, float textScale, bool disabled) {
@@ -119,13 +116,13 @@ void uiToggle(std::vector<float> &v, const UiRect &r, const char *label, bool on
         float pillLeft  = r.cx + r.w*0.5f - sw - 0.012f;
         float avail = pillLeft - labelLeft - 0.010f;
         if (avail > 0.0f) {
-            float textW = gFont.textWidth(label) * tpx;
+            float textW = gFont.textWidth(label) * tpx * FontAtlas::pxScale();
             float fit = avail / textW;
             if (fit < 1.0f) tpx *= fit;
         }
     }
     float txt[3] = { disabled ? 0.45f : 0.85f, disabled ? 0.48f : 0.88f, disabled ? 0.52f : 0.92f };
-    float ascent = gFont.lineHeight() * tpx * 0.5f;
+    float ascent = gFont.lineHeight() * tpx * FontAtlas::pxScale() * 0.5f;
     uiTextL(v, label, r.cx - r.w*0.5f + 0.012f, r.cy + ascent, tpx, txt[0], txt[1], txt[2]);
     float scx = r.cx + r.w*0.5f - sw*0.5f - 0.012f;
     UiRect track = { scx, r.cy, sw, sh };
@@ -161,12 +158,12 @@ void uiDropdownHeader(std::vector<float> &v, const UiRect &r, const char *label,
     uiBox(v, r, disabled ? kUiTrack : (hot ? kUiBgHot : kUiBg));
     char buf[48]; snprintf(buf, sizeof(buf), "%s %s", label, open ? "^" : "~");
     float txt[3] = { disabled ? 0.50f : 1.0f, disabled ? 0.52f : 1.0f, disabled ? 0.56f : 1.0f };
-    float ascent = gFont.lineHeight() * kUiText * 0.5f;
+    float ascent = gFont.lineHeight() * kUiText * FontAtlas::pxScale() * 0.5f;
     uiTextC(v, buf, r.cx, r.cy + ascent, kUiText, txt[0], txt[1], txt[2]);
 }
 void uiDropdownItem(std::vector<float> &v, const UiRect &r, const char *label, bool hot, bool disabled) {
     uiBox(v, r, disabled ? kUiTrack : (hot ? kUiBgHot : kUiOff));
     float txt[3] = { disabled ? 0.50f : 1.0f, disabled ? 0.52f : 1.0f, disabled ? 0.56f : 1.0f };
-    float ascent = gFont.lineHeight() * kUiText * 0.5f;
+    float ascent = gFont.lineHeight() * kUiText * FontAtlas::pxScale() * 0.5f;
     uiTextC(v, label, r.cx, r.cy + ascent, kUiText, txt[0], txt[1], txt[2]);
 }

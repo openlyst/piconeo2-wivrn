@@ -13,7 +13,7 @@
 static void truncateFit(char *buf, size_t bufSz, const char *s, float availW, float px) {
     if (bufSz == 0) return;
     size_t n = strlen(s);
-    float w = gFont.textWidth(s) * px;
+    float w = gFont.textWidth(s) * px * FontAtlas::pxScale();
     if (w <= availW || n < 4) {
         strncpy(buf, s, bufSz - 1);
         buf[bufSz - 1] = 0;
@@ -29,7 +29,7 @@ static void truncateFit(char *buf, size_t bufSz, const char *s, float availW, fl
         strncpy(tmp, s, keep);
         tmp[keep] = 0;
         strcat(tmp, "...");
-        float tw = gFont.textWidth(tmp) * px;
+        float tw = gFont.textWidth(tmp) * px * FontAtlas::pxScale();
         if (tw <= availW) lo = mid;
         else hi = mid - 1;
     }

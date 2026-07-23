@@ -785,11 +785,12 @@ static void buildTestOverlay() {
     std::vector<float> v;
     const char *msg = "NI HAO WO SHI ZHENXI";
     const float px = 0.004f;
-    float lineW = gFont.textWidth(msg) * px;
+    float lineW = gFont.textWidth(msg) * px * FontAtlas::pxScale();
     float x0 = -lineW * 0.5f;
     float y0 = 0.05f;             // slightly above centre
     float pad = 0.02f;
-    appendQuad(v, x0 - pad, y0 + pad * 1.5f, x0 + lineW + pad, y0 - 7 * px - pad,
+    float textH = gFont.lineHeight() * px * FontAtlas::pxScale();
+    appendQuad(v, x0 - pad, y0 + pad * 1.5f, x0 + lineW + pad, y0 - textH - pad,
                0.10f, 0.10f, 0.10f);
     appendTextLine(v, msg, y0, px, 0.95f, 0.95f, 0.95f);
     gTestVertCount = (int)(v.size() / 8);

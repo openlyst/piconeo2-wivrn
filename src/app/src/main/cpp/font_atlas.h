@@ -22,6 +22,11 @@ public:
     static constexpr int kAtlasW = 2048;
     static constexpr int kAtlasH = 64;
     static constexpr int kPixelHeight = 40;  // rasterization size
+    // The old 5x7 bitmap font was 7px tall. px values throughout the codebase
+    // are tuned for that scale. This factor converts "metres per old-bitmap-pixel"
+    // to "metres per font-pixel" so existing px values keep their physical size.
+    static constexpr float kBitmapFontHeight = 7.0f;
+    static float pxScale() { return (float)kBitmapFontHeight / (float)kPixelHeight; }
 
     FontAtlas() = default;
     ~FontAtlas();
