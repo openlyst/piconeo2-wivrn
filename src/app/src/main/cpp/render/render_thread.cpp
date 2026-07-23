@@ -3328,8 +3328,11 @@ void *renderThread(void *) {
 
                         // Set input + upload pixels from Java's View rendering.
                         gAndroidUi.setInput(pi.cursorLx, pi.cursorLy, pi.cursorPressed, pi.cursorOnPanel, pi.clickEdge);
-                        androidUiPushTouch(AndroidUi::mToPxX(pi.cursorLx), AndroidUi::mToPxY(pi.cursorLy),
-                                           pi.cursorPressed, pi.clickEdge);
+                        if (pi.cursorOnPanel)
+                            androidUiPushTouch(AndroidUi::mToPxX(pi.cursorLx), AndroidUi::mToPxY(pi.cursorLy),
+                                               pi.cursorPressed, pi.clickEdge);
+                        else
+                            androidUiPushTouch(-1, -1, false, false);
                         androidUiFetchAndUpload();
 
                         for (int e = 0; e < 2; e++) {
@@ -3885,8 +3888,11 @@ void *renderThread(void *) {
                     if (gGridThemeDirty.exchange(false)) { buildControllerMeshes(); }   // recolour controllers (grid floor removed, passthrough replaces it)
                     // Set input + fetch pixels from Java's View rendering once per frame.
                     gAndroidUi.setInput(pi.cursorLx, pi.cursorLy, pi.cursorPressed, pi.cursorOnPanel, pi.clickEdge);
-                    androidUiPushTouch(AndroidUi::mToPxX(pi.cursorLx), AndroidUi::mToPxY(pi.cursorLy),
-                                       pi.cursorPressed, pi.clickEdge);
+                    if (pi.cursorOnPanel)
+                        androidUiPushTouch(AndroidUi::mToPxX(pi.cursorLx), AndroidUi::mToPxY(pi.cursorLy),
+                                           pi.cursorPressed, pi.clickEdge);
+                    else
+                        androidUiPushTouch(-1, -1, false, false);
                     androidUiFetchAndUpload();
                     for (int eye = 0; eye < 2; eye++) {
                         float ex = (eye == 0 ? -softIpdM()*0.5f : softIpdM()*0.5f);
