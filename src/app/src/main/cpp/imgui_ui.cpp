@@ -804,9 +804,10 @@ void buildImGuiUI()
     // Flexible spacer
     float remaining = ImGui::GetContentRegionAvail().y;
     int bottomCount = 3;
-    float bottomH = bottomCount * (44 + 6) + 8;
-    if (remaining > bottomH + 20)
-        ImGui::Dummy(ImVec2(0, remaining - bottomH - 20));
+    float tabStep = 44 + 6 + ImGui::GetStyle().ItemSpacing.y;  // h + manual gap + item spacing
+    float bottomH = bottomCount * tabStep;
+    if (remaining > bottomH + 4)
+        ImGui::Dummy(ImVec2(0, remaining - bottomH - 4));
 
     // Bottom group
     TabDef bottomTabs[] = {
