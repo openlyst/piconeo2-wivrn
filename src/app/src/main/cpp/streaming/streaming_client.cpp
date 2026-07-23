@@ -592,7 +592,7 @@ void streaming_client::network_loop()
 		spdlog::info("network_loop: auto_reconnect set, will retry");
 	else
 		spdlog::info("network_loop: disconnected: {}", last_error.empty() ? "Disconnected" : last_error);
-	if (!last_error.empty() && !auto_reconnect.load())
+	if (!last_error.empty() && !auto_reconnect.load() && user_initiated.load())
 		setConnectionError(last_error);
 	spdlog::info("network_loop: setting tracker.session=nullptr");
 	tracker.session = nullptr;
@@ -967,6 +967,7 @@ void streaming_client::run_connect_loop()
 			connected_ns.store(get_timestamp_ns());
 			last_shard_ns.store(0);
 			clearConnectionError();
+			user_initiated.store(false);
 			network_thread = std::thread([this] { network_loop(); });
 			tracker.session = session.get();
 			tracker.start();
@@ -978,7 +979,8 @@ void streaming_client::run_connect_loop()
 		{
 			spdlog::error("Failed to start client: {}", e.what());
 			last_error = e.what();
-			setConnectionError(e.what());
+			if (user_initiated.load())
+				setConnectionError(e.what());
 			if (network_thread.joinable())
 				network_thread.join();
 			tracker.session = nullptr;
@@ -994,7 +996,8 @@ void streaming_client::run_connect_loop()
 		if (!shutdown)
 		{
 			spdlog::warn("Connection failed: {}", last_error);
-			setConnectionError(last_error);
+			if (user_initiated.load())
+				setConnectionError(last_error);
 		}
 	}
 	setConnecting(false);

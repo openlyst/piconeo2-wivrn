@@ -193,6 +193,7 @@ struct streaming_client
 	std::thread network_thread;
 	std::thread connect_thread;
 	std::mutex connect_mutex;
+	std::atomic<bool> user_initiated{false};  // true when the user manually clicked Connect
 
 	pico_native_tracker tracker;
 

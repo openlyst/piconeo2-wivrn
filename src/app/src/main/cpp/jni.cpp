@@ -485,6 +485,7 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeConnect(JNIEnv *env, jobject t
     g_stream->tcp_only = (tcpOnly == JNI_TRUE);
     g_stream->shutdown = false;
     g_stream->auto_reconnect.store(false);
+    g_stream->user_initiated.store(true);
     env->ReleaseStringUTFChars(hostname, host);
 
     LOGI("nativeConnect: %s:%d tcp=%d", g_stream->server_host.c_str(), g_stream->server_port, g_stream->tcp_only ? 1 : 0);
@@ -500,6 +501,7 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeDisconnect(JNIEnv *env, jobjec
     LOGI("nativeDisconnect");
     g_stream->shutdown = true;
     g_stream->auto_reconnect.store(false);
+    g_stream->user_initiated.store(false);
     if (g_stream->session)
     {
         int fd = g_stream->session->get_control_fd();
