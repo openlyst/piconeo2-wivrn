@@ -391,8 +391,7 @@ static void buildSettingsTab()
         }
         saveAllConfig();
     }
-    ImGui::SameLine();
-    ImGui::TextDisabled("%dx%d", rw, rh);
+    ImGui::TextDisabled("  %dx%d", rw, rh);
     ImGui::Dummy(ImVec2(0, 4));
 
     // Bitrate
