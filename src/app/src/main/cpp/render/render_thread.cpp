@@ -258,7 +258,10 @@ static void buildLobbyTarget() {
     gLobbyEyeReady = true;
     glGenRenderbuffers(1, &gLobbyDepth);
     glBindRenderbuffer(GL_RENDERBUFFER, gLobbyDepth);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, kLobbySz, kLobbySz);
+    // Prefer 24-bit depth: the controller mesh is small and close to the camera,
+    // so 16-bit depth with a 0.05-250 range causes front/back face z-fighting.
+    // Fall back to 16 if the GPU doesn't support 24-bit renderbuffer storage.
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, kLobbySz, kLobbySz);
     glGenFramebuffers(1, &gLobbyFbo);
     glBindFramebuffer(GL_FRAMEBUFFER, gLobbyFbo);
     // Attach ring slot [0][0] for the completeness check; the render loop
@@ -266,6 +269,13 @@ static void buildLobbyTarget() {
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, gLobbyEye[0][0], 0);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, gLobbyDepth);
     bool ok = (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+    if (!ok) {
+        // 24-bit depth not supported, retry with 16-bit.
+        glBindRenderbuffer(GL_RENDERBUFFER, gLobbyDepth);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, kLobbySz, kLobbySz);
+        ok = (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+        LOGI("lobby target fell back to DEPTH16 %dx%d ok=%d", kLobbySz, kLobbySz, ok);
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glBindTexture(GL_TEXTURE_2D, 0);
     LOGI("lobby target built %dx%d ok=%d", kLobbySz, kLobbySz, ok);
@@ -3710,6 +3720,12 @@ void *renderThread(void *) {
             // controller pose. Texture swaps based on button state.
             glEnable(GL_DEPTH_TEST);
             glDepthFunc(GL_LEQUAL);
+            // Cull back faces: the controller is a solid closed mesh, so drawing
+            // both sides with a low-precision depth buffer causes front/back face
+            // z-fighting (faces facing the player intermittently disappear and
+            // you see through to the back faces).
+            glEnable(GL_CULL_FACE);
+            glCullFace(GL_BACK);
             for (int h = 0; h < 2; h++) {
                 if (!ctrlConn[h] || gCtrlVertCount[h] <= 0) continue;
                 Mat4 M = quatToMat4(ctrlQuat[h][0], ctrlQuat[h][1], ctrlQuat[h][2], ctrlQuat[h][3]);
@@ -3734,6 +3750,7 @@ void *renderThread(void *) {
                 glDrawArrays(GL_TRIANGLES, 0, gCtrlVertCount[h]);
                 glBindVertexArray(0);
             }
+            glDisable(GL_CULL_FACE);
             glDisable(GL_DEPTH_TEST);
             // Eye-gaze debug marker: the green disc at the live RAW Tobii gaze
             // point. Gated by the persisted EYE DEBUG toggle.
