@@ -370,9 +370,9 @@ static void buildSettingsTab()
     float res = gWivrnResolutionScale.load();
     int rw = (int)((1664 * res) / 2) * 2;
     int rh = (int)((1756 * res) / 2) * 2;
-    char resLabel[64];
-    snprintf(resLabel, sizeof(resLabel), "Resolution scale  %d%%", (int)(res*100));
-    if (ImGui::SliderFloat(resLabel, &res, 0.5f, 2.0f, "%.2f")) {
+    char resFmt[32];
+    snprintf(resFmt, sizeof(resFmt), "%%.2f (%dx%d)", rw, rh);
+    if (ImGui::SliderFloat("Resolution scale", &res, 0.5f, 2.0f, resFmt)) {
         gWivrnResolutionScale.store(res);
     }
     if (ImGui::IsItemDeactivatedAfterEdit()) {
@@ -391,7 +391,6 @@ static void buildSettingsTab()
         }
         saveAllConfig();
     }
-    ImGui::TextDisabled("  %dx%d", rw, rh);
     ImGui::Dummy(ImVec2(0, 4));
 
     // Bitrate
