@@ -14,6 +14,10 @@ import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -44,6 +48,13 @@ public class VrUiPanel {
     private volatile boolean mTouchClickEdge = false;
     private long mLastEventTime = 0;
 
+    // UI controller
+    private VrUiController mController;
+
+    // Native methods
+    private native void nativeInit();
+    public native ByteBuffer nativeGetPixels();
+
     public VrUiPanel(Context context) {
         mContext = context;
         mMainHandler = new Handler(Looper.getMainLooper());
@@ -65,8 +76,16 @@ public class VrUiPanel {
 
             measureAndLayout();
             markDirty();
+
+            // Register with native side
+            try { nativeInit(); } catch (Throwable t) { Log.e(TAG, "nativeInit failed", t); }
+
             Log.i(TAG, "VrUiPanel attached " + UI_WIDTH + "x" + UI_HEIGHT);
         });
+    }
+
+    public void setController(VrUiController controller) {
+        mController = controller;
     }
 
     public void detach() {
@@ -117,20 +136,37 @@ public class VrUiPanel {
     /**
      * Render the View hierarchy to the bitmap if dirty.
      * Returns the pixel buffer for GL texture upload.
-     * Called from the native render thread.
+     * Called from the native render thread via nativeGetPixels.
+     *
+     * Blocks the calling (render) thread until the main thread finishes
+     * drawing and copying pixels. Uses a CountDownLatch with a timeout
+     * so a stuck main thread doesn't hang the render loop.
      */
     public ByteBuffer renderIfNeeded() {
         if (!mAttached.get() || mBitmap == null || mPixelBuffer == null) return null;
         if (!mDirty.getAndSet(false)) return mPixelBuffer;
 
+        CountDownLatch latch = new CountDownLatch(1);
         mMainHandler.post(() -> {
-            if (mRoot == null || mCanvas == null || mBitmap == null) return;
-            mCanvas.drawColor(Color.parseColor("#1e1e2e"));
-            mRoot.draw(mCanvas);
-
-            mBitmap.copyPixelsToBuffer(mPixelBuffer);
-            mPixelBuffer.rewind();
+            try {
+                if (mRoot == null || mCanvas == null || mBitmap == null || mPixelBuffer == null) return;
+                mCanvas.drawColor(Color.parseColor("#1e1e2e"));
+                mRoot.draw(mCanvas);
+                mPixelBuffer.position(0);
+                mBitmap.copyPixelsToBuffer(mPixelBuffer);
+                mPixelBuffer.rewind();
+            } catch (Throwable t) {
+                Log.e(TAG, "renderIfNeeded draw failed", t);
+            } finally {
+                latch.countDown();
+            }
         });
+        try {
+            if (!latch.await(50, TimeUnit.MILLISECONDS))
+                Log.w(TAG, "renderIfNeeded timed out waiting for main thread");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
 
         return mPixelBuffer;
     }
@@ -180,5 +216,85 @@ public class VrUiPanel {
             mLastEventTime = now;
             markDirty();
         });
+    }
+
+    // ---- Methods called from native via JNI ----
+
+    public void setServersFromNative(String[] names, String[] hosts, int[] ports,
+            boolean[] tcpOnly, boolean[] discovered, boolean[] autoconnect) {
+        if (mController == null) return;
+        List<VrUiController.ServerEntry> servers = new ArrayList<>();
+        for (int i = 0; i < names.length; i++) {
+            VrUiController.ServerEntry s = new VrUiController.ServerEntry();
+            s.name = names[i];
+            s.hostname = hosts[i];
+            s.port = ports[i];
+            s.tcpOnly = tcpOnly[i];
+            s.discovered = discovered[i];
+            s.autoconnect = autoconnect[i];
+            s.manual = !discovered[i];
+            servers.add(s);
+        }
+        mController.setServers(servers);
+    }
+
+    public void setConnectingFromNative(boolean connecting) {
+        if (mController != null) mController.setConnecting(connecting);
+    }
+
+    public void setConnectionErrorFromNative(String err) {
+        if (mController != null) mController.setConnectionError(err != null ? err : "");
+    }
+
+    public void setStatsFromNative(int fps, float totalLatency, float download, float upload,
+            float cpuMs, float gpuMs, float encodeMs, float sendMs, float networkMs,
+            float decodeMs, float renderMs, float blitMs,
+            int bitrate, int streamW, int streamH, boolean micOn) {
+        if (mController == null) return;
+        VrUiController.StatsData s = new VrUiController.StatsData();
+        s.fps = fps; s.totalLatency = totalLatency;
+        s.downloadMbps = download; s.uploadMbps = upload;
+        s.cpuMs = cpuMs; s.gpuMs = gpuMs;
+        s.encodeMs = encodeMs; s.sendMs = sendMs; s.networkMs = networkMs;
+        s.decodeMs = decodeMs; s.renderMs = renderMs; s.blitMs = blitMs;
+        s.bitrate = bitrate; s.streamW = streamW; s.streamH = streamH; s.micOn = micOn;
+        mController.setStats(s);
+    }
+
+    public void setRunningAppsFromNative(String[] names, int[] ids, boolean[] active) {
+        if (mController == null) return;
+        List<VrUiController.AppEntry> apps = new ArrayList<>();
+        for (int i = 0; i < names.length; i++) {
+            VrUiController.AppEntry a = new VrUiController.AppEntry();
+            a.name = names[i];
+            a.id = String.valueOf(ids[i]);
+            a.active = active[i];
+            apps.add(a);
+        }
+        mController.setRunningApps(apps);
+    }
+
+    public void setAvailableAppsFromNative(String[] names, String[] ids) {
+        if (mController == null) return;
+        List<VrUiController.AppEntry> apps = new ArrayList<>();
+        for (int i = 0; i < names.length; i++) {
+            VrUiController.AppEntry a = new VrUiController.AppEntry();
+            a.name = names[i];
+            a.id = ids[i];
+            apps.add(a);
+        }
+        mController.setAvailableApps(apps);
+    }
+
+    public void setStreamingFromNative(boolean streaming) {
+        if (mController != null) mController.setStreamingMode(streaming);
+    }
+
+    public void updateSettingsFromNative(float ipd, float brightness, float fov,
+            float resScale, float bitrate, boolean eyeFov, boolean mic,
+            boolean passthrough, float ctrlVib, int diagHud, boolean eyeSupported) {
+        if (mController != null)
+            mController.updateSettings(ipd, brightness, fov, resScale, bitrate,
+                    eyeFov, mic, passthrough, ctrlVib, diagHud, eyeSupported);
     }
 }
