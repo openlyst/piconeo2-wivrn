@@ -769,10 +769,12 @@ void buildImGuiUI()
 
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::Begin("##lobby", nullptr,
                  ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                  ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
                  ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar);
+    ImGui::PopStyleVar();
 
     float sidebarW = 220;
 
@@ -782,10 +784,8 @@ void buildImGuiUI()
             ImVec2(sbPos.x + sidebarW, sbPos.y + ImGui::GetContentRegionAvail().y),
             ImGui::ColorConvertFloat4ToU32(kColSidebar));
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::BeginChild("##sidebar", ImVec2(sidebarW, 0), false,
                       ImGuiWindowFlags_NoScrollbar);
-    ImGui::PopStyleVar();
 
     ImGui::Dummy(ImVec2(0, 8));
 
@@ -825,8 +825,10 @@ void buildImGuiUI()
     ImGui::SameLine();
 
     // Content area
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20, 16));
     ImGui::BeginChild("##content", ImVec2(0, 0), false,
                       ImGuiWindowFlags_AlwaysVerticalScrollbar);
+    ImGui::PopStyleVar();
     switch (sCurrentTab) {
         case 0: buildServersTab();   break;
         case 1: buildSettingsTab();  break;
