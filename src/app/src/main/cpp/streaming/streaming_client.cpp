@@ -967,7 +967,6 @@ void streaming_client::run_connect_loop()
 			connected_ns.store(get_timestamp_ns());
 			last_shard_ns.store(0);
 			clearConnectionError();
-			user_initiated.store(false);
 			network_thread = std::thread([this] { network_loop(); });
 			tracker.session = session.get();
 			tracker.start();
@@ -1001,6 +1000,7 @@ void streaming_client::run_connect_loop()
 		}
 	}
 	setConnecting(false);
+	user_initiated.store(false);
 
 	while (auto_reconnect.load() && !shutdown.load())
 	{
