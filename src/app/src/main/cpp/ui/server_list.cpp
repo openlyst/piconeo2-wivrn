@@ -129,17 +129,6 @@ float buildServerContent(std::vector<float> &v, float scrollY,
         uiTextL(v, hostport, kCtX0 + 0.03f, yTop - 0.075f,
                 kUiText * 0.9f, 0.5f, 0.55f, 0.6f);
 
-        // Discovered badge ("Discovered" text)
-        if (srv.discovered) {
-            float badgeX = kCtX0 + 0.03f;
-            // measure name width to place badge after it
-            float nameW = (srv.name.length() * 6 - 1) * (kUiText * 1.5f);
-            badgeX += nameW + 0.04f;
-            float badgeY = yTop - 0.035f;
-            uiTextL(v, "Discovered", badgeX, badgeY,
-                    kUiText * 0.7f, 0.3f, 0.7f, 0.4f);
-        }
-
         // Layout right-to-left with small gaps: X | Connect | Auto
         // X button
         float xBtnW = 0.06f, xBtnH = 0.08f;
@@ -175,10 +164,20 @@ float buildServerContent(std::vector<float> &v, float scrollY,
                 kUiText * 0.85f, 1.0f, 1.0f, 1.0f);
 
         // Autoconnect toggle (non-manual only)
+        float togCx = 0;
         if (!srv.manual) {
-            float togCx = btnCx - btnW * 0.5f - 0.02f - 0.25f * 0.5f;
+            togCx = btnCx - btnW * 0.5f - 0.02f - 0.25f * 0.5f;
             UiRect tog = { togCx, yTop - kRowH * 0.5f, 0.25f, 0.05f };
             uiToggle(v, tog, "Auto", srv.autoconnect, hot && connectHot != i);
+        }
+
+        // Discovered badge: left of the Auto toggle
+        if (srv.discovered) {
+            float togLeft = togCx - 0.25f * 0.5f;
+            float badgeY = yTop - 0.035f;
+            float discW = 10 * 6 * (kUiText * 0.7f);
+            uiTextL(v, "Discovered", togLeft - 0.04f - discW, badgeY,
+                    kUiText * 0.7f, 0.3f, 0.7f, 0.4f);
         }
 
         yTop = yBot - kRowGap;

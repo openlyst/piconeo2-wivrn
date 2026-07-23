@@ -247,11 +247,6 @@ static void buildServersTab()
         } else {
             ImGui::TextColored(kColTitle, "%s", srv.name.c_str());
         }
-        if (srv.discovered) {
-            ImGui::SameLine();
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 2);
-            ImGui::TextColored(kColBadgeTxt, "Discovered");
-        }
 
         // Line 2: hostname
         ImGui::SetCursorScreenPos(ImVec2(textX, line2Y));
@@ -294,16 +289,27 @@ static void buildServersTab()
         ImGui::PopStyleColor(3);
 
         // Auto checkbox (left of Connect), vertically centered with buttons
+        float autoRightEdge = rightEdge - 32 - 8 - connW - 12;
+        float autoLeftEdge = autoRightEdge;
         if (!srv.manual) {
             bool autoConn = srv.autoconnect;
             float checkH = ImGui::GetFrameHeight();
             float checkY = pos.y + (rowH - checkH) * 0.5f;
             float autoW = ImGui::CalcTextSize("Auto").x + checkH + 12;
-            ImGui::SetCursorScreenPos(ImVec2(rightEdge - 32 - 8 - connW - 12 - autoW, checkY));
+            autoLeftEdge = autoRightEdge - autoW;
+            ImGui::SetCursorScreenPos(ImVec2(autoLeftEdge, checkY));
             if (ImGui::Checkbox("Auto", &autoConn)) {
                 if (gOnServerAutoconnect)
                     gOnServerAutoconnect(srv.hostname, srv.port);
             }
+        }
+
+        // Discovered badge: left of the Auto checkbox
+        if (srv.discovered) {
+            ImVec2 discSize = ImGui::CalcTextSize("Discovered");
+            float discY = pos.y + (rowH - discSize.y) * 0.5f;
+            ImGui::SetCursorScreenPos(ImVec2(autoLeftEdge - discSize.x - 12, discY));
+            ImGui::TextColored(kColBadgeTxt, "Discovered");
         }
 
         // Advance cursor past this row
