@@ -20,8 +20,10 @@ public:
     bool init();
 
     // Feed input from controller raycast. lx/ly are panel-local metres,
-    // pressed is the trigger state. onPanel indicates the ray hit the panel.
-    void setInput(float lx, float ly, bool pressed, bool onPanel);
+    // pressed is the trigger/OK held state. onPanel indicates the ray hit
+    // the panel. clickEdge is a latched press edge (gOkClick) that may
+    // fire even if pressed is already false by the time we poll.
+    void setInput(float lx, float ly, bool pressed, bool onPanel, bool clickEdge);
 
     // Begin a new ImGui frame. Call this before any ImGui:: calls.
     void newFrame();

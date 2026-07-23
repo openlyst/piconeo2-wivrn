@@ -3830,7 +3830,7 @@ void *renderThread(void *) {
                     eglMakeCurrent(dpy, pbuf, pbuf, ctx);   // stay offscreen; warp owns the window
                     if (gGridThemeDirty.exchange(false)) { buildControllerMeshes(); }   // recolour controllers (grid floor removed, passthrough replaces it)
                     // Build ImGui frame once per frame (not per eye).
-                    gImGui.setInput(pi.cursorLx, pi.cursorLy, pi.cursorPressed, pi.cursorOnPanel);
+                    gImGui.setInput(pi.cursorLx, pi.cursorLy, pi.cursorPressed, pi.cursorOnPanel, pi.clickEdge);
                     gImGui.newFrame();
                     buildImGuiUI();
                     gImGui.render();

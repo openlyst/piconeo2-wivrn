@@ -97,7 +97,7 @@ bool ImGuiManager::init()
     return true;
 }
 
-void ImGuiManager::setInput(float lx, float ly, bool pressed, bool onPanel)
+void ImGuiManager::setInput(float lx, float ly, bool pressed, bool onPanel, bool clickEdge)
 {
     ImGuiIO &io = ImGui::GetIO();
     if (onPanel) {
@@ -105,7 +105,15 @@ void ImGuiManager::setInput(float lx, float ly, bool pressed, bool onPanel)
     } else {
         io.AddMousePosEvent(-1, -1);  // off-screen
     }
-    io.AddMouseButtonEvent(0, pressed);
+    // If we got a latched click edge but the held state is already false
+    // (button was pressed and released between frames), synthesize a
+    // press+release so ImGui sees the full click.
+    if (clickEdge && !pressed) {
+        io.AddMouseButtonEvent(0, true);
+        io.AddMouseButtonEvent(0, false);
+    } else {
+        io.AddMouseButtonEvent(0, pressed);
+    }
 }
 
 void ImGuiManager::newFrame()
