@@ -270,7 +270,7 @@ static void buildServersTab()
         }
 
         // Right side: buttons positioned with screen coords via SetCursorScreenPos
-        float btnH = 32;
+        float btnH = 44;
         float btnY = pos.y + (rowH - btnH) * 0.5f;
         float rightEdge = pos.x + w - 12;
 
@@ -279,7 +279,7 @@ static void buildServersTab()
         ImGui::PushStyleColor(ImGuiCol_Button, kColXBtn);
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kColXBtnH);
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, kColXBtnH);
-        if (ImGui::Button("X", ImVec2(32, 32))) {
+        if (ImGui::Button("X", ImVec2(32, btnH))) {
             if (gOnServerRemove) gOnServerRemove(srv.hostname, srv.port);
         }
         ImGui::PopStyleColor(3);
@@ -291,7 +291,7 @@ static void buildServersTab()
         ImGui::PushStyleColor(ImGuiCol_Button, kColConnect);
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kColConnectH);
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, kColConnectH);
-        if (ImGui::Button(btnLabel, ImVec2(connW, 32))) {
+        if (ImGui::Button(btnLabel, ImVec2(connW, btnH))) {
             clearConnectionError();
             if (gOnServerConnect) gOnServerConnect(srv);
         }
