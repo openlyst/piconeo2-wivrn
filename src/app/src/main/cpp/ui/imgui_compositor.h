@@ -11,6 +11,9 @@ public:
     ImGuiCompositor() = default;
     ~ImGuiCompositor();
 
+    // Release GL resources. Called before a relaunch re-inits.
+    void reset();
+
     // Compile the composite shader and create the VAO/VBO.
     bool init();
 

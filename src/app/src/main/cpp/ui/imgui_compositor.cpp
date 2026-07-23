@@ -27,6 +27,15 @@ ImGuiCompositor::~ImGuiCompositor()
     if (m_vbo) glDeleteBuffers(1, &m_vbo);
 }
 
+void ImGuiCompositor::reset()
+{
+    m_prog = 0;
+    m_vao = 0;
+    m_vbo = 0;
+    m_mvpLoc = -1;
+    m_texLoc = -1;
+}
+
 bool ImGuiCompositor::init()
 {
     m_prog = glCreateProgram();
