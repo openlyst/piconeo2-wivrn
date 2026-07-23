@@ -33,6 +33,9 @@
 #include "eye_tracking.h"// readEyeGazes() + gaze/openness state
 #include "device_info.h" // IP / status / model strings + readers
 #include "ui_kit.h"      // font + appendTextLine/Quad + immediate-mode widget kit
+#include "imgui_manager.h"     // ImGui offscreen rendering
+#include "imgui_compositor.h"  // composite ImGui texture as 3D quad
+#include "imgui_ui.h"          // ImGui UI panel code
 #include "eq_panel.h"    // 16-band audio EQ: state + persistence + buildEqVerts
 #include "settings_panel.h"  // unified lobby SETTINGS window (sidebar + scroll)
 #include "server_list.h"     // wiVRn-style server list panel
