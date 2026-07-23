@@ -220,7 +220,7 @@ static void buildServersTab()
         const auto &srv = servers[i];
         ImGui::PushID(i);
 
-        float rowH = 90;
+        float rowH = 100;
         ImVec2 pos = ImGui::GetCursorScreenPos();
         float w = ImGui::GetContentRegionAvail().x;
         bool hovered = ImGui::IsMouseHoveringRect(pos, ImVec2(pos.x + w, pos.y + rowH));
