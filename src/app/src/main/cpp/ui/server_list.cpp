@@ -171,11 +171,12 @@ float buildServerContent(std::vector<float> &v, float scrollY,
             uiToggle(v, tog, "Auto", srv.autoconnect, hot && connectHot != i);
         }
 
-        // Discovered badge: place to the left of the Auto button
+        // Discovered badge: left of the Auto toggle
         if (srv.discovered) {
-            float badgeX = togCx - 0.25f * 0.5f - 0.04f;
+            float togLeft = togCx - 0.25f * 0.5f;
             float badgeY = yTop - 0.035f;
-            uiTextL(v, "Discovered", badgeX - 0.12f, badgeY,
+            float discW = 10 * 6 * (kUiText * 0.7f);
+            uiTextL(v, "Discovered", togLeft - 0.04f - discW, badgeY,
                     kUiText * 0.7f, 0.3f, 0.7f, 0.4f);
         }
 

@@ -290,23 +290,25 @@ static void buildServersTab()
 
         // Auto checkbox (left of Connect), vertically centered with buttons
         float autoRightEdge = rightEdge - 32 - 8 - connW - 12;
+        float autoLeftEdge = autoRightEdge;
         if (!srv.manual) {
             bool autoConn = srv.autoconnect;
             float checkH = ImGui::GetFrameHeight();
             float checkY = pos.y + (rowH - checkH) * 0.5f;
             float autoW = ImGui::CalcTextSize("Auto").x + checkH + 12;
-            ImGui::SetCursorScreenPos(ImVec2(autoRightEdge - autoW, checkY));
+            autoLeftEdge = autoRightEdge - autoW;
+            ImGui::SetCursorScreenPos(ImVec2(autoLeftEdge, checkY));
             if (ImGui::Checkbox("Auto", &autoConn)) {
                 if (gOnServerAutoconnect)
                     gOnServerAutoconnect(srv.hostname, srv.port);
             }
         }
 
-        // Discovered badge: left of the Auto button
+        // Discovered badge: left of the Auto checkbox
         if (srv.discovered) {
             ImVec2 discSize = ImGui::CalcTextSize("Discovered");
             float discY = pos.y + (rowH - discSize.y) * 0.5f;
-            ImGui::SetCursorScreenPos(ImVec2(autoRightEdge - 12 - discSize.x - 8, discY));
+            ImGui::SetCursorScreenPos(ImVec2(autoLeftEdge - discSize.x - 12, discY));
             ImGui::TextColored(kColBadgeTxt, "Discovered");
         }
 
