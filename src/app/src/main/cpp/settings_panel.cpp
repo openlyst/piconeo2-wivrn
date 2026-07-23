@@ -559,7 +559,7 @@ void settingsMeasure(float &offX, float &offY, float &contentH) {
         MenuHover none;
         menuBuild(tmp, cat, none);
         float minY = 1e9f, mxY = -1e9f;
-        for (size_t i = 1; i < tmp.size(); i += 6) { float y = tmp[i]; if (y<minY) minY=y; if (y>mxY) mxY=y; }
+        for (size_t i = 1; i < tmp.size(); i += 8) { float y = tmp[i]; if (y<minY) minY=y; if (y>mxY) mxY=y; }
         if (mxY < minY) { minY = 0; mxY = 0; }
         maxY = mxY; contentH = mxY - minY;
         sExtCat = gSettingsCat; sExtSig = sig; sExtMaxY = maxY; sExtContentH = contentH;

@@ -1,6 +1,8 @@
 #include "server_list.h"
 #include "settings_panel.h"  // kCtX0, kCtX1, kCtTop, kCtBot
 #include "pin_pad.h"         // gPinEntryRequested (cleared when connecting ends)
+#include "ui_kit.h"
+#include "font_atlas.h"
 #include "log.h"
 #include <mutex>
 #include <cstring>
@@ -133,7 +135,7 @@ float buildServerContent(std::vector<float> &v, float scrollY,
         if (srv.discovered) {
             float badgeX = kCtX0 + 0.03f;
             // measure name width to place badge after it
-            float nameW = (srv.name.length() * 6 - 1) * (kUiText * 1.5f);
+            float nameW = gFont.textWidth(srv.name.c_str()) * (kUiText * 1.5f);
             badgeX += nameW + 0.04f;
             float badgeY = yTop - 0.035f;
             appendQuad(v, badgeX, badgeY + 0.01f, badgeX + 0.02f, badgeY - 0.01f,

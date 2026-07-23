@@ -2,28 +2,38 @@
 #include "settings_panel.h"
 #include "streaming/streaming_client.h"
 #include "ui_kit.h"
+#include "font_atlas.h"
 #include "log.h"
 #include <cstdio>
 #include <cstring>
 #include <cmath>
 
 // Truncate s into buf (size bufSz) so the rendered width fits availW at scale px.
-// Each char is 6 font-units wide; rendered width = (n*6 - 1) * px.
-// Appends "..." if truncated.
+// Uses the font atlas for accurate width measurement. Appends "..." if truncated.
 static void truncateFit(char *buf, size_t bufSz, const char *s, float availW, float px) {
     if (bufSz == 0) return;
     size_t n = strlen(s);
-    float w = (n * 6 - 1) * px;
+    float w = gFont.textWidth(s) * px;
     if (w <= availW || n < 4) {
         strncpy(buf, s, bufSz - 1);
         buf[bufSz - 1] = 0;
         return;
     }
-    // Reserve 3 chars for "..." and find max that fits
-    size_t maxChars = (size_t)((availW / px + 1) / 6);
-    if (maxChars < 4) maxChars = 4;
-    if (maxChars - 3 >= bufSz) maxChars = bufSz + 2; // will be clamped
-    size_t keep = maxChars - 3;
+    // Binary search for the max number of chars that fit with "..."
+    size_t lo = 1, hi = n;
+    while (lo < hi) {
+        size_t mid = (lo + hi + 1) / 2;
+        char tmp[128];
+        size_t keep = mid - 3;
+        if (keep >= sizeof(tmp)) keep = sizeof(tmp) - 1;
+        strncpy(tmp, s, keep);
+        tmp[keep] = 0;
+        strcat(tmp, "...");
+        float tw = gFont.textWidth(tmp) * px;
+        if (tw <= availW) lo = mid;
+        else hi = mid - 1;
+    }
+    size_t keep = lo - 3;
     if (keep >= bufSz) keep = bufSz - 4;
     strncpy(buf, s, keep);
     buf[keep] = 0;

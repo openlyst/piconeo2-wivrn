@@ -33,6 +33,7 @@
 #include "eye_tracking.h"// readEyeGazes() + gaze/openness state
 #include "device_info.h" // IP / status / model strings + readers
 #include "ui_kit.h"      // font + appendTextLine/Quad + immediate-mode widget kit
+#include "font_atlas.h"  // stb_truetype font atlas (gFont)
 #include "eq_panel.h"    // 16-band audio EQ: state + persistence + buildEqVerts
 #include "settings_panel.h"  // unified lobby SETTINGS window (sidebar + scroll)
 #include "server_list.h"     // wiVRn-style server list panel
@@ -142,6 +143,15 @@ static const char *kFrgSrc =
 
 static GLuint gProg = 0;
 static GLint  gMvpLoc = -1, gTexLoc = -1;
+
+// Bind the font atlas texture so gProg draws can sample it. Call after
+// glUseProgram(gProg) at every draw site (the controller shader may have
+// rebound texture unit 0 to a different texture).
+static inline void bindFontTex() {
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, gFont.texture());
+    glUniform1i(gTexLoc, 0);
+}
 
 // Build the shared pos+uv+colour program (gProg).
 static void buildGraphics() {
@@ -304,11 +314,11 @@ static void buildGazeMarker() {
         float a1 = (float)(i + 1) / kSeg * 2.0f * (float)M_PI;
         // center, then two rim points -> one triangle per segment
         const float g[3] = { 0.2f, 0.55f, 1.0f };   // WiVRn blue
-        v.insert(v.end(), { 0,0,0, g[0],g[1],g[2] });
-        v.insert(v.end(), { cosf(a0)*kR, sinf(a0)*kR, 0, g[0],g[1],g[2] });
-        v.insert(v.end(), { cosf(a1)*kR, sinf(a1)*kR, 0, g[0],g[1],g[2] });
+        v.insert(v.end(), { 0,0,0, 0,0, g[0],g[1],g[2] });
+        v.insert(v.end(), { cosf(a0)*kR, sinf(a0)*kR, 0, 0,0, g[0],g[1],g[2] });
+        v.insert(v.end(), { cosf(a1)*kR, sinf(a1)*kR, 0, 0,0, g[0],g[1],g[2] });
     }
-    gGazeVertCount = (int)(v.size() / 6);
+    gGazeVertCount = (int)(v.size() / 8);
     glGenVertexArrays(1, &gGazeVao);
     glBindVertexArray(gGazeVao);
     glGenBuffers(1, &gGazeVbo);
@@ -755,7 +765,7 @@ static void buildReticle() {
     std::vector<float> v;
     appendQuad(v, -0.020f,  0.0025f, 0.020f, -0.0025f, 0.85f, 0.90f, 1.0f);  // horizontal arm
     appendQuad(v, -0.0025f, 0.020f,  0.0025f, -0.020f, 0.85f, 0.90f, 1.0f);  // vertical arm
-    gReticleVertCount = (int)(v.size() / 6);
+    gReticleVertCount = (int)(v.size() / 8);
     glGenVertexArrays(1, &gReticleVao);
     glBindVertexArray(gReticleVao);
     glGenBuffers(1, &gReticleVbo);
@@ -775,15 +785,14 @@ static void buildTestOverlay() {
     std::vector<float> v;
     const char *msg = "NI HAO WO SHI ZHENXI";
     const float px = 0.004f;
-    int n = (int)strlen(msg);
-    float lineW = (n * 6 - 1) * px;
+    float lineW = gFont.textWidth(msg) * px;
     float x0 = -lineW * 0.5f;
     float y0 = 0.05f;             // slightly above centre
     float pad = 0.02f;
     appendQuad(v, x0 - pad, y0 + pad * 1.5f, x0 + lineW + pad, y0 - 7 * px - pad,
                0.10f, 0.10f, 0.10f);
     appendTextLine(v, msg, y0, px, 0.95f, 0.95f, 0.95f);
-    gTestVertCount = (int)(v.size() / 6);
+    gTestVertCount = (int)(v.size() / 8);
     glGenVertexArrays(1, &gTestVao);
     glBindVertexArray(gTestVao);
     glGenBuffers(1, &gTestVbo);
@@ -848,7 +857,7 @@ static void drawBatteryWarn(int eye) {
     if (sWarnKey != bwStart) {   // rebuild geometry once per activation
         sWarnV.clear();
         buildBatteryWarn(sWarnV, gBattWarnPct.load());
-        sWarnCount = (int)(sWarnV.size()/6);
+        sWarnCount = (int)(sWarnV.size()/8);
         glBindBuffer(GL_ARRAY_BUFFER, gWarnVbo);
         glBufferData(GL_ARRAY_BUFFER, sWarnV.size()*sizeof(float), sWarnV.data(), GL_DYNAMIC_DRAW);
         sWarnKey = bwStart;
@@ -876,6 +885,7 @@ static void drawBatteryWarn(int eye) {
 
     glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_SCISSOR_TEST);
     glUseProgram(gProg);
+    bindFontTex();
     glBindVertexArray(gWarnVao);
     glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, mvp.m);
     glDrawArrays(GL_TRIANGLES, 0, sWarnCount);
@@ -1144,7 +1154,7 @@ static void updateLobbyPanel(PanelInteract &pi, const Mat4 &settingsWorld)
     }
     if (!sPanelHave || panelSig != sPanelSig) {
         buildSettingsPanel(sverts, setOffX, setOffY, setContentH, mh, setTabHover, setCloseHover);
-        sSliderVertCount = (int)(sverts.size() / 6);
+        sSliderVertCount = (int)(sverts.size() / 8);
         if (sSliderVertCount > 0) uploadDynamicVbo(gSliderVbo, sverts, sSetCap);
         sPanelSig = panelSig; sPanelHave = true;
     }
@@ -1162,6 +1172,7 @@ static void drawLaserBeam(float ox, float oy, float oz,
     glBufferData(GL_ARRAY_BUFFER, sizeof(lv), lv, GL_DYNAMIC_DRAW);
     Mat4 mvp = mat4Mul(sproj, sview);
     glUseProgram(gProg);
+    bindFontTex();
     glBindVertexArray(gLaserVao);
     glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, mvp.m);
     glDrawArrays(GL_LINES, 0, 2);
@@ -1173,6 +1184,7 @@ static void drawSettingsPanelVerts(int sliderVertCount, const Mat4 &sproj, const
     if (sliderVertCount <= 0) return;
     Mat4 mvp = mat4Mul(sproj, mat4Mul(sview, settingsWorld));
     glUseProgram(gProg);
+    bindFontTex();
     glBindVertexArray(gSliderVao);
     glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, mvp.m);
     glDrawArrays(GL_TRIANGLES, 0, sliderVertCount);
@@ -1219,6 +1231,7 @@ static void drawPointerCursor(float cursorLx, float cursorLy, bool cursorPressed
     glBufferData(GL_ARRAY_BUFFER, vi * sizeof(float), cv, GL_DYNAMIC_DRAW);
     Mat4 mvp = mat4Mul(sproj, mat4Mul(sview, settingsWorld));
     glUseProgram(gProg);
+    bindFontTex();
     glBindVertexArray(gCursorVao);
     glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, mvp.m);
     glDrawArrays(GL_TRIANGLES, 0, cursorVerts);
@@ -2227,6 +2240,21 @@ void *renderThread(void *) {
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
     buildGraphics();
+    // Load the TTF font and build the glyph atlas texture before any UI
+    // geometry is built (appendTextLine needs gFont for width metrics).
+    {
+        const char *home = getenv("HOME");
+        std::string fontPath = std::string(home) + "/fonts/LiberationSans-Regular.ttf";
+        if (!gFont.init(fontPath.c_str()))
+            LOGE("font atlas init failed: %s", fontPath.c_str());
+    }
+    // Bind the font atlas to texture unit 0 and set the sampler uniform once.
+    // All gProg draws sample from this texture: text quads use glyph UVs,
+    // non-text quads use UV (0,0) which hits the solid white texel.
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, gFont.texture());
+    glUseProgram(gProg);
+    glUniform1i(gTexLoc, 0);
     buildLobbyTarget();      // per-eye ring for the SDK warp
     buildGazeMarker();       // eye-gaze debug disc (Neo 2 EYE only)
     buildTextBuffers();      // dynamic VBOs for lobby HUD text + slider
@@ -3167,7 +3195,7 @@ void *renderThread(void *) {
                             sDiagV.clear();
                             buildDiagOverlay(sDiagV, diagPage);
                             sDiagPage = diagPage;
-                            sDiagCount = (int)(sDiagV.size()/6);
+                            sDiagCount = (int)(sDiagV.size()/8);
                             glBindBuffer(GL_ARRAY_BUFFER, gDiagVbo);
                             glBufferData(GL_ARRAY_BUFFER, sDiagV.size()*sizeof(float),
                                          sDiagV.data(), GL_DYNAMIC_DRAW);
@@ -3191,6 +3219,7 @@ void *renderThread(void *) {
                             Mat4 sc = mat4Identity(); sc.m[0]=1.125f; sc.m[5]=1.125f; sc.m[10]=1.125f;
                             Mat4 model = mat4Mul(mat4Mul(mat4Translate(0.0f, -0.34f, -1.0f), rx), sc);
                             glUseProgram(gProg);
+                            bindFontTex();
                             glBindVertexArray(gDiagVao);
                             // PERF: this draw goes into gSwap, which ALVR's
                             // de-foveation pass already rendered. On the Adreno
@@ -3881,6 +3910,7 @@ void *renderThread(void *) {
                 Mat4 mk = mat4Mul(mat4Translate(px+dx*gd, py+dy*gd, pz+dz*gd), face);
                 Mat4 mkMvp = mat4Mul(sproj, mat4Mul(sview, mk));
                 glUseProgram(gProg);
+                bindFontTex();
                 glBindVertexArray(gGazeVao);
                 glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, mkMvp.m);
                 glDrawArrays(GL_TRIANGLES, 0, gGazeVertCount);
@@ -3893,6 +3923,7 @@ void *renderThread(void *) {
                 const float kReticleDist = 1.5f;
                 Mat4 rMvp = mat4Mul(sproj, mat4Mul(sEyeShift, mat4Translate(0, 0, -kReticleDist)));
                 glUseProgram(gProg);
+                bindFontTex();
                 glBindVertexArray(gReticleVao);
                 glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, rMvp.m);
                 glDrawArrays(GL_TRIANGLES, 0, gReticleVertCount);
@@ -3927,12 +3958,13 @@ void *renderThread(void *) {
                 bool active = buildPinPad(pinVerts, pinCursorLx, pinCursorLy,
                                            pi.clickEdge && eyeIdx == 0, pinOnPad);
                 if (active && !pinVerts.empty()) {
-                    int pinVc = (int)(pinVerts.size() / 6);
+                    int pinVc = (int)(pinVerts.size() / 8);
                     glBindBuffer(GL_ARRAY_BUFFER, gSliderVbo);
                     glBufferData(GL_ARRAY_BUFFER, pinVerts.size() * sizeof(float),
                                  pinVerts.data(), GL_DYNAMIC_DRAW);
                     Mat4 pinMvp = mat4Mul(sproj, mat4Mul(sview, pinWorld));
                     glUseProgram(gProg);
+                    bindFontTex();
                     glBindVertexArray(gSliderVao);
                     glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, pinMvp.m);
                     glDrawArrays(GL_TRIANGLES, 0, pinVc);
