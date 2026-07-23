@@ -82,6 +82,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         extractAsset("controller/controller2s_home.png", new File(dir, "controller/controller2s_home.png"));
         extractAsset("controller/controller2s_touchpad.png", new File(dir, "controller/controller2s_touchpad.png"));
         extractAsset("controller/controller2s_trigger.png", new File(dir, "controller/controller2s_trigger.png"));
+        extractAsset("fonts/LiberationSans-Regular.ttf", new File(dir, "fonts/LiberationSans-Regular.ttf"));
     }
     private native void nativeSurfaceChanged(android.view.Surface surface);
     private native void nativeSurfaceDestroyed();
