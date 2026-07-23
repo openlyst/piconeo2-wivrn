@@ -3242,6 +3242,13 @@ void *renderThread(void *) {
                         if (alvrFence) { glWaitSync(alvrFence, 0, GL_TIMEOUT_IGNORED); glDeleteSync(alvrFence); alvrFence = 0; }
                         glBindFramebuffer(GL_FRAMEBUFFER, gStreamFbo);
                         glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_SCISSOR_TEST);
+
+                        // Build ImGui frame once for both eyes.
+                        gImGui.setInput(pi.cursorLx, pi.cursorLy, pi.cursorPressed, pi.cursorOnPanel, pi.clickEdge);
+                        gImGui.newFrame();
+                        buildImGuiUI();
+                        gImGui.render();
+
                         for (int e = 0; e < 2; e++) {
                             float ex = (e == 0 ? -softIpdM()*0.5f : softIpdM()*0.5f);
                             Mat4 eyeShift = mat4Translate(-ex, 0, 0);
@@ -3253,6 +3260,13 @@ void *renderThread(void *) {
                             if (ptrFromController)
                                 drawLaserBeam(ptrOx, ptrOy, ptrOz, ptrDx, ptrDy, ptrDz, pi.laserLen, sproj, view);
                             drawSettingsPanelVerts(pi.sliderVertCount, sproj, view, settingsWorld);
+
+                            // Composite ImGui UI texture on top of the panel.
+                            Mat4 mvp = mat4Mul(sproj, mat4Mul(view, settingsWorld));
+                            glEnable(GL_BLEND);
+                            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                            gImGuiComposite.draw(mvp.m, gImGui.texture());
+                            glDisable(GL_BLEND);
                         }
                         glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     }
