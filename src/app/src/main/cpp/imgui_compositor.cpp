@@ -48,15 +48,16 @@ bool ImGuiCompositor::init()
 
     // Build a quad covering the panel area in panel-local metres.
     // pos.xyz + uv.xy = 5 floats per vertex.
-    // UV (0,0) = top-left, (1,1) = bottom-right (matching ImGui texture).
+    // ImGui renders with (0,0) at top-left, but glTexImage2D flips so GL
+    // texture row 0 = bottom. So V=1 maps to the top of the ImGui content.
     float verts[] = {
         // pos.x, pos.y, pos.z, u, v
-        ImGuiManager::kPanelL, ImGuiManager::kPanelT, 0, 0, 0,   // top-left
-        ImGuiManager::kPanelL, ImGuiManager::kPanelB, 0, 0, 1,   // bottom-left
-        ImGuiManager::kPanelR, ImGuiManager::kPanelB, 0, 1, 1,   // bottom-right
-        ImGuiManager::kPanelL, ImGuiManager::kPanelT, 0, 0, 0,   // top-left
-        ImGuiManager::kPanelR, ImGuiManager::kPanelB, 0, 1, 1,   // bottom-right
-        ImGuiManager::kPanelR, ImGuiManager::kPanelT, 0, 1, 0,   // top-right
+        ImGuiManager::kPanelL, ImGuiManager::kPanelT, 0, 0, 1,   // top-left
+        ImGuiManager::kPanelL, ImGuiManager::kPanelB, 0, 0, 0,   // bottom-left
+        ImGuiManager::kPanelR, ImGuiManager::kPanelB, 0, 1, 0,   // bottom-right
+        ImGuiManager::kPanelL, ImGuiManager::kPanelT, 0, 0, 1,   // top-left
+        ImGuiManager::kPanelR, ImGuiManager::kPanelB, 0, 1, 0,   // bottom-right
+        ImGuiManager::kPanelR, ImGuiManager::kPanelT, 0, 1, 1,   // top-right
     };
 
     glGenVertexArrays(1, &m_vao);
