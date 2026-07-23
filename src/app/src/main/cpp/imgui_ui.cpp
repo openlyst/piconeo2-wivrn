@@ -270,7 +270,8 @@ static void buildServersTab()
         }
 
         // Right side: buttons positioned with screen coords via SetCursorScreenPos
-        float btnY = pos.y + rowH * 0.5f - 16;
+        float btnH = 32;
+        float btnY = pos.y + (rowH - btnH) * 0.5f;
         float rightEdge = pos.x + w - 12;
 
         // X button (rightmost)
@@ -295,10 +296,12 @@ static void buildServersTab()
         }
         ImGui::PopStyleColor(3);
 
-        // Auto checkbox (left of Connect)
+        // Auto checkbox (left of Connect), vertically centered with buttons
         if (!srv.manual) {
             bool autoConn = srv.autoconnect;
-            ImGui::SetCursorScreenPos(ImVec2(rightEdge - 32 - 8 - 110 - 8 - 70, btnY + 4));
+            float checkH = ImGui::GetFrameHeight();
+            float checkY = pos.y + (rowH - checkH) * 0.5f;
+            ImGui::SetCursorScreenPos(ImVec2(rightEdge - 32 - 8 - 110 - 8 - 70, checkY));
             if (ImGui::Checkbox("Auto", &autoConn)) {
                 if (gOnServerAutoconnect)
                     gOnServerAutoconnect(srv.hostname, srv.port);
