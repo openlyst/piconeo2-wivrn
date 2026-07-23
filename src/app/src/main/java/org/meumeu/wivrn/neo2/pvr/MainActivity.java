@@ -127,7 +127,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     // Android View-based VR UI
     private VrUiPanel mVrUiPanel;
-    private VrUiController mVrUiController;
+
 
     // Pending WiVRn dashboard connection (flushed once nativeReady() is true).
     private String pendingHost;
@@ -309,46 +309,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         serverDiscovery.startDiscovery();
         startServerSyncThread();
 
-        // Create the Android View-based VR UI
+        // Create the 2D Canvas-based VR UI (WivrnLobbyView)
         mVrUiPanel = new VrUiPanel(this);
-        mVrUiController = new VrUiController(this, mVrUiPanel);
-        mVrUiPanel.setController(mVrUiController);
-        mVrUiController.setCallbacks(new VrUiController.Callbacks() {
-            @Override public void onConnect(String hostname, int port, boolean tcpOnly) {
-                onServerConnect(hostname, port, tcpOnly);
-            }
-            @Override public void onDisconnect() { nativeDisconnect(); }
-            @Override public void onServerRemove(String hostname, int port) { onServerRemove(hostname, port); }
-            @Override public void onServerAutoconnect(String hostname, int port) { onServerAutoconnect(hostname, port); }
-            @Override public void onRefreshServers() { onRefreshServers(); }
-            @Override public void onSetIpd(float mm) { nativeSetIpd(mm); }
-            @Override public void onSetBrightness(float frac) {
-                // Brightness is handled natively via gBrightnessFrac
-            }
-            @Override public void onSetFov(float deg) { nativeSetFov(deg); }
-            @Override public void onSetResolutionScale(float scale) {
-                int w = (int)(1664 * scale) / 2 * 2;
-                int h = (int)(1756 * scale) / 2 * 2;
-                nativeSetStreamResolution(w, h);
-                nativeSetRenderResolution(w, h);
-            }
-            @Override public void onSetBitrate(int mbps) { nativeSetBitrate(mbps); }
-            @Override public void onSetPassthrough(boolean on) { nativeSetPassthrough(on); }
-            @Override public void onSetMicrophone(boolean on) { nativeSetMicrophone(on); }
-            @Override public void onSetEyeFoveation(boolean on) {
-                // Eye foveation is handled natively
-            }
-            @Override public void onSetControllerVibration(float frac) {
-                // Controller vibration is handled natively
-            }
-            @Override public void onRecenter() { nativeRecenter(); }
-            @Override public void onSetDiagHud(int mode) {
-                // Diag HUD mode is handled natively
-            }
-            @Override public void onQuit() { finish(); }
-            @Override public void onStartApp(String appId) { nativeStartApp(appId); }
-            @Override public void onStopApp(int appId) { nativeStopApp(appId); }
-        });
         mVrUiPanel.attach();
 
         setupControllers();
@@ -972,6 +934,93 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     }
 
     // Called from C++ (streaming_client.cpp) when the server requests a PIN.
-    // The native 3D UI doesn't have a PIN pad yet; PIN from URI still works.
-    public void requestPinEntry() {}
+    public void requestPinEntry() {
+        runOnUiThread(() -> {
+            if (mVrUiPanel != null && mVrUiPanel.getLobbyView() != null)
+                mVrUiPanel.getLobbyView().setConnectionState(WivrnLobbyView.STATE_PIN_ENTRY, "Enter PIN");
+        });
+    }
+
+    // ---- WivrnLobbyView callbacks ----
+    public void onIpdChanged(float ipdMm) {
+        try { nativeSetIpd(ipdMm); } catch (Throwable t) { Log.e(TAG, "nativeSetIpd failed", t); }
+    }
+    public void onMicrophoneChanged(boolean enabled) {
+        try { nativeSetMicrophone(enabled); } catch (Throwable t) { Log.e(TAG, "nativeSetMicrophone failed", t); }
+    }
+    public void onPinCancelled() {}
+    public void onPinEntered(String pin) {
+        try { nativeSetPin(pin); } catch (Throwable t) { Log.e(TAG, "nativeSetPin failed", t); }
+    }
+    public void onDisconnectRequested() {
+        nativeConnecting = false;
+        try { nativeDisconnect(); } catch (Throwable t) { Log.e(TAG, "nativeDisconnect failed", t); }
+    }
+    public void onReconnectRequested() {}
+    public void onRenderResolutionChanged(int width, int height) {
+        try { nativeSetRenderResolution(width, height); } catch (Throwable t) { Log.e(TAG, "nativeSetRenderResolution failed", t); }
+    }
+    public void onStreamResolutionChanged(int width, int height) {
+        try { nativeSetStreamResolution(width, height); } catch (Throwable t) { Log.e(TAG, "nativeSetStreamResolution failed", t); }
+    }
+    public void onRequestAppList() {
+        try { nativeRequestAppList(); } catch (Throwable t) { Log.e(TAG, "nativeRequestAppList failed", t); }
+    }
+    public void onRequestRunningApps() {
+        try { nativeRequestRunningApps(); } catch (Throwable t) { Log.e(TAG, "nativeRequestRunningApps failed", t); }
+    }
+    public void onSetActiveApp(int appId) {
+        try { nativeSetActiveApp(appId); } catch (Throwable t) { Log.e(TAG, "nativeSetActiveApp failed", t); }
+    }
+    public void onStartApp(String appId) {
+        try { nativeStartApp(appId); } catch (Throwable t) { Log.e(TAG, "nativeStartApp failed", t); }
+    }
+    public void onStopApp(int appId) {
+        try { nativeStopApp(appId); } catch (Throwable t) { Log.e(TAG, "nativeStopApp failed", t); }
+    }
+
+    // ---- streaming_client callbacks ----
+    public void onConnectionStateChanged(int state, String message) {
+        if (state == WivrnLobbyView.STATE_DISCONNECTED || state == WivrnLobbyView.STATE_IDLE) {
+            nativeConnecting = false;
+        }
+        runOnUiThread(() -> {
+            if (mVrUiPanel != null && mVrUiPanel.getLobbyView() != null)
+                mVrUiPanel.getLobbyView().setConnectionState(state, message);
+        });
+    }
+    public void onStreamStats(int fps, int latencyMs, int bandwidthRx, int bandwidthTx, int bitrateMbps) {
+        runOnUiThread(() -> {
+            if (mVrUiPanel != null && mVrUiPanel.getLobbyView() != null)
+                mVrUiPanel.getLobbyView().updateStreamStats(fps, latencyMs, bandwidthRx, bandwidthTx, bitrateMbps);
+        });
+    }
+    public void onStreamStatsDetailed(float[] data) {
+        runOnUiThread(() -> {
+            if (mVrUiPanel != null && mVrUiPanel.getLobbyView() != null)
+                mVrUiPanel.getLobbyView().updateStreamStatsDetailed(data);
+        });
+    }
+    public void onApplicationList(String[] ids, String[] names) {
+        runOnUiThread(() -> {
+            if (mVrUiPanel != null && mVrUiPanel.getLobbyView() != null)
+                mVrUiPanel.getLobbyView().updateAvailableApps(ids, names);
+        });
+    }
+    public void onApplicationIcon(String appId, byte[] pngData) {
+        runOnUiThread(() -> {
+            if (mVrUiPanel != null && mVrUiPanel.getLobbyView() != null)
+                mVrUiPanel.getLobbyView().updateAppIcon(appId, pngData);
+        });
+    }
+    public void onRunningApplications(String[] names, int[] ids, boolean[] overlays, boolean[] actives) {
+        runOnUiThread(() -> {
+            if (mVrUiPanel != null && mVrUiPanel.getLobbyView() != null)
+                mVrUiPanel.getLobbyView().updateRunningApps(names, ids, overlays, actives);
+        });
+    }
+    public void onLobbyTouch(float x, float y, boolean down, boolean pressed, float thumbstickY) {
+        if (mVrUiPanel != null && mVrUiPanel.getLobbyView() != null)
+            mVrUiPanel.getLobbyView().handleTouch(x, y, down, pressed, thumbstickY);
+    }
 }

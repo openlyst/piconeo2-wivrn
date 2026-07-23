@@ -76,6 +76,50 @@
     <string name="reconnect">Reconnect</string>
     <string name="close">Close</string>
 
+    <!-- Stream tabs -->
+    <string name="stream_applications">Applications</string>
+    <string name="stream_launch">Launch</string>
+    <string name="stream_stats">Stats</string>
+    <string name="stream_settings">Settings</string>
+
+    <!-- Stream applications -->
+    <string name="running_xr_apps">Running XR Applications</string>
+    <string name="no_apps_running">No applications running</string>
+    <string name="overlays">Overlays</string>
+
+    <!-- Stream launch -->
+    <string name="launch_application">Launch Application</string>
+    <string name="loading_apps">Loading applications...</string>
+    <string name="no_apps_available">No applications available</string>
+    <string name="press_to_refresh">Press to refresh</string>
+    <string name="refresh">Refresh</string>
+    <string name="launching_app">Launching %1$s...</string>
+    <string name="waiting_for_server">Waiting for server response (%1$ds)</string>
+
+    <!-- Stream stats -->
+    <string name="perf_stats">Performance Statistics</string>
+    <string name="stat_fps">FPS</string>
+    <string name="stat_mtp_latency">Motion to Photon Latency</string>
+    <string name="stat_download">Download</string>
+    <string name="stat_upload">Upload</string>
+    <string name="stat_bitrate">Bitrate</string>
+    <string name="stat_resolution">Resolution</string>
+    <string name="stat_microphone">Microphone</string>
+    <string name="stat_disabled">Disabled</string>
+    <string name="stat_enabled">Enabled</string>
+    <string name="toggle_overlay_hint">Press both thumbsticks to toggle this overlay</string>
+    <string name="stat_cpu_time">CPU Time</string>
+    <string name="stat_gpu_time">GPU Time</string>
+    <string name="stat_encode">Encode</string>
+    <string name="stat_send">Send</string>
+    <string name="stat_network">Network</string>
+    <string name="stat_decode">Decode</string>
+    <string name="stat_render_wait">Render Wait</string>
+    <string name="stat_blit">Blit</string>
+    <string name="stat_total_latency">Total Latency</string>
+    <string name="stat_latency_breakdown">Latency Breakdown</string>
+    <string name="stat_bandwidth">Bandwidth</string>
+
     <!-- Units -->
     <string name="unit_mbit_s">Mbit/s</string>
     <string name="unit_mm">mm</string>
