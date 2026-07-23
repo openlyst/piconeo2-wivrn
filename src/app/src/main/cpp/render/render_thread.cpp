@@ -32,17 +32,14 @@
 #include "gl_util.h"     // compile()
 #include "eye_tracking.h"// readEyeGazes() + gaze/openness state
 #include "device_info.h" // IP / status / model strings + readers
-#include "ui_kit.h"      // font + appendTextLine/Quad + immediate-mode widget kit
 #include "android_ui.h"  // Android View-based UI (replaces ImGui)
-#include "eq_panel.h"    // 16-band audio EQ: state + persistence + buildEqVerts
-#include "settings_panel.h"  // unified lobby SETTINGS window (sidebar + scroll)
-#include "server_list.h"     // wiVRn-style server list panel
+#include "ui_kit.h"      // font + appendTextLine/Quad for reticle/crosshair
+#include "eq_panel.h"    // EQ state for config persistence
+#include "server_list.h"     // server list data layer
 #include "app_state.h"   // shared lobby/render knobs: IPD, input edges, toggles, diag
-#include "lobby.h"       // ported pico_oxr WiVRn lobby UI panel
+#include "lobby.h"       // 3D lobby environment
 #include "passthrough.h" // passthrough camera background for the lobby
 #include "simple_lobby.h"// simple 3D lobby environment (floor grid + sky)
-#include "pin_pad.h"     // PIN entry numpad overlay for pairing
-#include "lobby_panels.h"// diagnostics overlay builders
 #include "input.h"       // controller + head-pose shared state
 #include "foveation.h"   // readFoveationParams() from the settings JSON
 #include "render_thread.h"// shared render-thread lifetime/window/sleep state
@@ -825,10 +822,8 @@ static void drawBatteryWarn(int eye) {
     static uint64_t sWarnKey = 0;
     if (sWarnKey != bwStart) {   // rebuild geometry once per activation
         sWarnV.clear();
-        buildBatteryWarn(sWarnV, gBattWarnPct.load());
-        sWarnCount = (int)(sWarnV.size()/6);
-        glBindBuffer(GL_ARRAY_BUFFER, gWarnVbo);
-        glBufferData(GL_ARRAY_BUFFER, sWarnV.size()*sizeof(float), sWarnV.data(), GL_DYNAMIC_DRAW);
+        // buildBatteryWarn removed - battery warning now handled by Android UI
+        sWarnCount = 0;
         sWarnKey = bwStart;
     }
     if (sWarnCount <= 0) return;
@@ -1040,13 +1035,8 @@ static void drawLaserBeam(float ox, float oy, float oz,
 
 static void drawSettingsPanelVerts(int sliderVertCount, const Mat4 &sproj, const Mat4 &sview, const Mat4 &settingsWorld)
 {
-    if (sliderVertCount <= 0) return;
-    Mat4 mvp = mat4Mul(sproj, mat4Mul(sview, settingsWorld));
-    glUseProgram(gProg);
-    glBindVertexArray(gSliderVao);
-    glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, mvp.m);
-    glDrawArrays(GL_TRIANGLES, 0, sliderVertCount);
-    glBindVertexArray(0);
+    // 3D settings panel rendering removed - UI now composited from Android View texture
+    (void)sliderVertCount; (void)sproj; (void)sview; (void)settingsWorld;
 }
 
 static void drawPointerCursor(float cursorLx, float cursorLy, bool cursorPressed,
@@ -2855,7 +2845,7 @@ void *renderThread(void *) {
         // ---- ALVR video path: async TimeWarp (present every refresh) --------
         // The overlay (gManualLobby) draws on top of the video below.
         if (gStreaming && gDecoderReady) {
-            gStreamingMode = true;
+            gStreamingMode.store(true);
             // Servers tab is hidden while streaming; fall back to Settings.
             if (gSettingsCat == 0) gSettingsCat = 1;
             hudAnchored = false;   // re-anchor the lobby HUD next time we return to it
@@ -3129,12 +3119,9 @@ void *renderThread(void *) {
                         // Rebuild on the throttle OR immediately when the page changes.
                         if (sDiagBuilt == 0 || dnow - sDiagBuilt > 250000000ULL || sDiagPage != diagPage) {
                             sDiagV.clear();
-                            buildDiagOverlay(sDiagV, diagPage);
+                            // buildDiagOverlay removed - diagnostics now handled by Android UI
                             sDiagPage = diagPage;
-                            sDiagCount = (int)(sDiagV.size()/6);
-                            glBindBuffer(GL_ARRAY_BUFFER, gDiagVbo);
-                            glBufferData(GL_ARRAY_BUFFER, sDiagV.size()*sizeof(float),
-                                         sDiagV.data(), GL_DYNAMIC_DRAW);
+                            sDiagCount = 0;
                             sDiagBuilt = dnow;
                         }
                         int dc = sDiagCount;
@@ -3218,7 +3205,7 @@ void *renderThread(void *) {
                     // UI directly on top of the video in gSwap (overlay mode: no
                     // color clear, only depth). The video keeps playing underneath.
                     if (gManualLobby.load()) {
-                        gStreamingMode = true;   // show streaming tabs in sidebar
+                        gStreamingMode.store(true);   // show streaming tabs in sidebar
                         // Compute view/projection from the head pose + stream FOV.
                         Mat4 hRot = quatToMat4(qx, qy, qz, qw);
                         Mat4 invRot = mat4Transpose3x3(hRot);
@@ -3260,8 +3247,8 @@ void *renderThread(void *) {
                                 return (s.keyCount>2 && s.keys[2]!=0) || (s.keyCount>8 && s.keys[8]>40);
                             };
                             for (int hh=0; hh<2; hh++)
-                                if (hh != gDominantHand && cc[hh].conn==1 && !staleSkip[hh] && trig(cc[hh])) gDominantHand = hh;
-                            int h = (cc[gDominantHand].conn==1 && !staleSkip[gDominantHand]) ? gDominantHand
+                                if (hh != gDominantHand && cc[hh].conn==1 && !staleSkip[hh] && trig(cc[hh])) gDominantHand.store(hh);
+                            int h = (cc[gDominantHand.load()].conn==1 && !staleSkip[gDominantHand]) ? gDominantHand.load()
                                   : (cc[0].conn==1 && !staleSkip[0] ? 0 : (cc[1].conn==1 && !staleSkip[1] ? 1 : -1));
                             if (h >= 0) {
                                 Quat oq = quatNorm({ -cc[h].q[0], -cc[h].q[1], cc[h].q[2], cc[h].q[3] });
@@ -3546,25 +3533,17 @@ void *renderThread(void *) {
         // Keep streaming tabs visible when connected to the server even with
         // no video playing, so the user can launch apps from the headset.
         bool wivrnConnected = g_stream && g_stream->session && g_stream->connected_ns.load() > 0;
-        gStreamingMode = wivrnConnected;
+        gStreamingMode.store(wivrnConnected);
+        androidUiPushStreaming(wivrnConnected);
         // Auto-switch to the Launch tab when we first connect.
         static bool wasConnected = false;
         if (wivrnConnected && !wasConnected) {
-            // Launch is the last streaming-only category (index 4: Stats, Apps, Launch).
-            MenuModel &mm = settingsModel();
-            for (int i = (int)mm.size() - 1; i >= 0; i--) {
-                if (mm[i].streamingOnly && mm[i].name == "Launch") {
-                    gSettingsCat = i;
-                    break;
-                }
-            }
+            gSettingsCat = 4;  // Launch tab
         }
         wasConnected = wivrnConnected;
         // If we were on a streaming-only tab but lost connection, fall back to Settings.
-        if (!gStreamingMode) {
-            MenuModel &mm = settingsModel();
-            if (gSettingsCat >= 0 && gSettingsCat < (int)mm.size()
-                && mm[gSettingsCat].streamingOnly)
+        if (!gStreamingMode.load()) {
+            if (gSettingsCat >= 2)  // streaming-only tabs are 2+
                 gSettingsCat = 1;   // Settings
         }
 
@@ -3663,8 +3642,8 @@ void *renderThread(void *) {
             // Off-hand dominance: pulling the trigger on a connected NON-dominant
             // controller claims the laser.
             for (int hh=0; hh<2; hh++)
-                if (hh != gDominantHand && cc[hh].conn==1 && !staleSkip[hh] && trig(cc[hh])) gDominantHand = hh;
-            int h = (cc[gDominantHand].conn==1 && !staleSkip[gDominantHand]) ? gDominantHand
+                if (hh != gDominantHand && cc[hh].conn==1 && !staleSkip[hh] && trig(cc[hh])) gDominantHand.store(hh);
+            int h = (cc[gDominantHand.load()].conn==1 && !staleSkip[gDominantHand]) ? gDominantHand.load()
                   : (cc[0].conn==1 && !staleSkip[0] ? 0 : (cc[1].conn==1 && !staleSkip[1] ? 1 : -1));
             if (h >= 0) {
                 // Same conversion as the streaming controller path (CV service
@@ -3878,42 +3857,7 @@ void *renderThread(void *) {
             if (pi.cursorOnPanel)
                 drawPointerCursor(pi.cursorLx, pi.cursorLy, pi.cursorPressed, sproj, sview, settingsWorld);
 
-            // PIN pad overlay (shown when server requests pairing PIN).
-            if (gPinEntryRequested.load()) {
-                // Position the PIN pad in front of the settings panel, slightly
-                // closer to the user so it's clearly on top.
-                Mat4 pinOffset = mat4Translate(0, 0, 0.1f);
-                Mat4 pinWorld = mat4Mul(settingsWorld, pinOffset);
-                // Build PIN pad verts with cursor mapped to panel-local coords.
-                float pinCursorLx = 0, pinCursorLy = 0;
-                bool pinOnPad = false;
-                // Ray-march the pointer against the PIN pad plane.
-                // The PIN pad is at settingsWorld * (0,0,0.1) in world space.
-                // Use the same rayPanelHit logic as the settings panel.
-                float pinT = 0;
-                bool onPad = rayPanelHit(pinWorld, pi.ptrOx, pi.ptrOy, pi.ptrOz,
-                                         pi.ptrDx, pi.ptrDy, pi.ptrDz,
-                                         false, pi.laserLen,
-                                         pinCursorLx, pinCursorLy, pinT);
-                pinOnPad = onPad;
-                static std::vector<float> pinVerts;
-                pinVerts.clear();
-                // Only process clicks on the first eye to avoid double-input
-                bool active = buildPinPad(pinVerts, pinCursorLx, pinCursorLy,
-                                           pi.clickEdge && eyeIdx == 0, pinOnPad);
-                if (active && !pinVerts.empty()) {
-                    int pinVc = (int)(pinVerts.size() / 6);
-                    glBindBuffer(GL_ARRAY_BUFFER, gSliderVbo);
-                    glBufferData(GL_ARRAY_BUFFER, pinVerts.size() * sizeof(float),
-                                 pinVerts.data(), GL_DYNAMIC_DRAW);
-                    Mat4 pinMvp = mat4Mul(sproj, mat4Mul(sview, pinWorld));
-                    glUseProgram(gProg);
-                    glBindVertexArray(gSliderVao);
-                    glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, pinMvp.m);
-                    glDrawArrays(GL_TRIANGLES, 0, pinVc);
-                    glBindVertexArray(0);
-                }
-            }
+            // PIN pad overlay removed - PIN entry now handled by Android UI.
 
             glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);
         };

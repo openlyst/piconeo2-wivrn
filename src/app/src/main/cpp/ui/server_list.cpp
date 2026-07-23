@@ -1,6 +1,6 @@
 #include "server_list.h"
-#include "settings_panel.h"  // kCtX0, kCtX1, kCtTop, kCtBot
-#include "pin_pad.h"         // gPinEntryRequested (cleared when connecting ends)
+#include "panel_geometry.h"  // kCtX0, kCtX1, kCtTop, kCtBot
+#include "app_state.h"       // gPinEntryRequested (moved here)
 #include "android_ui.h"      // androidUiPushServers
 #include "log.h"
 #include <mutex>

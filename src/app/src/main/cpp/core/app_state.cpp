@@ -7,6 +7,21 @@
 
 std::function<void()> gOnExit;
 
+// Moved from settings_panel.h / pin_pad.h
+std::atomic<bool> gStreamingMode{false};
+int gSettingsCat = 1;  // default to Settings tab
+std::atomic<bool> gPinEntryRequested{false};
+std::atomic<int>  gDominantHand{1};
+std::function<void(const std::string &)> gOnPinSubmit;
+std::atomic<bool> gEqGrabbing{false};
+std::atomic<int>  gEqActiveBand{-1};
+
+void requestPinEntryUI() { gPinEntryRequested.store(true); }
+void submitPin(const std::string &pin) {
+    gPinEntryRequested.store(false);
+    if (gOnPinSubmit) gOnPinSubmit(pin);
+}
+
 std::atomic<float>    gSoftIpdMm{65.0f};
 std::atomic<bool>     gIpdDirty{false};
 std::atomic<uint64_t> gIpdChangeNs{0};

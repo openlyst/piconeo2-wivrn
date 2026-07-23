@@ -124,11 +124,7 @@ add_library(p2wivrn SHARED
     input/input.cpp
     ui/ui_kit.cpp
     ui/eq_panel.cpp
-    ui/lobby_panels.cpp
-    ui/settings_panel.cpp
     ui/server_list.cpp
-    ui/pin_pad.cpp
-    ui/stream_panel.cpp
     ui/simple_lobby.cpp
     ui/android_ui.cpp
     streaming/streaming_client.cpp

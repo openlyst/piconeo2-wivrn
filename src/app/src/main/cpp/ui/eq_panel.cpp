@@ -7,13 +7,11 @@
 
 float    gEqGains[kEqBands] = {0};
 float    gEqCustoms[2][kEqBands] = {{0},{0}};
-int      gEqActiveBand = -1;
-bool     gEqGrabbing   = false;
+// gEqActiveBand, gEqGrabbing, gDominantHand moved to app_state.cpp
 bool     gEqDirty      = false;
 uint64_t gEqChangeNs   = 0;
 bool     gEqPresetOpen = false;
 int      gEqPresetIdx  = 0;
-int      gDominantHand = 1;
 
 const char *kEqPresetNames[kEqNumPresets] = { "Custom 1", "Custom 2" };
 // Band centre frequencies for the readout (Hz), MUST match eq.rs CENTER_FREQS.
@@ -76,7 +74,7 @@ void buildEqVerts(std::vector<float> &v, int hoverBand, bool resetHover,
     }
 
     // Readout of the hovered/last band.
-    int rb = (hoverBand >= 0) ? hoverBand : gEqActiveBand;
+    int rb = (hoverBand >= 0) ? hoverBand : gEqActiveBand.load();
     if (rb >= 0) {
         char buf[32];
         float fr = kEqFreqs[rb];

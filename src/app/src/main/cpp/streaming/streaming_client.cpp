@@ -2,9 +2,8 @@
 #include "pico_stutter.h"
 #include "latency_tracker.h"
 #include "eye_tracking.h"
-#include "app_state.h"   // gManualLobby (in-stream lobby overlay flag)
+#include "app_state.h"   // gManualLobby, requestPinEntryUI, gOnPinSubmit
 #include "server_list.h" // setConnectionError / setConnecting for lobby UI
-#include "pin_pad.h"     // requestPinEntryUI / gOnPinSubmit for pairing numpad
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/android_sink.h>
