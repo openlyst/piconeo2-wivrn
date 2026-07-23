@@ -3752,18 +3752,6 @@ void *renderThread(void *) {
                 glDrawArrays(GL_TRIANGLES, 0, gGazeVertCount);
                 glBindVertexArray(0);
             }
-            // Head-gaze crosshair: HEAD-LOCKED at view centre (eye shift only)
-            // so it marks where the gaze ray points. Drawn last, on top. Shown
-            // (in gaze mode) when the gaze is over an interactable lobby control.
-            if (gReticleVertCount > 0 && showReticle) {
-                const float kReticleDist = 1.5f;
-                Mat4 rMvp = mat4Mul(sproj, mat4Mul(sEyeShift, mat4Translate(0, 0, -kReticleDist)));
-                glUseProgram(gProg);
-                glBindVertexArray(gReticleVao);
-                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, rMvp.m);
-                glDrawArrays(GL_TRIANGLES, 0, gReticleVertCount);
-                glBindVertexArray(0);
-            }
             // Native 3D lobby UI: unified floating panel (wiVRn-style).
             drawSettingsPanelVerts(pi.sliderVertCount, sproj, sview, settingsWorld);
             // ImGui overlay: composite the offscreen UI texture as a 3D quad.
