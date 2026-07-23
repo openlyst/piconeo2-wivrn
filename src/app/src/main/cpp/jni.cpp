@@ -69,6 +69,7 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStart(JNIEnv *env, jobject thi
     if (gRunning.load()) { LOGI("nativeStart ignored (already running)"); return; }
     env->GetJavaVM(&gVM);
     gActivity = env->NewGlobalRef(activity);
+    clearConnectionError();   // don't show stale errors from a previous session
 
     // Load ImGui fonts from APK assets.
     {
