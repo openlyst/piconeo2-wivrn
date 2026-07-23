@@ -141,6 +141,7 @@ add_library(p2wivrn SHARED
     ${WIVRN_DIR}/tracking/pico_tracking.cpp
     imgui_manager.cpp
     imgui_compositor.cpp
+    imgui_ui.cpp
     third_party/imgui/imgui.cpp
     third_party/imgui/imgui_draw.cpp
     third_party/imgui/imgui_tables.cpp
