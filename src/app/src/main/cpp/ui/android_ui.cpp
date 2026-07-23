@@ -63,13 +63,15 @@ bool AndroidUi::init()
     m_texLoc = glGetUniformLocation(m_prog, "uTex");
 
     // Build the panel quad (pos.xyz + uv.xy)
+    // V is flipped (1-v) because Android Bitmap pixels are top-to-bottom
+    // but OpenGL texture origin is bottom-to-left.
     float verts[] = {
-        kPanelL, kPanelT, 0, 0, 1,   // top-left
-        kPanelL, kPanelB, 0, 0, 0,   // bottom-left
-        kPanelR, kPanelB, 0, 1, 0,   // bottom-right
-        kPanelL, kPanelT, 0, 0, 1,   // top-left
-        kPanelR, kPanelB, 0, 1, 0,   // bottom-right
-        kPanelR, kPanelT, 0, 1, 1,   // top-right
+        kPanelL, kPanelT, 0, 0, 0,   // top-left
+        kPanelL, kPanelB, 0, 0, 1,   // bottom-left
+        kPanelR, kPanelB, 0, 1, 1,   // bottom-right
+        kPanelL, kPanelT, 0, 0, 0,   // top-left
+        kPanelR, kPanelB, 0, 1, 1,   // bottom-right
+        kPanelR, kPanelT, 0, 1, 0,   // top-right
     };
     glGenVertexArrays(1, &m_vao);
     glBindVertexArray(m_vao);
