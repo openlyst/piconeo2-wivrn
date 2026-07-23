@@ -3248,6 +3248,10 @@ void *renderThread(void *) {
                         gImGui.newFrame();
                         buildImGuiUI();
                         gImGui.render();
+                        // gImGui.render() leaves FBO 0 bound; rebind gStreamFbo
+                        // so the per-eye draws go into the swapchain textures.
+                        glBindFramebuffer(GL_FRAMEBUFFER, gStreamFbo);
+                        glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_SCISSOR_TEST);
 
                         for (int e = 0; e < 2; e++) {
                             float ex = (e == 0 ? -softIpdM()*0.5f : softIpdM()*0.5f);
