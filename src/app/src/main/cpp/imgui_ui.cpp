@@ -301,7 +301,8 @@ static void buildServersTab()
             bool autoConn = srv.autoconnect;
             float checkH = ImGui::GetFrameHeight();
             float checkY = pos.y + (rowH - checkH) * 0.5f;
-            ImGui::SetCursorScreenPos(ImVec2(rightEdge - 32 - 8 - 110 - 8 - 70, checkY));
+            float autoW = ImGui::CalcTextSize("Auto").x + checkH + 12;
+            ImGui::SetCursorScreenPos(ImVec2(rightEdge - 32 - 8 - 110 - 12 - autoW, checkY));
             if (ImGui::Checkbox("Auto", &autoConn)) {
                 if (gOnServerAutoconnect)
                     gOnServerAutoconnect(srv.hostname, srv.port);
