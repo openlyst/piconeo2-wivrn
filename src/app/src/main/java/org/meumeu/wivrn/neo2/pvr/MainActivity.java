@@ -119,10 +119,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     public native void nativeRequestRunningApps();
     public native void nativeSetActiveApp(int appId);
     public native void nativeStopApp(int appId);
+    public native void nativeRecenter();
 
     private ServerDiscovery serverDiscovery;
     private volatile boolean mServerSyncRunning = false;
     private Thread mServerSyncThread;
+
+    // Android View-based VR UI
+    private VrUiPanel mVrUiPanel;
+    private VrUiController mVrUiController;
 
     // Pending WiVRn dashboard connection (flushed once nativeReady() is true).
     private String pendingHost;
@@ -303,6 +308,48 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         serverDiscovery = new ServerDiscovery(this);
         serverDiscovery.startDiscovery();
         startServerSyncThread();
+
+        // Create the Android View-based VR UI
+        mVrUiPanel = new VrUiPanel(this);
+        mVrUiController = new VrUiController(this, mVrUiPanel);
+        mVrUiPanel.setController(mVrUiController);
+        mVrUiController.setCallbacks(new VrUiController.Callbacks() {
+            @Override public void onConnect(String hostname, int port, boolean tcpOnly) {
+                onServerConnect(hostname, port, tcpOnly);
+            }
+            @Override public void onDisconnect() { nativeDisconnect(); }
+            @Override public void onServerRemove(String hostname, int port) { onServerRemove(hostname, port); }
+            @Override public void onServerAutoconnect(String hostname, int port) { onServerAutoconnect(hostname, port); }
+            @Override public void onRefreshServers() { onRefreshServers(); }
+            @Override public void onSetIpd(float mm) { nativeSetIpd(mm); }
+            @Override public void onSetBrightness(float frac) {
+                // Brightness is handled natively via gBrightnessFrac
+            }
+            @Override public void onSetFov(float deg) { nativeSetFov(deg); }
+            @Override public void onSetResolutionScale(float scale) {
+                int w = (int)(1664 * scale) / 2 * 2;
+                int h = (int)(1756 * scale) / 2 * 2;
+                nativeSetStreamResolution(w, h);
+                nativeSetRenderResolution(w, h);
+            }
+            @Override public void onSetBitrate(int mbps) { nativeSetBitrate(mbps); }
+            @Override public void onSetPassthrough(boolean on) { nativeSetPassthrough(on); }
+            @Override public void onSetMicrophone(boolean on) { nativeSetMicrophone(on); }
+            @Override public void onSetEyeFoveation(boolean on) {
+                // Eye foveation is handled natively
+            }
+            @Override public void onSetControllerVibration(float frac) {
+                // Controller vibration is handled natively
+            }
+            @Override public void onRecenter() { nativeRecenter(); }
+            @Override public void onSetDiagHud(int mode) {
+                // Diag HUD mode is handled natively
+            }
+            @Override public void onQuit() { finish(); }
+            @Override public void onStartApp(String appId) { nativeStartApp(appId); }
+            @Override public void onStopApp(int appId) { nativeStopApp(appId); }
+        });
+        mVrUiPanel.attach();
 
         setupControllers();
         setupProximitySleep();
