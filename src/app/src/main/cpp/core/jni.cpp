@@ -21,6 +21,7 @@
 #include "pico_sdk.h"        // Pvr_ResetSensor
 #include "streaming/streaming_client.h"
 #include "android_ui.h"
+#include "eye_tracking.h"
 #include <ctime>
 
 // Font data loaded from assets, used by ImGuiManager::init().
@@ -614,6 +615,52 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetRenderResolution(JNIEnv *, 
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetBrightness(JNIEnv *, jobject, jfloat frac) {
+    float f = frac < 0 ? 0 : (frac > 1 ? 1 : frac);
+    gBrightnessFrac.store(f);
+    gBrightnessSaved.store(true);
+    gBrightnessApply.store(true);
+    saveBrightness();
+    LOGI("Brightness set to %.0f%%", f * 100.0f);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetCtrlVibration(JNIEnv *, jobject, jfloat strength) {
+    float v = strength < 0 ? 0 : (strength > 1 ? 1 : strength);
+    gWivrnCtrlVibration.store(v);
+    saveAllConfig();
+    LOGI("Controller vibration set to %.0f%%", v * 100.0f);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetEyeFoveation(JNIEnv *, jobject, jboolean enabled) {
+    gWivrnEyeFoveation.store(enabled == JNI_TRUE);
+    gEyeFoveationDirty.store(true);
+    saveAllConfig();
+    LOGI("Eye-tracked foveation %s", enabled == JNI_TRUE ? "enabled" : "disabled");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetEyeDebug(JNIEnv *, jobject, jboolean enabled) {
+    gEyeDebugOn.store(enabled == JNI_TRUE);
+    gEyeTrackReapply.store(true);
+    saveEyeDebug();
+    LOGI("Eye debug %s", enabled == JNI_TRUE ? "on" : "off");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetDiagHud(JNIEnv *, jobject, jint mode) {
+    gDiagHudMode.store(mode);
+    saveDiagHud();
+    LOGI("Diagnostics HUD mode set to %d", mode);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeIsEyeSupported(JNIEnv *, jobject) {
+    return gEyeSupported.load() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeRequestAppList(JNIEnv *, jobject) {
     if (!g_stream || !g_stream->session) return;
     LOGI("nativeRequestAppList");
@@ -822,7 +869,6 @@ void androidUiPushSettings()
         if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
     }
     if (!env) return;
-    extern std::atomic<bool> gEyeSupported;
     env->CallVoidMethod(gUiPanel, g_uiUpdateSettingsMethod,
         gSoftIpdMm.load(), gBrightnessFrac.load(), gStreamFovDeg.load(),
         gWivrnResolutionScale.load(), gWivrnBitrateMbps.load(),

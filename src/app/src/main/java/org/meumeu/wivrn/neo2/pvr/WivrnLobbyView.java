@@ -153,6 +153,8 @@ public class WivrnLobbyView {
     private static final int SLIDER_BITRATE = 2;
     private static final int SLIDER_IPD = 3;
     private static final int SLIDER_FOV = 4;
+    private static final int SLIDER_BRIGHTNESS = 5;
+    private static final int SLIDER_CTRL_VIBRATION = 6;
 
     private int resWidth = 1664;
     private int foveationScale = 30;
@@ -164,6 +166,12 @@ public class WivrnLobbyView {
     private boolean microphoneEnabled = false;
     private boolean passthroughEnabled = true;
     private int languageSetting = 0;
+    private float brightnessFrac = 1.0f;
+    private float ctrlVibration = 1.0f;
+    private boolean eyeFoveationEnabled = false;
+    private boolean eyeDebugOn = false;
+    private int diagHudMode = 0;
+    private boolean eyeSupported = false;
 
     private String addServerName = "";
     private String addServerAddress = "";
@@ -723,6 +731,11 @@ public class WivrnLobbyView {
         streamResolutionScale = sp.getInt("stream_resolution_scale", 100);
         passthroughEnabled = sp.getBoolean("passthrough", true);
         languageSetting = sp.getInt("language", 0);
+        brightnessFrac = sp.getFloat("brightness", 1.0f);
+        ctrlVibration = sp.getFloat("ctrl_vibration", 1.0f);
+        eyeFoveationEnabled = sp.getBoolean("eye_foveation", false);
+        eyeDebugOn = sp.getBoolean("eye_debug", false);
+        diagHudMode = sp.getInt("diag_hud", 0);
     }
 
     private void saveSettings() {
@@ -740,6 +753,11 @@ public class WivrnLobbyView {
             .putInt("stream_resolution_scale", streamResolutionScale)
             .putBoolean("passthrough", passthroughEnabled)
             .putInt("language", languageSetting)
+            .putFloat("brightness", brightnessFrac)
+            .putFloat("ctrl_vibration", ctrlVibration)
+            .putBoolean("eye_foveation", eyeFoveationEnabled)
+            .putBoolean("eye_debug", eyeDebugOn)
+            .putInt("diag_hud", diagHudMode)
             .apply();
     }
 
@@ -750,6 +768,17 @@ public class WivrnLobbyView {
     public void setMicrophoneEnabled(boolean enabled) {
         microphoneEnabled = enabled;
         saveSettings();
+        markDirty();
+    }
+
+    public void updateDebugSettings(float brightness, float ctrlVib, boolean eyeFov,
+            boolean eyeDebug, int diagHud, boolean eyeSupp) {
+        brightnessFrac = brightness;
+        ctrlVibration = ctrlVib;
+        eyeFoveationEnabled = eyeFov;
+        eyeDebugOn = eyeDebug;
+        diagHudMode = diagHud;
+        eyeSupported = eyeSupp;
         markDirty();
     }
 
@@ -1111,6 +1140,24 @@ public class WivrnLobbyView {
         y = drawDropdown(x, y, w, i18n.s(R.string.setting_language),
             new String[]{i18n.s(R.string.lang_system), "English", "简体中文"},
             languageSetting, false);
+
+        y += 15;
+        canvas.drawText("Debug", x, y + 30, textLargePaint);
+        y += 55;
+
+        y = drawSliderFloat(x, y, w, "Brightness", brightnessFrac, 0, 1, "%", false, 0);
+        y = drawSliderFloat(x, y, w, "Controller Vibration", ctrlVibration, 0, 1, "%", false, 0);
+        y = drawCheckbox(x, y, w, "Eye-tracked Foveation", eyeFoveationEnabled, !eyeSupported);
+        y = drawCheckbox(x, y, w, "Eye Debug", eyeDebugOn, false);
+        y = drawDropdown(x, y, w, "Diagnostics HUD",
+            new String[]{"Off", "Pipeline", "System"}, diagHudMode, false);
+
+        y += 10;
+        RectF recenterBtn = new RectF(x, y, x + 200, y + BUTTON_HEIGHT);
+        boolean recenterHover = touchDown && recenterBtn.contains(touchX, touchY + settingsScrollY);
+        canvas.drawRoundRect(recenterBtn, 10, 10, recenterHover ? buttonHoverBgPaint : buttonBgPaint);
+        drawCenteredText("Recenter", recenterBtn, textPaint);
+        y += BUTTON_HEIGHT + 10;
 
         y += 20;
         RectF resetBtn = new RectF(x, y, x + 200, y + BUTTON_HEIGHT);
@@ -2236,6 +2283,18 @@ public class WivrnLobbyView {
                 ((MainActivity) context).nativeSetFov(fovDeg);
                 markDirty();
                 break;
+            case SLIDER_BRIGHTNESS:
+                brightnessFrac = Math.max(0, Math.min(1, pct));
+                saveSettings();
+                ((MainActivity) context).nativeSetBrightness(brightnessFrac);
+                markDirty();
+                break;
+            case SLIDER_CTRL_VIBRATION:
+                ctrlVibration = Math.max(0, Math.min(1, pct));
+                saveSettings();
+                ((MainActivity) context).nativeSetCtrlVibration(ctrlVibration);
+                markDirty();
+                break;
         }
     }
 
@@ -2626,8 +2685,80 @@ public class WivrnLobbyView {
         }
         sy += 50;
 
-        // Restore Defaults button
+        // Debug section header
+        sy += 15 + 55;
+
+        // Brightness slider
+        sy += 35;
+        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
+            activeSlider = SLIDER_BRIGHTNESS;
+            float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
+            brightnessFrac = Math.max(0, Math.min(1, pct));
+            saveSettings();
+            ((MainActivity) context).nativeSetBrightness(brightnessFrac);
+            markDirty();
+            return;
+        }
+        sy += 50;
+
+        // Controller vibration slider
+        sy += 35;
+        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
+            activeSlider = SLIDER_CTRL_VIBRATION;
+            float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
+            ctrlVibration = Math.max(0, Math.min(1, pct));
+            saveSettings();
+            ((MainActivity) context).nativeSetCtrlVibration(ctrlVibration);
+            markDirty();
+            return;
+        }
+        sy += 50;
+
+        // Eye-tracked foveation checkbox
+        if (!eyeSupported) {
+            // skip
+        } else if (x >= contentX && x <= contentX + contentW && y >= sy - 5 && y <= sy + 35) {
+            eyeFoveationEnabled = !eyeFoveationEnabled;
+            saveSettings();
+            ((MainActivity) context).nativeSetEyeFoveation(eyeFoveationEnabled);
+            markDirty();
+            return;
+        }
         sy += 40;
+
+        // Eye debug checkbox
+        if (x >= contentX && x <= contentX + contentW && y >= sy - 5 && y <= sy + 35) {
+            eyeDebugOn = !eyeDebugOn;
+            saveSettings();
+            ((MainActivity) context).nativeSetEyeDebug(eyeDebugOn);
+            markDirty();
+            return;
+        }
+        sy += 40;
+
+        // Diagnostics HUD dropdown
+        sy += 35;
+        if (x >= contentX && x <= contentX + contentW && y >= sy - 5 && y <= sy + 45) {
+            diagHudMode = (diagHudMode + 1) % 3;
+            saveSettings();
+            ((MainActivity) context).nativeSetDiagHud(diagHudMode);
+            markDirty();
+            return;
+        }
+        sy += 50;
+
+        // Recenter button
+        sy += 10;
+        RectF recenterBtn = new RectF(contentX, sy, contentX + 200, sy + BUTTON_HEIGHT);
+        if (recenterBtn.contains(x, y)) {
+            ((MainActivity) context).nativeRecenter();
+            markDirty();
+            return;
+        }
+        sy += BUTTON_HEIGHT + 10;
+
+        // Restore Defaults button
+        sy += 20;
         RectF resetBtn = new RectF(contentX, sy, contentX + 200, sy + BUTTON_HEIGHT);
         if (resetBtn.contains(x, y)) {
             showResetConfirm = true;
@@ -2660,10 +2791,20 @@ public class WivrnLobbyView {
             streamResolutionScale = 100;
             languageSetting = 0;
             i18n.setLanguage(0);
+            brightnessFrac = 1.0f;
+            ctrlVibration = 1.0f;
+            eyeFoveationEnabled = false;
+            eyeDebugOn = false;
+            diagHudMode = 0;
             saveSettings();
             applyResolution();
             ((MainActivity) context).onIpdChanged(ipdMm);
             ((MainActivity) context).onMicrophoneChanged(false);
+            ((MainActivity) context).nativeSetBrightness(brightnessFrac);
+            ((MainActivity) context).nativeSetCtrlVibration(ctrlVibration);
+            ((MainActivity) context).nativeSetEyeFoveation(false);
+            ((MainActivity) context).nativeSetEyeDebug(false);
+            ((MainActivity) context).nativeSetDiagHud(0);
             showResetConfirm = false;
             markDirty();
             return;

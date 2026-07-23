@@ -59,6 +59,10 @@ public class VrUiPanel {
             mBitmap = mLobbyView.getBitmap();
             markDirty();
             try { nativeInit(); } catch (Throwable t) { Log.e(TAG, "nativeInit failed", t); }
+            try {
+                boolean eyeSupp = ((MainActivity) mContext).nativeIsEyeSupported();
+                mLobbyView.updateDebugSettings(1.0f, 1.0f, false, false, 0, eyeSupp);
+            } catch (Throwable t) { /* native not up yet */ }
             startRenderThread();
             Log.i(TAG, "VrUiPanel attached " + UI_WIDTH + "x" + UI_HEIGHT);
         });
@@ -220,6 +224,8 @@ public class VrUiPanel {
             boolean passthrough, float ctrlVib, int diagHud, boolean eyeSupported) {
         mMainHandler.post(() -> {
             if (mLobbyView == null) return;
+            mLobbyView.updateDebugSettings(brightness, ctrlVib, eyeFov,
+                    false, diagHud, eyeSupported);
             markDirty();
         });
     }

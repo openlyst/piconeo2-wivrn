@@ -120,6 +120,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     public native void nativeSetActiveApp(int appId);
     public native void nativeStopApp(int appId);
     public native void nativeRecenter();
+    public native void nativeSetBrightness(float frac);
+    public native void nativeSetCtrlVibration(float strength);
+    public native void nativeSetEyeFoveation(boolean enabled);
+    public native void nativeSetEyeDebug(boolean enabled);
+    public native void nativeSetDiagHud(int mode);
+    public native boolean nativeIsEyeSupported();
 
     private ServerDiscovery serverDiscovery;
     private volatile boolean mServerSyncRunning = false;
@@ -400,7 +406,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
         Log.i(TAG, "flushing pending connection: " + pendingHost + ":" + pendingPort + " tcp=" + pendingTcpOnly);
         lastConnectFlushMs = System.currentTimeMillis();
+        if (mVrUiPanel != null && mVrUiPanel.getLobbyView() != null) {
+            try { nativeSetBitrate(mVrUiPanel.getLobbyView().getBitrate()); } catch (Throwable t) {}
+            mVrUiPanel.getLobbyView().markAutoconnectAttempted();
+        }
         nativeConnect(pendingHost, pendingPort, pendingTcpOnly);
+        nativeConnecting = true;
         if (pendingPin != null && !pendingPin.isEmpty()) {
             nativeSetPin(pendingPin);
         }
