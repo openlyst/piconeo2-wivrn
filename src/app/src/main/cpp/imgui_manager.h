@@ -9,8 +9,8 @@
 
 class ImGuiManager {
 public:
-    static constexpr int kUiW = 2000;   // UI surface width in pixels
-    static constexpr int kUiH = 1400;   // UI surface height in pixels
+    static constexpr int kUiW = 1400;   // UI surface width in pixels
+    static constexpr int kUiH = 1000;   // UI surface height in pixels
 
     ImGuiManager() = default;
     ~ImGuiManager();

@@ -32,20 +32,18 @@ bool ImGuiManager::init()
     // from APK assets by jni.cpp::nativeStart. Fall back to the default
     // bitmap font if the TTF isn't available.
     ImFontConfig cfg;
-    cfg.OversampleH = 3;
+    cfg.OversampleH = 2;
     cfg.OversampleV = 1;
     cfg.PixelSnapH = false;
 
-    float fontSize = 32.0f;
-    ImFont *regular = nullptr, *bold = nullptr;
+    float fontSize = 42.0f;
     if (!gFontData.empty()) {
-        regular = io.Fonts->AddFontFromMemoryTTF(gFontData.data(), (int)gFontData.size(),
-                                                  fontSize, &cfg);
-        // Merge bold into the same atlas (range 0x0020-0x00FF shared).
+        io.Fonts->AddFontFromMemoryTTF(gFontData.data(), (int)gFontData.size(),
+                                       fontSize, &cfg);
         if (!gFontDataBold.empty()) {
             cfg.MergeMode = true;
-            bold = io.Fonts->AddFontFromMemoryTTF(gFontDataBold.data(), (int)gFontDataBold.size(),
-                                                  fontSize, &cfg);
+            io.Fonts->AddFontFromMemoryTTF(gFontDataBold.data(), (int)gFontDataBold.size(),
+                                           fontSize, &cfg);
             cfg.MergeMode = false;
         }
     } else {
