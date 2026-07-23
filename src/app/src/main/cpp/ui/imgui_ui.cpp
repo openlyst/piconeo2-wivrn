@@ -299,6 +299,7 @@ static void buildServersTab()
             autoLeftEdge = autoRightEdge - autoW;
             ImGui::SetCursorScreenPos(ImVec2(autoLeftEdge, checkY));
             if (ImGui::Checkbox("Auto", &autoConn)) {
+                updateAutoconnect(srv.hostname, srv.port, autoConn);
                 if (gOnServerAutoconnect)
                     gOnServerAutoconnect(srv.hostname, srv.port);
             }

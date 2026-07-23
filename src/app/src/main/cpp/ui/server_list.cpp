@@ -22,6 +22,16 @@ void setServerList(const std::vector<ServerInfo> & servers) {
     gServers = servers;
 }
 
+void updateAutoconnect(const std::string &hostname, int port, bool on) {
+    std::lock_guard<std::mutex> lk(gSrvMutex);
+    for (auto &s : gServers) {
+        if (s.hostname == hostname && s.port == port) {
+            s.autoconnect = on;
+            break;
+        }
+    }
+}
+
 std::vector<ServerInfo> getServerList() {
     std::lock_guard<std::mutex> lk(gSrvMutex);
     return gServers;
@@ -290,6 +300,7 @@ void applyServerClick(const SrvHover &h, bool click) {
         if (gOnServerConnect)
             gOnServerConnect(srv);
     } else if (h.part == 2) {
+        updateAutoconnect(srv.hostname, srv.port, !srv.autoconnect);
         if (gOnServerAutoconnect)
             gOnServerAutoconnect(srv.hostname, srv.port);
     } else if (h.part == 3) {
