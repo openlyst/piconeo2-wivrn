@@ -710,7 +710,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                         // service not ready yet / transient; keep polling
                     }
                 }
-                try { Thread.sleep(11); } catch (InterruptedException e) { break; }
+                try { Thread.sleep(5); } catch (InterruptedException e) { break; }
             }
         }, "ctrl-poll");
         mCtrlThread.start();

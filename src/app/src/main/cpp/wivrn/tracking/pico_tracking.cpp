@@ -29,7 +29,7 @@ constexpr float k_grip_up_mm = 12.5f;
 constexpr float k_grip_back_mm = 40.0f;
 constexpr float k_rot_swing = 1.0f;
 
-constexpr float k_predict = 1.0f;
+constexpr float k_predict = 0.8f;
 
 // Head has no hardware velocity on this SDK; it's differentiated position.
 // Linear and angular reach must match: sending full-strength rotation
@@ -400,9 +400,9 @@ void pico_native_tracker::step_ctrl_filter(int hand, const float pos_m[3], const
 				}
 			}
 
-			// EMA smoothing, tau=0.05s (faster than head; controllers need
-			// less lag for responsive interaction).
-			const float a = 1.0f - expf(-(float)dt / 0.05f);
+			// EMA smoothing, tau=0.08s. Was 0.05s which let too much per-sample
+			// jitter through, causing prediction overshoot on micro-noise.
+			const float a = 1.0f - expf(-(float)dt / 0.08f);
 			ctrl_lin_vel[hand][0] += (lvx - ctrl_lin_vel[hand][0]) * a;
 			ctrl_lin_vel[hand][1] += (lvy - ctrl_lin_vel[hand][1]) * a;
 			ctrl_lin_vel[hand][2] += (lvz - ctrl_lin_vel[hand][2]) * a;
@@ -686,7 +686,10 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 	for (int h = 0; h < 2; h++)
 	{
 		if (!cs[h].connected)
+		{
+			ctrl_smooth_init[h] = false;
 			continue;
+		}
 
 		neo2::quat cq = apply_controller_orientation(cs[h].orientation, h);
 
@@ -699,9 +702,37 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 			cs[h].position[2] * 0.001f + grip_world[2],
 		};
 
+		// Light EMA on position and slerp on orientation to knock down
+		// high-frequency sensor noise without adding noticeable lag.
+		// tau=0.015s at 150Hz uplink -> alpha ~0.1, just enough to smooth
+		// per-sample jitter while tracking real motion within one frame.
+		if (!ctrl_smooth_init[h])
+		{
+			ctrl_smooth_pos[h][0] = pos_m[0];
+			ctrl_smooth_pos[h][1] = pos_m[1];
+			ctrl_smooth_pos[h][2] = pos_m[2];
+			ctrl_smooth_orient[h] = cq;
+			ctrl_smooth_init[h] = true;
+		}
+		else
+		{
+			constexpr float pos_tau = 0.015f;
+			float dt_smooth = 1.0f / 150.0f;
+			float pa = 1.0f - expf(-dt_smooth / pos_tau);
+			ctrl_smooth_pos[h][0] += (pos_m[0] - ctrl_smooth_pos[h][0]) * pa;
+			ctrl_smooth_pos[h][1] += (pos_m[1] - ctrl_smooth_pos[h][1]) * pa;
+			ctrl_smooth_pos[h][2] += (pos_m[2] - ctrl_smooth_pos[h][2]) * pa;
+
+			constexpr float orient_tau = 0.02f;
+			float oa = 1.0f - expf(-dt_smooth / orient_tau);
+			ctrl_smooth_orient[h] = neo2::slerp_quat(ctrl_smooth_orient[h], cq, oa);
+		}
+
+		neo2::quat smooth_cq = neo2::normalize_quat(ctrl_smooth_orient[h]);
+
 		XrPosef ctrl_pose;
-		ctrl_pose.orientation = neo2::to_xr_quat(cq);
-		ctrl_pose.position = {pos_m[0], pos_m[1], pos_m[2]};
+		ctrl_pose.orientation = neo2::to_xr_quat(smooth_cq);
+		ctrl_pose.position = {ctrl_smooth_pos[h][0], ctrl_smooth_pos[h][1], ctrl_smooth_pos[h][2]};
 
 		bool is_left = (h == 0);
 
@@ -745,9 +776,9 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 		from_headset::tracking::pose aim_p{};
 		aim_p.pose.orientation = ctrl_pose.orientation;
 		aim_p.pose.position = {
-			cs[h].position[0] * 0.001f,
-			cs[h].position[1] * 0.001f + h_offset,
-			cs[h].position[2] * 0.001f,
+			ctrl_smooth_pos[h][0] - grip_world[0],
+			ctrl_smooth_pos[h][1] - grip_world[1],
+			ctrl_smooth_pos[h][2] - grip_world[2],
 		};
 		aim_p.device = is_left ? device_id::LEFT_AIM : device_id::RIGHT_AIM;
 		aim_p.flags = pflags;

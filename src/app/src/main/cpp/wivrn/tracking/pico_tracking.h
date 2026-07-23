@@ -56,6 +56,30 @@ inline XrQuaternionf to_xr_quat(const quat & q)
 {
 	return {q.x, q.y, q.z, q.w};
 }
+
+inline quat slerp_quat(const quat & a, const quat & b, float t)
+{
+	float dot = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+	quat b2 = b;
+	if (dot < 0) { b2.x = -b2.x; b2.y = -b2.y; b2.z = -b2.z; b2.w = -b2.w; dot = -dot; }
+	if (dot > 0.9995f)
+	{
+		return normalize_quat({
+			a.x + t * (b2.x - a.x),
+			a.y + t * (b2.y - a.y),
+			a.z + t * (b2.z - a.z),
+			a.w + t * (b2.w - a.w)});
+	}
+	float theta = std::acos(dot);
+	float sin_theta = std::sin(theta);
+	float s0 = std::sin((1 - t) * theta) / sin_theta;
+	float s1 = std::sin(t * theta) / sin_theta;
+	return {
+		s0 * a.x + s1 * b2.x,
+		s0 * a.y + s1 * b2.y,
+		s0 * a.z + s1 * b2.z,
+		s0 * a.w + s1 * b2.w};
+}
 } // namespace neo2
 
 struct controller_sample
@@ -150,6 +174,10 @@ public:
 	neo2::quat ctrl_prev_orient[2]{{0, 0, 0, 1}, {0, 0, 0, 1}};
 	uint64_t ctrl_prev_ts[2]{0, 0};
 	bool ctrl_filter_init[2]{false, false};
+
+	float ctrl_smooth_pos[2][3]{{0, 0, 0}, {0, 0, 0}};
+	neo2::quat ctrl_smooth_orient[2]{{0, 0, 0, 1}, {0, 0, 0, 1}};
+	bool ctrl_smooth_init[2]{false, false};
 
 	struct input_state
 	{
