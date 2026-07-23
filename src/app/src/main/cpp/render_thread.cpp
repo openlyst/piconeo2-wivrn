@@ -3876,6 +3876,15 @@ void *renderThread(void *) {
             }
             // Native 3D lobby UI: unified floating panel (wiVRn-style).
             drawSettingsPanelVerts(pi.sliderVertCount, sproj, sview, settingsWorld);
+            // ImGui overlay: composite the offscreen UI texture as a 3D quad.
+            {
+                Mat4 mvp = mat4Mul(sproj, mat4Mul(sview, settingsWorld));
+                glDisable(GL_DEPTH_TEST);
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                gImGuiComposite.draw(mvp.m, gImGui.texture());
+                glDisable(GL_BLEND);
+            }
             if (pi.cursorOnPanel)
                 drawPointerCursor(pi.cursorLx, pi.cursorLy, pi.cursorPressed, sproj, sview, settingsWorld);
 
@@ -3940,6 +3949,11 @@ void *renderThread(void *) {
                 {
                     eglMakeCurrent(dpy, pbuf, pbuf, ctx);   // stay offscreen; warp owns the window
                     if (gGridThemeDirty.exchange(false)) { buildControllerMeshes(); }   // recolour controllers (grid floor removed, passthrough replaces it)
+                    // Build ImGui frame once per frame (not per eye).
+                    gImGui.setInput(pi.cursorLx, pi.cursorLy, pi.cursorPressed, pi.cursorOnPanel);
+                    gImGui.newFrame();
+                    buildImGuiUI();
+                    gImGui.render();
                     for (int eye = 0; eye < 2; eye++) {
                         float ex = (eye == 0 ? -softIpdM()*0.5f : softIpdM()*0.5f);
                         Mat4 eyeShift = mat4Translate(-ex, 0, 0);
