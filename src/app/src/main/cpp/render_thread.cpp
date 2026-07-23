@@ -119,26 +119,31 @@ pico_lobby * gLobby = new pico_lobby();
 pico_passthrough * gPassthrough = new pico_passthrough();
 static simple_lobby * gSimpleLobby = nullptr;
 
-// Shared "position + per-vertex colour" shader: grid, HUD text, and eye-gaze
-// marker all reuse this same program (gProg) + uMVP.
+// Shared "position + uv + per-vertex colour" shader: grid, HUD text, and
+// eye-gaze marker all reuse this same program (gProg) + uMVP. Text quads
+// sample from the font atlas texture; non-text quads use UV (0,0) which
+// maps to a solid white texel so colour passes through.
 static const char *kVtxSrc =
     "#version 300 es\n"
     "layout(location=0) in vec3 aPos;\n"
-    "layout(location=1) in vec3 aColor;\n"
+    "layout(location=1) in vec2 aUV;\n"
+    "layout(location=2) in vec3 aColor;\n"
     "uniform mat4 uMVP;\n"
+    "out vec2 vUV;\n"
     "out vec3 vColor;\n"
-    "void main(){ vColor=aColor; gl_Position=uMVP*vec4(aPos,1.0); }\n";
+    "void main(){ vUV=aUV; vColor=aColor; gl_Position=uMVP*vec4(aPos,1.0); }\n";
 
 static const char *kFrgSrc =
     "#version 300 es\n"
     "precision mediump float;\n"
-    "in vec3 vColor; out vec4 oColor;\n"
-    "void main(){ oColor=vec4(vColor,1.0); }\n";
+    "uniform sampler2D uTex;\n"
+    "in vec2 vUV; in vec3 vColor; out vec4 oColor;\n"
+    "void main(){ float a=texture(uTex,vUV).r; oColor=vec4(vColor*a,1.0); }\n";
 
 static GLuint gProg = 0;
-static GLint  gMvpLoc = -1;
+static GLint  gMvpLoc = -1, gTexLoc = -1;
 
-// Build the shared pos+colour program (gProg).
+// Build the shared pos+uv+colour program (gProg).
 static void buildGraphics() {
     gProg = glCreateProgram();
     GLuint vs = compile(GL_VERTEX_SHADER, kVtxSrc);
@@ -148,6 +153,7 @@ static void buildGraphics() {
     GLint ok=0; glGetProgramiv(gProg, GL_LINK_STATUS, &ok);
     if (!ok) { char log[512]; glGetProgramInfoLog(gProg, 512, nullptr, log); LOGE("link: %s", log); }
     gMvpLoc = glGetUniformLocation(gProg, "uMVP");
+    gTexLoc = glGetUniformLocation(gProg, "uTex");
     LOGI("graphics built prog=%u", gProg);
 }
 
