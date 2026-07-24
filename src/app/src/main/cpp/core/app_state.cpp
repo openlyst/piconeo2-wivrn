@@ -51,6 +51,7 @@ std::atomic<bool>   gWivrnRecenterReq{false};
 
 std::atomic<bool>   gWivrnEyeFoveation{true};
 std::atomic<bool>   gEyeFoveationDirty{false};
+std::atomic<bool>   gFoveationEnabled{true};
 
 std::atomic<float> gStreamFovDeg{101.0f};   // full per-eye FOV; 101 = SDK native (no change)
 std::atomic<bool>  gFovDirty{false};
@@ -105,6 +106,7 @@ void saveAllConfig() {
     fprintf(f, "wivrnEyeTracking=%d\n", gWivrnEyeTracking.load() ? 1 : 0);
     fprintf(f, "wivrnPassthrough=%d\n", gWivrnPassthrough.load() ? 1 : 0);
     fprintf(f, "wivrnEyeFoveation=%d\n", gWivrnEyeFoveation.load() ? 1 : 0);
+    fprintf(f, "wivrnFoveationEnabled=%d\n", gFoveationEnabled.load() ? 1 : 0);
     fclose(f);
 }
 
@@ -196,6 +198,7 @@ static bool loadLegacyPositionalConfig(FILE *f) {
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) gWivrnEyeTracking.store(iv != 0);
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) gWivrnPassthrough.store(iv != 0);
     if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) gWivrnEyeFoveation.store(iv != 0);
+    if (fgets(ln, sizeof(ln), f) && sscanf(ln, "%d", &iv) == 1) gFoveationEnabled.store(iv != 0);
     return true;
 }
 
@@ -245,6 +248,7 @@ void loadAllConfig() {
                 else if (keyIs(key, keyLen, "wivrnEyeTracking"))     { if (sscanf(v, "%d", &iv) == 1) gWivrnEyeTracking.store(iv != 0); }
                 else if (keyIs(key, keyLen, "wivrnPassthrough"))     { if (sscanf(v, "%d", &iv) == 1) gWivrnPassthrough.store(iv != 0); }
                 else if (keyIs(key, keyLen, "wivrnEyeFoveation"))    { if (sscanf(v, "%d", &iv) == 1) gWivrnEyeFoveation.store(iv != 0); }
+                else if (keyIs(key, keyLen, "wivrnFoveationEnabled")){ if (sscanf(v, "%d", &iv) == 1) gFoveationEnabled.store(iv != 0); }
                 // unknown key -> skip (forward-compatible)
             }
             fclose(f);

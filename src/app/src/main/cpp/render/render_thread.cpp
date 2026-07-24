@@ -2240,7 +2240,7 @@ void *renderThread(void *) {
     caps.default_view_height = 1664;
     caps.refresh_rates       = kRefreshRates;
     caps.refresh_rates_count = 1;
-    caps.foveated_encoding   = true;   // we de-foveate in alvr_render_stream_opengl
+    caps.foveated_encoding   = gFoveationEnabled.load();
     caps.encoder_high_profile= true;
     caps.encoder_10_bits     = false;
     caps.encoder_av1         = false;   // SD845 Venus: H.264/HEVC only, no AV1

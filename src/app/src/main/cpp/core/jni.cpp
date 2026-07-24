@@ -644,6 +644,13 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetEyeFoveation(JNIEnv *, jobj
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetFoveationEnabled(JNIEnv *, jobject, jboolean enabled) {
+    gFoveationEnabled.store(enabled == JNI_TRUE);
+    saveAllConfig();
+    LOGI("Foveated encoding %s (takes effect on next connection)", enabled == JNI_TRUE ? "enabled" : "disabled");
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetEyeDebug(JNIEnv *, jobject, jboolean enabled) {
     gEyeDebugOn.store(enabled == JNI_TRUE);
     gEyeTrackReapply.store(true);

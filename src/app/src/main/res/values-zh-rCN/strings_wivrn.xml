@@ -29,7 +29,8 @@
     <!-- Settings -->
     <string name="settings_title">设置</string>
     <string name="setting_resolution">分辨率</string>
-    <string name="setting_foveated_encoding">注视点编码</string>
+    <string name="setting_foveated_encoding">注视点强度</string>
+    <string name="setting_foveation_enabled">注视点编码</string>
     <string name="setting_bitrate">码率</string>
     <string name="setting_ipd">瞳距</string>
     <string name="setting_fov">视野</string>
