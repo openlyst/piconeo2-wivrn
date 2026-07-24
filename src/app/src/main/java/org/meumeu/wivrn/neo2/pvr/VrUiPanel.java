@@ -41,6 +41,7 @@ public class VrUiPanel {
     private ByteBuffer mFreeBuffer = mBufC;
     private final int[] mPixelInts = new int[UI_WIDTH * UI_HEIGHT];
     private final Object mSwapLock = new Object();
+    private final Object mUiLock = new Object();   // serializes render vs touch/mutations
 
     private final AtomicBoolean mDirty = new AtomicBoolean(true);
     private final AtomicBoolean mAttached = new AtomicBoolean(false);
@@ -98,8 +99,10 @@ public class VrUiPanel {
                     mDirty.set(false);
                     if (mLobbyView == null || mBitmap == null) continue;
 
-                    mLobbyView.render();
-                    mBitmap.getPixels(mPixelInts, 0, UI_WIDTH, 0, 0, UI_WIDTH, UI_HEIGHT);
+                    synchronized (mUiLock) {
+                        mLobbyView.render();
+                        mBitmap.getPixels(mPixelInts, 0, UI_WIDTH, 0, 0, UI_WIDTH, UI_HEIGHT);
+                    }
 
                     ByteBuffer back = mBackBuffer;
                     back.position(0);
@@ -149,7 +152,9 @@ public class VrUiPanel {
      */
     public void setTouchState(float x, float y, boolean pressed, boolean clickEdge, float stickY) {
         if (mLobbyView == null) return;
-        mLobbyView.handleTouch(x, y, pressed, clickEdge, stickY);
+        synchronized (mUiLock) {
+            mLobbyView.handleTouch(x, y, pressed, clickEdge, stickY);
+        }
         markDirty();
     }
 
@@ -159,8 +164,10 @@ public class VrUiPanel {
             boolean[] tcpOnly, boolean[] discovered, boolean[] autoconnect) {
         mMainHandler.post(() -> {
             if (mLobbyView == null) return;
-            for (int i = 0; i < names.length; i++) {
-                mLobbyView.addOrUpdateServer(names[i], hosts[i], ports[i], tcpOnly[i]);
+            synchronized (mUiLock) {
+                for (int i = 0; i < names.length; i++) {
+                    mLobbyView.addOrUpdateServer(names[i], hosts[i], ports[i], tcpOnly[i]);
+                }
             }
             markDirty();
         });
@@ -170,8 +177,10 @@ public class VrUiPanel {
         mMainHandler.post(() -> {
             if (mLobbyView == null) return;
             if (connecting) {
-                mLobbyView.setConnectionState(WivrnLobbyView.STATE_CONNECTING,
-                        mContext.getString(org.meumeu.wivrn.neo2.pvr.R.string.connecting));
+                synchronized (mUiLock) {
+                    mLobbyView.setConnectionState(WivrnLobbyView.STATE_CONNECTING,
+                            mContext.getString(org.meumeu.wivrn.neo2.pvr.R.string.connecting));
+                }
             }
             markDirty();
         });
@@ -180,7 +189,9 @@ public class VrUiPanel {
     public void setConnectionErrorFromNative(String err) {
         mMainHandler.post(() -> {
             if (mLobbyView == null) return;
-            mLobbyView.setConnectionState(WivrnLobbyView.STATE_DISCONNECTED, err != null ? err : "");
+            synchronized (mUiLock) {
+                mLobbyView.setConnectionState(WivrnLobbyView.STATE_DISCONNECTED, err != null ? err : "");
+            }
             markDirty();
         });
     }
@@ -191,22 +202,24 @@ public class VrUiPanel {
             int bitrate, int streamW, int streamH, boolean micOn) {
         mMainHandler.post(() -> {
             if (mLobbyView == null) return;
-            mLobbyView.updateStreamStats(fps, (int)totalLatency, (int)(download * 8), (int)(upload * 8), bitrate);
-            float[] detailed = new float[13];
-            detailed[0] = fps;
-            detailed[1] = totalLatency;
-            detailed[2] = download * 8;
-            detailed[3] = upload * 8;
-            detailed[4] = bitrate;
-            detailed[5] = cpuMs;
-            detailed[6] = gpuMs;
-            detailed[7] = encodeMs;
-            detailed[8] = sendMs;
-            detailed[9] = networkMs;
-            detailed[10] = decodeMs;
-            detailed[11] = renderMs;
-            detailed[12] = blitMs;
-            mLobbyView.updateStreamStatsDetailed(detailed);
+            synchronized (mUiLock) {
+                mLobbyView.updateStreamStats(fps, (int)totalLatency, (int)(download * 8), (int)(upload * 8), bitrate);
+                float[] detailed = new float[13];
+                detailed[0] = fps;
+                detailed[1] = totalLatency;
+                detailed[2] = download * 8;
+                detailed[3] = upload * 8;
+                detailed[4] = bitrate;
+                detailed[5] = cpuMs;
+                detailed[6] = gpuMs;
+                detailed[7] = encodeMs;
+                detailed[8] = sendMs;
+                detailed[9] = networkMs;
+                detailed[10] = decodeMs;
+                detailed[11] = renderMs;
+                detailed[12] = blitMs;
+                mLobbyView.updateStreamStatsDetailed(detailed);
+            }
             markDirty();
         });
     }
@@ -215,7 +228,9 @@ public class VrUiPanel {
         mMainHandler.post(() -> {
             if (mLobbyView == null) return;
             boolean[] overlays = new boolean[names.length];
-            mLobbyView.updateRunningApps(names, ids, overlays, active);
+            synchronized (mUiLock) {
+                mLobbyView.updateRunningApps(names, ids, overlays, active);
+            }
             markDirty();
         });
     }
@@ -223,7 +238,9 @@ public class VrUiPanel {
     public void setAvailableAppsFromNative(String[] names, String[] ids) {
         mMainHandler.post(() -> {
             if (mLobbyView == null) return;
-            mLobbyView.updateAvailableApps(ids, names);
+            synchronized (mUiLock) {
+                mLobbyView.updateAvailableApps(ids, names);
+            }
             markDirty();
         });
     }
@@ -231,10 +248,12 @@ public class VrUiPanel {
     public void setStreamingFromNative(boolean streaming) {
         mMainHandler.post(() -> {
             if (mLobbyView == null) return;
-            if (streaming) {
-                mLobbyView.setConnectionState(WivrnLobbyView.STATE_CONNECTED, "");
-            } else {
-                mLobbyView.setConnectionState(WivrnLobbyView.STATE_IDLE, "");
+            synchronized (mUiLock) {
+                if (streaming) {
+                    mLobbyView.setConnectionState(WivrnLobbyView.STATE_CONNECTED, "");
+                } else {
+                    mLobbyView.setConnectionState(WivrnLobbyView.STATE_IDLE, "");
+                }
             }
             markDirty();
         });
@@ -243,7 +262,9 @@ public class VrUiPanel {
     public void setBatteryFromNative(int hmdBatt, int leftBatt, boolean leftConn, int rightBatt, boolean rightConn) {
         mMainHandler.post(() -> {
             if (mLobbyView == null) return;
-            mLobbyView.updateBatteryStatus(hmdBatt, leftBatt, leftConn, rightBatt, rightConn);
+            synchronized (mUiLock) {
+                mLobbyView.updateBatteryStatus(hmdBatt, leftBatt, leftConn, rightBatt, rightConn);
+            }
             markDirty();
         });
     }
@@ -251,7 +272,9 @@ public class VrUiPanel {
     public void setDiagFromNative(int mode, float[] pipeline, float[] system) {
         mMainHandler.post(() -> {
             if (mLobbyView == null) return;
-            mLobbyView.updateDiagData(mode, pipeline, system);
+            synchronized (mUiLock) {
+                mLobbyView.updateDiagData(mode, pipeline, system);
+            }
             markDirty();
         });
     }
@@ -259,7 +282,9 @@ public class VrUiPanel {
     public void setDiagOverlayOnlyFromNative(boolean diagOnly) {
         mMainHandler.post(() -> {
             if (mLobbyView == null) return;
-            mLobbyView.setDiagOverlayOnly(diagOnly);
+            synchronized (mUiLock) {
+                mLobbyView.setDiagOverlayOnly(diagOnly);
+            }
             markDirty();
         });
     }
@@ -269,8 +294,10 @@ public class VrUiPanel {
             boolean passthrough, float ctrlVib, int diagHud, boolean eyeSupported) {
         mMainHandler.post(() -> {
             if (mLobbyView == null) return;
-            mLobbyView.updateDebugSettings(brightness, ctrlVib, eyeFov,
-                    false, diagHud, eyeSupported);
+            synchronized (mUiLock) {
+                mLobbyView.updateDebugSettings(brightness, ctrlVib, eyeFov,
+                        false, diagHud, eyeSupported);
+            }
             markDirty();
         });
     }

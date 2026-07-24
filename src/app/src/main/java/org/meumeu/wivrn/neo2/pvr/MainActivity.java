@@ -992,7 +992,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         });
     }
     public void onLobbyTouch(float x, float y, boolean down, boolean pressed, float thumbstickY) {
-        if (mVrUiPanel != null && mVrUiPanel.getLobbyView() != null)
-            mVrUiPanel.getLobbyView().handleTouch(x, y, down, pressed, thumbstickY);
+        if (mVrUiPanel != null)
+            mVrUiPanel.setTouchState(x, y, down, pressed, thumbstickY);
     }
 }
