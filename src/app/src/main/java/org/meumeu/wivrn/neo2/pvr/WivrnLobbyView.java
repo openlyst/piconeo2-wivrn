@@ -1143,6 +1143,8 @@ public class WivrnLobbyView {
         y = drawCheckbox(x, y, w, i18n.s(R.string.tcp_only), tcpOnly, false);
         y = drawCheckbox(x, y, w, i18n.s(R.string.setting_microphone), microphoneEnabled, false);
         y = drawCheckbox(x, y, w, i18n.s(R.string.setting_passthrough), passthroughEnabled, false);
+        y = drawSliderFloat(x, y, w, i18n.s(R.string.setting_brightness), brightnessFrac, 0, 1, "%", false, 0);
+        y = drawSliderFloat(x, y, w, i18n.s(R.string.setting_ctrl_vibration), ctrlVibration, 0, 1, "%", false, 0);
 
         y = drawDropdown(x, y, w, i18n.s(R.string.setting_language),
             new String[]{i18n.s(R.string.lang_system), "English", "简体中文"},
@@ -1152,8 +1154,6 @@ public class WivrnLobbyView {
         canvas.drawText(i18n.s(R.string.debug_section), x, y + 30, textLargePaint);
         y += 55;
 
-        y = drawSliderFloat(x, y, w, i18n.s(R.string.setting_brightness), brightnessFrac, 0, 1, "%", false, 0);
-        y = drawSliderFloat(x, y, w, i18n.s(R.string.setting_ctrl_vibration), ctrlVibration, 0, 1, "%", false, 0);
         y = drawCheckbox(x, y, w, i18n.s(R.string.setting_eye_foveation), eyeFoveationEnabled, !eyeSupported);
         y = drawCheckbox(x, y, w, i18n.s(R.string.setting_eye_debug), eyeDebugOn, false);
         y = drawDropdown(x, y, w, i18n.s(R.string.setting_diag_hud),
@@ -2734,6 +2734,32 @@ public class WivrnLobbyView {
         }
         sy += 40;
 
+        // Brightness slider
+        sy += 35;
+        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
+            activeSlider = SLIDER_BRIGHTNESS;
+            float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
+            brightnessFrac = Math.max(0, Math.min(1, pct));
+            saveSettings();
+            ((MainActivity) context).nativeSetBrightness(brightnessFrac);
+            markDirty();
+            return;
+        }
+        sy += 50;
+
+        // Controller vibration slider
+        sy += 35;
+        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
+            activeSlider = SLIDER_CTRL_VIBRATION;
+            float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
+            ctrlVibration = Math.max(0, Math.min(1, pct));
+            saveSettings();
+            ((MainActivity) context).nativeSetCtrlVibration(ctrlVibration);
+            markDirty();
+            return;
+        }
+        sy += 50;
+
         // Language dropdown
         sy += 35;
         if (openDropdown == DROPDOWN_LANGUAGE) {
@@ -2768,32 +2794,6 @@ public class WivrnLobbyView {
 
         // Debug section header
         sy += 15 + 55;
-
-        // Brightness slider
-        sy += 35;
-        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
-            activeSlider = SLIDER_BRIGHTNESS;
-            float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
-            brightnessFrac = Math.max(0, Math.min(1, pct));
-            saveSettings();
-            ((MainActivity) context).nativeSetBrightness(brightnessFrac);
-            markDirty();
-            return;
-        }
-        sy += 50;
-
-        // Controller vibration slider
-        sy += 35;
-        if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
-            activeSlider = SLIDER_CTRL_VIBRATION;
-            float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
-            ctrlVibration = Math.max(0, Math.min(1, pct));
-            saveSettings();
-            ((MainActivity) context).nativeSetCtrlVibration(ctrlVibration);
-            markDirty();
-            return;
-        }
-        sy += 50;
 
         // Eye-tracked foveation checkbox
         if (!eyeSupported) {
