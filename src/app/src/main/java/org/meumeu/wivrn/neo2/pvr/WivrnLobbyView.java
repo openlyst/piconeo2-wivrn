@@ -1146,7 +1146,7 @@ public class WivrnLobbyView {
 
         RectF saveBtn = new RectF(popupX + popupW - 180, py, popupX + popupW - 30, py + BUTTON_HEIGHT);
         boolean saveHover = touchDown && saveBtn.contains(touchX, touchY);
-        canvas.drawRoundRect(saveBtn, 10, 10, saveHover ? buttonConnectBgPaint : buttonConnectBgPaint);
+        canvas.drawRoundRect(saveBtn, 10, 10, saveHover ? buttonHoverBgPaint : buttonConnectBgPaint);
         drawCenteredText(i18n.s(R.string.save), saveBtn, textPaint);
     }
 
@@ -1202,7 +1202,7 @@ public class WivrnLobbyView {
         y += 20;
         RectF resetBtn = new RectF(x, y, x + 200, y + BUTTON_HEIGHT);
         boolean resetHover = touchDown && resetBtn.contains(touchX, touchY + settingsScrollY);
-        canvas.drawRoundRect(resetBtn, 10, 10, resetHover ? buttonDangerBgPaint : buttonDangerBgPaint);
+        canvas.drawRoundRect(resetBtn, 10, 10, resetHover ? buttonHoverBgPaint : buttonDangerBgPaint);
         drawCenteredText(i18n.s(R.string.restore_defaults), resetBtn, textPaint);
 
         float totalContentH = y + BUTTON_HEIGHT + 20;
@@ -1229,7 +1229,7 @@ public class WivrnLobbyView {
 
         RectF yesBtn = new RectF(px + 30, py + panelH - 70, px + 30 + 180, py + panelH - 20);
         boolean yesHover = touchDown && yesBtn.contains(touchX, touchY);
-        canvas.drawRoundRect(yesBtn, 10, 10, yesHover ? buttonDangerBgPaint : buttonDangerBgPaint);
+        canvas.drawRoundRect(yesBtn, 10, 10, yesHover ? buttonHoverBgPaint : buttonDangerBgPaint);
         drawCenteredText(i18n.s(R.string.reset), yesBtn, textPaint);
 
         RectF noBtn = new RectF(px + panelW - 210, py + panelH - 70, px + panelW - 30, py + panelH - 20);
@@ -1468,7 +1468,7 @@ public class WivrnLobbyView {
 
         RectF yesBtn = new RectF(x + 50, y, x + 50 + 200, y + BUTTON_HEIGHT);
         boolean yesHover = touchDown && yesBtn.contains(touchX, touchY);
-        canvas.drawRoundRect(yesBtn, 10, 10, yesHover ? buttonDangerBgPaint : buttonDangerBgPaint);
+        canvas.drawRoundRect(yesBtn, 10, 10, yesHover ? buttonHoverBgPaint : buttonDangerBgPaint);
         drawCenteredText(i18n.s(R.string.exit), yesBtn, textPaint);
 
         RectF noBtn = new RectF(x + 270, y, x + 270 + 200, y + BUTTON_HEIGHT);
@@ -1548,7 +1548,7 @@ public class WivrnLobbyView {
 
         RectF disconnectBtn = new RectF(px + panelW - 220, py + panelH - 80, px + panelW - 20, py + panelH - 20);
         boolean hover = touchDown && disconnectBtn.contains(touchX, touchY);
-        canvas.drawRoundRect(disconnectBtn, 10, 10, hover ? buttonDangerBgPaint : buttonDangerBgPaint);
+        canvas.drawRoundRect(disconnectBtn, 10, 10, hover ? buttonHoverBgPaint : buttonDangerBgPaint);
         drawCenteredText(i18n.s(R.string.disconnect), disconnectBtn, textPaint);
     }
 
