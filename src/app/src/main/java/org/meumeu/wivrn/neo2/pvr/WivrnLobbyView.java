@@ -945,7 +945,6 @@ public class WivrnLobbyView {
             renderContent();
         }
 
-        renderTouchCursor();
         markClean();
     }
 
