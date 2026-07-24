@@ -29,7 +29,8 @@
     <!-- Settings -->
     <string name="settings_title">Settings</string>
     <string name="setting_resolution">Resolution</string>
-    <string name="setting_foveated_encoding">Foveated Encoding</string>
+    <string name="setting_foveated_encoding">Foveation Strength</string>
+    <string name="setting_foveation_enabled">Foveated Encoding</string>
     <string name="setting_bitrate">Bitrate</string>
     <string name="setting_ipd">IPD</string>
     <string name="setting_fov">Field of View</string>

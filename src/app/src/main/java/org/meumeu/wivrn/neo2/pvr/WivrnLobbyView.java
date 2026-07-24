@@ -168,6 +168,7 @@ public class WivrnLobbyView {
 
     private int resWidth = 1664;
     private int foveationScale = 30;
+    private boolean foveationEnabled = true;
     private String codec = "auto";
     private int bitrate = 50;
     private float ipdMm = 64;
@@ -752,6 +753,7 @@ public class WivrnLobbyView {
         SharedPreferences sp = context.getSharedPreferences("wivrn_settings", Context.MODE_PRIVATE);
         resWidth = sp.getInt("res_width", 1664);
         foveationScale = sp.getInt("foveation_scale", 30);
+        foveationEnabled = sp.getBoolean("foveation_enabled", true);
         codec = sp.getString("codec", "auto");
         bitrate = sp.getInt("bitrate", 50);
         try {
@@ -779,6 +781,7 @@ public class WivrnLobbyView {
         sp.edit()
             .putInt("res_width", resWidth)
             .putInt("foveation_scale", foveationScale)
+            .putBoolean("foveation_enabled", foveationEnabled)
             .putString("codec", codec)
             .putInt("bitrate", bitrate)
             .putFloat("ipd_mm", ipdMm)
@@ -950,6 +953,7 @@ public class WivrnLobbyView {
     }
 
     public int getFoveationScale() { return foveationScale; }
+    public boolean getFoveationEnabled() { return foveationEnabled; }
     public String getCodec() { return codec; }
     public int getBitrate() { return bitrate; }
     public float getIpdMm() { return ipdMm; }
@@ -1171,7 +1175,9 @@ public class WivrnLobbyView {
         y += 70;
 
         y = drawResolutionSlider(x, y, w, i18n.s(R.string.setting_resolution), resWidth, 1024, 2048);
-        y = drawSlider(x, y, w, i18n.s(R.string.setting_foveated_encoding), foveationScale, 0, 80, "%", true);
+        y = drawCheckbox(x, y, w, i18n.s(R.string.setting_foveation_enabled), foveationEnabled, false);
+        if (foveationEnabled)
+            y = drawSlider(x, y, w, i18n.s(R.string.setting_foveated_encoding), foveationScale, 0, 80, "%", true);
         y = drawSlider(x, y, w, i18n.s(R.string.setting_bitrate), bitrate, 5, 200, i18n.s(R.string.unit_mbit_s), false);
         y = drawSliderFloat(x, y, w, i18n.s(R.string.setting_ipd), ipdMm, 58, 72, i18n.s(R.string.unit_mm), false, 1);
         y = drawSliderFloat(x, y, w, i18n.s(R.string.setting_fov), fovDeg, 70, 101, "°", false, 0);
@@ -2887,8 +2893,29 @@ public class WivrnLobbyView {
             return;
         }
         sy += 50;
-        // Foveation (disabled)
-        sy += 35 + 50;
+        // Foveation enabled checkbox
+        RectF fovEnableCheckbox = new RectF(contentX, sy, contentX + 30, sy + 30);
+        if (fovEnableCheckbox.contains(x, y) || (x >= contentX && x <= contentX + contentW && y >= sy - 5 && y <= sy + 35)) {
+            foveationEnabled = !foveationEnabled;
+            saveSettings();
+            ((MainActivity) context).nativeSetFoveationEnabled(foveationEnabled);
+            markDirty();
+            return;
+        }
+        sy += 40;
+        // Foveation slider (only shown when enabled)
+        if (foveationEnabled) {
+            sy += 35;
+            if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
+                activeSlider = SLIDER_FOVEATION;
+                float pct = Math.max(0, Math.min(1, (x - contentX) / sliderW));
+                foveationScale = Math.max(0, Math.min(80, (int)(pct * 80)));
+                saveSettings();
+                markDirty();
+                return;
+            }
+            sy += 50;
+        }
         // Bitrate
         sy += 35;
         if (y >= sy - 10 && y <= sy + 20 && x >= contentX && x <= contentX + sliderW) {
@@ -3113,6 +3140,7 @@ public class WivrnLobbyView {
         if (yesBtn.contains(x, y)) {
             resWidth = 1664;
             foveationScale = 30;
+            foveationEnabled = true;
             codec = "auto";
             bitrate = 50;
             ipdMm = 64;
@@ -3134,6 +3162,7 @@ public class WivrnLobbyView {
             ((MainActivity) context).nativeSetBrightness(brightnessFrac);
             ((MainActivity) context).nativeSetCtrlVibration(ctrlVibration);
             ((MainActivity) context).nativeSetEyeFoveation(false);
+            ((MainActivity) context).nativeSetFoveationEnabled(true);
             ((MainActivity) context).nativeSetEyeDebug(false);
             ((MainActivity) context).nativeSetDiagHud(0);
             showResetConfirm = false;
