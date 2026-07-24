@@ -684,8 +684,13 @@ static void sendBatteryReports() {
     bool cconn[2] = { false, false };
     { std::lock_guard<std::mutex> lk(gCtrlMutex);
       for (int h = 0; h < 2; h++) {
-          cconn[h] = (gCtrl[h].conn == 1);
-          if (cconn[h] && gCtrl[h].keyCount > 10) cbat[h] = gCtrl[h].keys[10];
+          if (gCtrl[h].conn != 1) continue;
+          // Treat origin+identity as not actually connected (ghost from SDK)
+          if (gCtrl[h].pos[0] == 0.0f && gCtrl[h].pos[1] == 0.0f && gCtrl[h].pos[2] == 0.0f &&
+              gCtrl[h].q[0] == 0.0f && gCtrl[h].q[1] == 0.0f && gCtrl[h].q[2] == 0.0f && gCtrl[h].q[3] == 1.0f)
+              continue;
+          cconn[h] = true;
+          if (gCtrl[h].keyCount > 10) cbat[h] = gCtrl[h].keys[10];
       } }
     for (int h = 0; h < 2; h++)
         if (cbat[h] >= 0) alvr_send_battery(alvrHandId[h], (float) cbat[h] / 100.0f, false);
@@ -3252,10 +3257,16 @@ void *renderThread(void *) {
                             auto trig = [](const CtrlState &s){
                                 return (s.keyCount>2 && s.keys[2]!=0) || (s.keyCount>8 && s.keys[8]>40);
                             };
+                            auto isGhost = [](const CtrlState &s){
+                                return s.conn == 1 &&
+                                    s.pos[0] == 0.0f && s.pos[1] == 0.0f && s.pos[2] == 0.0f &&
+                                    s.q[0] == 0.0f && s.q[1] == 0.0f && s.q[2] == 0.0f && s.q[3] == 1.0f;
+                            };
                             for (int hh=0; hh<2; hh++)
-                                if (hh != gDominantHand && cc[hh].conn==1 && !staleSkip[hh] && trig(cc[hh])) gDominantHand.store(hh);
-                            int h = (cc[gDominantHand.load()].conn==1 && !staleSkip[gDominantHand]) ? gDominantHand.load()
-                                  : (cc[0].conn==1 && !staleSkip[0] ? 0 : (cc[1].conn==1 && !staleSkip[1] ? 1 : -1));
+                                if (hh != gDominantHand && cc[hh].conn==1 && !staleSkip[hh] && !isGhost(cc[hh]) && trig(cc[hh])) gDominantHand.store(hh);
+                            auto usable = [&](int hh){ return cc[hh].conn==1 && !staleSkip[hh] && !isGhost(cc[hh]); };
+                            int h = usable(gDominantHand.load()) ? gDominantHand.load()
+                                  : (usable(0) ? 0 : (usable(1) ? 1 : -1));
                             if (h >= 0) {
                                 Quat oq = quatNorm({ -cc[h].q[0], -cc[h].q[1], cc[h].q[2], cc[h].q[3] });
                                 float qx2=oq.x, qy2=oq.y, qz2=oq.z, qw2=oq.w;
@@ -3635,9 +3646,18 @@ void *renderThread(void *) {
             { std::lock_guard<std::mutex> lk(gCtrlMutex); cc[0]=gCtrl[0]; cc[1]=gCtrl[1]; }
             for (int hh=0; hh<2; hh++)
                 if (cc[hh].conn==1 && !staleSkip[hh] && cc[hh].keyCount>5 && cc[hh].keys[5]!=0) recenterDown = true;
+            auto trig = [](const CtrlState &s){
+                return (s.keyCount>2 && s.keys[2]!=0) || (s.keyCount>8 && s.keys[8]>40);
+            };
+            // Ghost check: conn==1 but pose at origin with identity quat = not real
+            auto isGhost = [](const CtrlState &s){
+                return s.conn == 1 &&
+                    s.pos[0] == 0.0f && s.pos[1] == 0.0f && s.pos[2] == 0.0f &&
+                    s.q[0] == 0.0f && s.q[1] == 0.0f && s.q[2] == 0.0f && s.q[3] == 1.0f;
+            };
             // Capture both hands' world pose for the controller-model draw.
             // Same conversion as the laser path: pos*0.001, quat = (-x,-y,z,w).
-            for (int hh=0; hh<2; hh++) if (cc[hh].conn==1 && !staleSkip[hh]) {
+            for (int hh=0; hh<2; hh++) if (cc[hh].conn==1 && !staleSkip[hh] && !isGhost(cc[hh])) {
                 ctrlConn[hh] = true;
                 ctrlPos[hh][0]=cc[hh].pos[0]*0.001f; ctrlPos[hh][1]=cc[hh].pos[1]*0.001f; ctrlPos[hh][2]=cc[hh].pos[2]*0.001f;
                 Quat cq = quatNorm({ -cc[hh].q[0], -cc[hh].q[1], cc[hh].q[2], cc[hh].q[3] });
@@ -3645,15 +3665,13 @@ void *renderThread(void *) {
                 ctrlKeyCount[hh] = cc[hh].keyCount;
                 for (int k=0; k<cc[hh].keyCount && k<16; k++) ctrlKeys[hh][k] = cc[hh].keys[k];
             }
-            auto trig = [](const CtrlState &s){
-                return (s.keyCount>2 && s.keys[2]!=0) || (s.keyCount>8 && s.keys[8]>40);
-            };
             // Off-hand dominance: pulling the trigger on a connected NON-dominant
             // controller claims the laser.
             for (int hh=0; hh<2; hh++)
-                if (hh != gDominantHand && cc[hh].conn==1 && !staleSkip[hh] && trig(cc[hh])) gDominantHand.store(hh);
-            int h = (cc[gDominantHand.load()].conn==1 && !staleSkip[gDominantHand]) ? gDominantHand.load()
-                  : (cc[0].conn==1 && !staleSkip[0] ? 0 : (cc[1].conn==1 && !staleSkip[1] ? 1 : -1));
+                if (hh != gDominantHand && cc[hh].conn==1 && !staleSkip[hh] && !isGhost(cc[hh]) && trig(cc[hh])) gDominantHand.store(hh);
+            auto usable = [&](int hh){ return cc[hh].conn==1 && !staleSkip[hh] && !isGhost(cc[hh]); };
+            int h = usable(gDominantHand.load()) ? gDominantHand.load()
+                  : (usable(0) ? 0 : (usable(1) ? 1 : -1));
             if (h >= 0) {
                 // Same conversion as the streaming controller path (CV service
                 // returns a world-frame pose): pos*0.001 and (-x,-y,z,w) directly.
