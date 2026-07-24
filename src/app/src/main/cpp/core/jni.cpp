@@ -954,6 +954,64 @@ void androidUiPushStats(int fps, float totalLatency, float bwRx, float bwTx,
     if (attached) gVM->DetachCurrentThread();
 }
 
+void androidUiPushRunningApps(const std::vector<std::string> &names,
+                               const std::vector<int> &ids,
+                               const std::vector<bool> &actives)
+{
+    if (!gUiPanel || !g_uiSetRunningAppsMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    int n = (int)names.size();
+    jclass strCls = env->FindClass("java/lang/String");
+    jobjectArray jnames = env->NewObjectArray(n, strCls, nullptr);
+    jintArray jids = env->NewIntArray(n);
+    jbooleanArray jactives = env->NewBooleanArray(n);
+    jint *idsArr = env->GetIntArrayElements(jids, nullptr);
+    jboolean *actArr = env->GetBooleanArrayElements(jactives, nullptr);
+    for (int i = 0; i < n; i++) {
+        env->SetObjectArrayElement(jnames, i, env->NewStringUTF(names[i].c_str()));
+        idsArr[i] = ids[i];
+        actArr[i] = actives[i] ? JNI_TRUE : JNI_FALSE;
+    }
+    env->ReleaseIntArrayElements(jids, idsArr, 0);
+    env->ReleaseBooleanArrayElements(jactives, actArr, 0);
+    env->CallVoidMethod(gUiPanel, g_uiSetRunningAppsMethod, jnames, jids, jactives);
+    env->DeleteLocalRef(jnames);
+    env->DeleteLocalRef(jids);
+    env->DeleteLocalRef(jactives);
+    env->DeleteLocalRef(strCls);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+void androidUiPushAvailableApps(const std::vector<std::string> &ids,
+                                 const std::vector<std::string> &names)
+{
+    if (!gUiPanel || !g_uiSetAvailableAppsMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    int n = (int)ids.size();
+    jclass strCls = env->FindClass("java/lang/String");
+    jobjectArray jids = env->NewObjectArray(n, strCls, nullptr);
+    jobjectArray jnames = env->NewObjectArray(n, strCls, nullptr);
+    for (int i = 0; i < n; i++) {
+        env->SetObjectArrayElement(jids, i, env->NewStringUTF(ids[i].c_str()));
+        env->SetObjectArrayElement(jnames, i, env->NewStringUTF(names[i].c_str()));
+    }
+    env->CallVoidMethod(gUiPanel, g_uiSetAvailableAppsMethod, jnames, jids);
+    env->DeleteLocalRef(jids);
+    env->DeleteLocalRef(jnames);
+    env->DeleteLocalRef(strCls);
+    if (attached) gVM->DetachCurrentThread();
+}
+
 void androidUiFetchAndUpload()
 {
     if (!gUiPanel || !g_uiPushPixelsMethod) return;

@@ -25,6 +25,11 @@ void androidUiPushStats(int fps, float totalLatency, float bwRx, float bwTx,
                          float cpuMs, float gpuMs, float encodeMs, float sendMs,
                          float networkMs, float decodeMs, float renderMs, float blitMs,
                          int bitrate, int streamW, int streamH, bool micOn);
+void androidUiPushRunningApps(const std::vector<std::string> &names,
+                               const std::vector<int> &ids,
+                               const std::vector<bool> &actives);
+void androidUiPushAvailableApps(const std::vector<std::string> &ids,
+                                 const std::vector<std::string> &names);
 
 // Fetch pixels from Java's VrUiPanel and upload to the AndroidUi texture.
 // Called from the render thread each frame.

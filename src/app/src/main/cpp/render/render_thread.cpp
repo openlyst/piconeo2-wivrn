@@ -2559,6 +2559,34 @@ void *renderThread(void *) {
             }
             // Push diag HUD data to Java UI (~3/sec, throttled inside).
             sendDiagData();
+            // Push running apps to Java UI (~1/sec).
+            {
+                static uint64_t sLastApps = 0;
+                uint64_t na = nowNs();
+                if (na - sLastApps > 1000000000ULL && g_stream) {
+                    sLastApps = na;
+                    std::vector<std::string> names;
+                    std::vector<int> ids;
+                    std::vector<bool> actives;
+                    std::vector<std::string> appIds;
+                    std::vector<std::string> appNames;
+                    {
+                        std::lock_guard<std::mutex> lk(g_stream->app_mutex);
+                        for (auto &a : g_stream->running_apps) {
+                            names.push_back(a.name);
+                            ids.push_back((int)a.id);
+                            actives.push_back(a.active);
+                        }
+                        for (auto &a : g_stream->available_apps) {
+                            appIds.push_back(a.id);
+                            appNames.push_back(a.name);
+                        }
+                    }
+                    androidUiPushRunningApps(names, ids, actives);
+                    if (!appIds.empty())
+                        androidUiPushAvailableApps(appIds, appNames);
+                }
+            }
         }
 
         // Once a decoder exists, find + pin its output-pump thread. The pump spawns
