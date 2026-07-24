@@ -519,70 +519,30 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
     }
 
-    // Start the 6DoF controller thread exactly once, only after at least one
-    // controller has been continuously connected for CTRL_SETTLE_MS. The service
-    // reports "connected" instantly on bind (cached), but the link isn't truly
+    // Start the 6DoF controller thread exactly once, only after both controllers
+    // have been continuously connected for CTRL_SETTLE_MS. The service reports
+    // "connected" instantly on bind (cached), but the link isn't truly
     // re-established yet; binding handedness that early causes the swap. Waiting
     // for it to hold steady lets the service settle so the bind is correct.
-    // Requiring BOTH controllers left a one-handed user (broken/missing
-    // controller) with no 6DoF at all, so the working controller never tracked.
-    // Now we start as soon as ANY controller is settled. Idempotent; safe to
-    // call repeatedly.
+    // With only one controller, we rely on the VR Shell's pre-existing thread.
     private synchronized void maybeStartControllerThread() {
         if (mCtrlThreadStarted) return;
-        if (!(mConn0 || mConn1)) {
+        if (!(mConn0 && mConn1)) {
             mBothConnSinceMs = 0;   // link dropped -> restart the settle window
             return;
         }
         long now = android.os.SystemClock.uptimeMillis();
         if (mBothConnSinceMs == 0) {
             mBothConnSinceMs = now;
-            Log.i(TAG, "controller connected (L=" + mConn0 + " R=" + mConn1
-                    + ") -> settling " + mSettleMs + "ms before 6DoF start");
+            Log.i(TAG, "both controllers connected -> settling " + mSettleMs + "ms before 6DoF start");
             return;
         }
         if (now - mBothConnSinceMs < mSettleMs) return;
         try {
-            // Re-assert the unity version right before the handedness-binding start,
-            // so callunityversion is definitely true at the moment the service
-            // assigns the main controller (see bindSuccess for why).
             try { ControllerClient.setUnityVersion(CTRL_UNITY_VERSION); } catch (Throwable t) { /* logged at bind */ }
-            boolean singleController = (mConn0 && !mConn1) || (mConn1 && !mConn0);
-            if (singleController) {
-                // One-controller workaround: the VR Shell starts the CV controller
-                // thread before our app launches with callunityversion=false, which
-                // breaks the head-aligned pose transform. Stop+restart forces the
-                // service to re-bind with our unity version now set. Also reset the
-                // head-controller frame relationship and explicitly set the main
-                // controller so 6DoF tracking initializes for the connected hand.
-                try {
-                    ControllerClient.stopControllerThread(1, 1);
-                    Log.i(TAG, "stopped stale controller thread (likely VR Shell's) before rebind");
-                    try { Thread.sleep(80); } catch (InterruptedException ie) { /* brief settle */ }
-                } catch (Throwable t) {
-                    Log.w(TAG, "stopControllerThread before rebind failed (may be fine if not running)", t);
-                }
-                ControllerClient.startControllerThread(1, 1);
-                mCtrlThreadStarted = true;
-                Log.i(TAG, "controller link settled -> startControllerThread (single-controller path)");
-                try {
-                    ControllerClient.resetHeadSensorForController();
-                    Log.i(TAG, "resetHeadSensorForController() called");
-                } catch (Throwable t) { Log.w(TAG, "resetHeadSensorForController failed", t); }
-                int main = mConn0 ? 0 : 1;
-                try {
-                    ControllerClient.setMainController(main);
-                    ControllerClient.resetControllerSensorState(main);
-                    Log.i(TAG, "one-controller (hand " + main + "): setMainController + resetControllerSensorState");
-                } catch (Throwable t) { Log.w(TAG, "setMainController/reset failed", t); }
-            } else {
-                // Both controllers connected: the VR Shell's thread works correctly
-                // in this case, so just call startControllerThread (no-op if already
-                // running). Do NOT stop+restart, that disconnects the right hand.
-                ControllerClient.startControllerThread(1, 1);
-                mCtrlThreadStarted = true;
-                Log.i(TAG, "controller link settled -> startControllerThread (both-connected path)");
-            }
+            ControllerClient.startControllerThread(1, 1);
+            mCtrlThreadStarted = true;
+            Log.i(TAG, "controller link settled -> startControllerThread (handedness bound)");
         } catch (Throwable t) {
             Log.e(TAG, "startControllerThread failed", t);
         }
