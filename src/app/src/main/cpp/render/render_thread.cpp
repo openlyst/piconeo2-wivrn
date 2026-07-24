@@ -3253,14 +3253,14 @@ void *renderThread(void *) {
                             CtrlState cc[2];
                             { std::lock_guard<std::mutex> lk(gCtrlMutex); cc[0]=gCtrl[0]; cc[1]=gCtrl[1]; }
                             for (int hh=0; hh<2; hh++)
-                                if (cc[hh].conn==1 && !staleSkip[hh] && cc[hh].keyCount>5 && cc[hh].keys[5]!=0) recenterDown = true;
+                                if (cc[hh].conn==1 && cc[hh].keyCount>5 && cc[hh].keys[5]!=0) recenterDown = true;
                             auto trig = [](const CtrlState &s){
                                 return (s.keyCount>2 && s.keys[2]!=0) || (s.keyCount>8 && s.keys[8]>40);
                             };
                             for (int hh=0; hh<2; hh++)
-                                if (hh != gDominantHand && cc[hh].conn==1 && !staleSkip[hh] && trig(cc[hh])) gDominantHand.store(hh);
-                            int h = (cc[gDominantHand.load()].conn==1 && !staleSkip[gDominantHand]) ? gDominantHand.load()
-                                  : (cc[0].conn==1 && !staleSkip[0] ? 0 : (cc[1].conn==1 && !staleSkip[1] ? 1 : -1));
+                                if (hh != gDominantHand && cc[hh].conn==1 && trig(cc[hh])) gDominantHand.store(hh);
+                            int h = (cc[gDominantHand.load()].conn==1) ? gDominantHand.load()
+                                  : (cc[0].conn==1 ? 0 : (cc[1].conn==1 ? 1 : -1));
                             if (h >= 0) {
                                 Quat oq = quatNorm({ -cc[h].q[0], -cc[h].q[1], cc[h].q[2], cc[h].q[3] });
                                 float qx2=oq.x, qy2=oq.y, qz2=oq.z, qw2=oq.w;
@@ -3639,13 +3639,13 @@ void *renderThread(void *) {
             CtrlState cc[2];
             { std::lock_guard<std::mutex> lk(gCtrlMutex); cc[0]=gCtrl[0]; cc[1]=gCtrl[1]; }
             for (int hh=0; hh<2; hh++)
-                if (cc[hh].conn==1 && !staleSkip[hh] && cc[hh].keyCount>5 && cc[hh].keys[5]!=0) recenterDown = true;
+                if (cc[hh].conn==1 && cc[hh].keyCount>5 && cc[hh].keys[5]!=0) recenterDown = true;
             auto trig = [](const CtrlState &s){
                 return (s.keyCount>2 && s.keys[2]!=0) || (s.keyCount>8 && s.keys[8]>40);
             };
             // Capture both hands' world pose for the controller-model draw.
             // Same conversion as the laser path: pos*0.001, quat = (-x,-y,z,w).
-            for (int hh=0; hh<2; hh++) if (cc[hh].conn==1 && !staleSkip[hh]) {
+            for (int hh=0; hh<2; hh++) if (cc[hh].conn==1) {
                 ctrlConn[hh] = true;
                 ctrlPos[hh][0]=cc[hh].pos[0]*0.001f; ctrlPos[hh][1]=cc[hh].pos[1]*0.001f; ctrlPos[hh][2]=cc[hh].pos[2]*0.001f;
                 Quat cq = quatNorm({ -cc[hh].q[0], -cc[hh].q[1], cc[hh].q[2], cc[hh].q[3] });
@@ -3656,9 +3656,9 @@ void *renderThread(void *) {
             // Off-hand dominance: pulling the trigger on a connected NON-dominant
             // controller claims the laser.
             for (int hh=0; hh<2; hh++)
-                if (hh != gDominantHand && cc[hh].conn==1 && !staleSkip[hh] && trig(cc[hh])) gDominantHand.store(hh);
-            int h = (cc[gDominantHand.load()].conn==1 && !staleSkip[gDominantHand]) ? gDominantHand.load()
-                  : (cc[0].conn==1 && !staleSkip[0] ? 0 : (cc[1].conn==1 && !staleSkip[1] ? 1 : -1));
+                if (hh != gDominantHand && cc[hh].conn==1 && trig(cc[hh])) gDominantHand.store(hh);
+            int h = (cc[gDominantHand.load()].conn==1) ? gDominantHand.load()
+                  : (cc[0].conn==1 ? 0 : (cc[1].conn==1 ? 1 : -1));
             if (h >= 0) {
                 // Same conversion as the streaming controller path (CV service
                 // returns a world-frame pose): pos*0.001 and (-x,-y,z,w) directly.
