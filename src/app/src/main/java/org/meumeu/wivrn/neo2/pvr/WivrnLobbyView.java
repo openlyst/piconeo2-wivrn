@@ -1251,7 +1251,8 @@ public class WivrnLobbyView {
     }
 
     private float drawResolutionSlider(float x, float y, float w, String label, int resW, int minW, int maxW, boolean disabled) {
-        int resH = resW * 2160 / 2048;
+        int resH = resW;  // square per-eye
+        int pct = Math.round(resW * 100f / 1664);
         int prevTextColor = textPaint.getColor();
         int prevSmallColor = textSmallPaint.getColor();
         if (disabled) {
@@ -1261,20 +1262,20 @@ public class WivrnLobbyView {
         canvas.drawText(label, x, y + 20, textPaint);
         y += 35;
 
-        float sliderW = w - 130;
+        float sliderW = w - 200;
         RectF track = new RectF(x, y, x + sliderW, y + 8);
         canvas.drawRoundRect(track, 4, 4, disabled ? dimPaint : sliderTrackPaint);
 
-        float pct = (float)(resW - minW) / (maxW - minW);
-        RectF fill = new RectF(x, y, x + sliderW * pct, y + 8);
+        float pctF = (float)(resW - minW) / (maxW - minW);
+        RectF fill = new RectF(x, y, x + sliderW * pctF, y + 8);
         if (!disabled)
             canvas.drawRoundRect(fill, 4, 4, sliderFillPaint);
 
-        float handleX = x + sliderW * pct;
+        float handleX = x + sliderW * pctF;
         Paint handlePaint = disabled ? new Paint() {{ setAntiAlias(true); setColor(Color.rgb(80, 85, 95)); }} : sliderHandlePaint;
         canvas.drawCircle(handleX, y + 4, 14, handlePaint);
 
-        canvas.drawText(resW + "x" + resH, x + sliderW + 15, y + 12, textSmallPaint);
+        canvas.drawText(resW + "x" + resH + " (" + pct + "%)", x + sliderW + 15, y + 12, textSmallPaint);
 
         y += 30;
         textPaint.setColor(prevTextColor);
