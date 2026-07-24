@@ -1656,7 +1656,7 @@ public class WivrnLobbyView {
     private void renderDiagOverlay() {
         float panelW = 420;
         float panelH = diagHudMode == 1 ? 250 : 290;
-        float panelX = width - panelW - 20;
+        float panelX = (width - panelW) / 2f;
         float panelY = height - panelH - 20;
 
         Paint bgPaint = new Paint();
