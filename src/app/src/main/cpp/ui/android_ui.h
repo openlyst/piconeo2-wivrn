@@ -84,8 +84,4 @@ private:
     float m_touchX = -1, m_touchY = -1;
     bool  m_touchPressed = false;
     bool  m_touchClickEdge = false;
-
-    // Staging buffer: copy pixels here before GL upload so the Java
-    // ByteBuffer can be safely reused by the render thread.
-    std::vector<uint8_t> m_staging;
 };
