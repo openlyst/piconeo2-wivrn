@@ -138,11 +138,11 @@ public class VrUiPanel {
     /**
      * Set touch state from controller raycast.
      * x, y are pixel coordinates in the UI texture (0..UI_WIDTH, 0..UI_HEIGHT),
-     * or -1 if the pointer is off-panel. stickY is the thumbstick Y axis (-1..1).
+     * or -1 if the pointer is off-panel.
      */
-    public void setTouchState(float x, float y, boolean pressed, boolean clickEdge, float stickY) {
+    public void setTouchState(float x, float y, boolean pressed, boolean clickEdge) {
         if (mLobbyView == null) return;
-        mLobbyView.handleTouch(x, y, pressed, clickEdge, stickY);
+        mLobbyView.handleTouch(x, y, pressed, clickEdge, 0);
         markDirty();
     }
 

@@ -737,7 +737,7 @@ Java_org_meumeu_wivrn_neo2_pvr_VrUiPanel_nativeInit(JNIEnv *env, jobject panel) 
     jclass cls = env->GetObjectClass(panel);
 
     g_uiPushPixelsMethod     = env->GetMethodID(cls, "renderIfNeeded", "()Ljava/nio/ByteBuffer;");
-    g_uiSetTouchMethod       = env->GetMethodID(cls, "setTouchState", "(FFZZF)V");
+    g_uiSetTouchMethod       = env->GetMethodID(cls, "setTouchState", "(FFZZ)V");
     g_uiSetServersMethod     = env->GetMethodID(cls, "setServersFromNative", "([Ljava/lang/String;[Ljava/lang/String;[I[Z[Z[Z)V");
     g_uiSetConnectingMethod  = env->GetMethodID(cls, "setConnectingFromNative", "(Z)V");
     g_uiSetConnErrorMethod   = env->GetMethodID(cls, "setConnectionErrorFromNative", "(Ljava/lang/String;)V");
@@ -760,7 +760,7 @@ Java_org_meumeu_wivrn_neo2_pvr_VrUiPanel_nativeGetPixels(JNIEnv *env, jobject) {
 }
 
 // Push touch state from native to Java for dispatch to the View hierarchy.
-void androidUiPushTouch(float x, float y, bool pressed, bool clickEdge, float stickY)
+void androidUiPushTouch(float x, float y, bool pressed, bool clickEdge)
 {
     if (!gUiPanel || !g_uiSetTouchMethod) return;
     JNIEnv *env = nullptr;
@@ -770,7 +770,7 @@ void androidUiPushTouch(float x, float y, bool pressed, bool clickEdge, float st
     }
     if (!env) return;
     env->CallVoidMethod(gUiPanel, g_uiSetTouchMethod, x, y, pressed ? JNI_TRUE : JNI_FALSE,
-                        clickEdge ? JNI_TRUE : JNI_FALSE, stickY);
+                        clickEdge ? JNI_TRUE : JNI_FALSE);
     if (attached) gVM->DetachCurrentThread();
 }
 

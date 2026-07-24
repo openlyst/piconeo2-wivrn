@@ -3330,9 +3330,9 @@ void *renderThread(void *) {
                         gAndroidUi.setInput(pi.cursorLx, pi.cursorLy, pi.cursorPressed, pi.cursorOnPanel, pi.clickEdge);
                         if (pi.cursorOnPanel)
                             androidUiPushTouch(AndroidUi::mToPxX(pi.cursorLx), AndroidUi::mToPxY(pi.cursorLy),
-                                               pi.cursorPressed, pi.clickEdge, pi.ptrStickY);
+                                               pi.cursorPressed, pi.clickEdge);
                         else
-                            androidUiPushTouch(-1, -1, false, false, pi.ptrStickY);
+                            androidUiPushTouch(-1, -1, false, false);
                         androidUiFetchAndUpload();
 
                         for (int e = 0; e < 2; e++) {
@@ -3890,9 +3890,9 @@ void *renderThread(void *) {
                     gAndroidUi.setInput(pi.cursorLx, pi.cursorLy, pi.cursorPressed, pi.cursorOnPanel, pi.clickEdge);
                     if (pi.cursorOnPanel)
                         androidUiPushTouch(AndroidUi::mToPxX(pi.cursorLx), AndroidUi::mToPxY(pi.cursorLy),
-                                           pi.cursorPressed, pi.clickEdge, pi.ptrStickY);
+                                           pi.cursorPressed, pi.clickEdge);
                     else
-                        androidUiPushTouch(-1, -1, false, false, pi.ptrStickY);
+                        androidUiPushTouch(-1, -1, false, false);
                     androidUiFetchAndUpload();
                     for (int eye = 0; eye < 2; eye++) {
                         float ex = (eye == 0 ? -softIpdM()*0.5f : softIpdM()*0.5f);
