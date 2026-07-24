@@ -142,6 +142,14 @@ public class WivrnLobbyView {
     private final Paint sliderTrackPaint = new Paint();
     private final Paint sliderFillPaint = new Paint();
     private final Paint sliderHandlePaint = new Paint();
+    // Reusable paints for per-frame drawing helpers (avoid GC pressure)
+    private final Paint reusePaint = new Paint();
+    private final Paint reusePaint2 = new Paint();
+    private final Paint reusePaint3 = new Paint();
+    private final Paint reusePaint4 = new Paint();
+    private final RectF reuseRectF = new RectF();
+    private final android.graphics.Path reusePath = new android.graphics.Path();
+    private final android.graphics.Path reusePath2 = new android.graphics.Path();
 
     private float touchX = -1, touchY = -1;
     private boolean touchDown = false;
@@ -363,36 +371,35 @@ public class WivrnLobbyView {
         float cx = rightX - iconSize;
         float cy = centerY;
 
-        Paint wifiPaint = new Paint();
-        wifiPaint.setAntiAlias(true);
-        wifiPaint.setStyle(Paint.Style.STROKE);
-        wifiPaint.setStrokeCap(Paint.Cap.ROUND);
+        reusePaint.setAntiAlias(true);
+        reusePaint.setStyle(Paint.Style.STROKE);
+        reusePaint.setStrokeCap(Paint.Cap.ROUND);
 
         if (wifiLevel < 0) {
-            wifiPaint.setColor(Color.rgb(180, 60, 60));
-            wifiPaint.setStrokeWidth(3);
-            canvas.drawCircle(cx, cy, iconSize * 0.4f, wifiPaint);
-            wifiPaint.setStrokeWidth(4);
-            canvas.drawLine(cx - iconSize * 0.28f, cy + iconSize * 0.28f, cx + iconSize * 0.28f, cy - iconSize * 0.28f, wifiPaint);
+            reusePaint.setColor(Color.rgb(180, 60, 60));
+            reusePaint.setStrokeWidth(3);
+            canvas.drawCircle(cx, cy, iconSize * 0.4f, reusePaint);
+            reusePaint.setStrokeWidth(4);
+            canvas.drawLine(cx - iconSize * 0.28f, cy + iconSize * 0.28f, cx + iconSize * 0.28f, cy - iconSize * 0.28f, reusePaint);
         } else {
             int color = wifiLevel >= 2 ? Color.rgb(80, 200, 120) : Color.rgb(220, 180, 60);
-            wifiPaint.setColor(color);
-            wifiPaint.setStrokeWidth(3);
+            reusePaint.setColor(color);
+            reusePaint.setStrokeWidth(3);
 
             float r = iconSize * 0.15f;
-            canvas.drawPoint(cx, cy + r * 2.5f, wifiPaint);
+            canvas.drawPoint(cx, cy + r * 2.5f, reusePaint);
 
             for (int i = 0; i < 3; i++) {
                 float arcR = iconSize * 0.15f * (i + 1) * 1.3f;
-                RectF arcRect = new RectF(cx - arcR, cy + r * 2.5f - arcR, cx + arcR, cy + r * 2.5f + arcR);
+                reuseRectF.set(cx - arcR, cy + r * 2.5f - arcR, cx + arcR, cy + r * 2.5f + arcR);
                 float startAngle = 225;
                 float sweepAngle = 90;
                 if (i <= wifiLevel) {
-                    canvas.drawArc(arcRect, startAngle, sweepAngle, false, wifiPaint);
+                    canvas.drawArc(reuseRectF, startAngle, sweepAngle, false, reusePaint);
                 } else {
-                    wifiPaint.setColor(Color.rgb(80, 85, 95));
-                    canvas.drawArc(arcRect, startAngle, sweepAngle, false, wifiPaint);
-                    wifiPaint.setColor(color);
+                    reusePaint.setColor(Color.rgb(80, 85, 95));
+                    canvas.drawArc(reuseRectF, startAngle, sweepAngle, false, reusePaint);
+                    reusePaint.setColor(color);
                 }
             }
         }
@@ -1659,23 +1666,22 @@ public class WivrnLobbyView {
         float panelX = (width - panelW) / 2f;
         float panelY = height - panelH - 20;
 
-        Paint bgPaint = new Paint();
-        bgPaint.setAntiAlias(true);
-        bgPaint.setColor(Color.argb(220, 18, 20, 28));
-        canvas.drawRoundRect(panelX, panelY, panelX + panelW, panelY + panelH, 8, 8, bgPaint);
+        reusePaint.setAntiAlias(true);
+        reusePaint.setColor(Color.argb(220, 18, 20, 28));
+        canvas.drawRoundRect(panelX, panelY, panelX + panelW, panelY + panelH, 8, 8, reusePaint);
 
-        Paint hdrPaint = new Paint();
+        Paint hdrPaint = reusePaint2;
         hdrPaint.setAntiAlias(true);
         hdrPaint.setColor(Color.rgb(80, 160, 240));
         hdrPaint.setTextSize(18);
         hdrPaint.setTypeface(Typeface.DEFAULT_BOLD);
 
-        Paint valPaint = new Paint();
+        Paint valPaint = reusePaint3;
         valPaint.setAntiAlias(true);
         valPaint.setColor(Color.rgb(230, 235, 245));
         valPaint.setTextSize(16);
 
-        Paint lblPaint = new Paint();
+        Paint lblPaint = reusePaint4;
         lblPaint.setAntiAlias(true);
         lblPaint.setColor(Color.rgb(140, 150, 165));
         lblPaint.setTextSize(16);
@@ -2161,12 +2167,13 @@ public class WivrnLobbyView {
     private void drawStatSummary(float x, float y, float w, String label, String value,
                                  float[] history, int offset, int count, int color,
                                  float fixedMin, float fixedMax) {
-        Paint labelPaint = new Paint();
+        Paint labelPaint = reusePaint;
         labelPaint.setColor(Color.rgb(140, 150, 165));
         labelPaint.setTextSize(20);
         labelPaint.setAntiAlias(true);
+        labelPaint.setTypeface(Typeface.DEFAULT);
 
-        Paint valuePaint = new Paint();
+        Paint valuePaint = reusePaint2;
         valuePaint.setColor(Color.rgb(230, 235, 245));
         valuePaint.setTextSize(26);
         valuePaint.setTypeface(Typeface.DEFAULT_BOLD);
@@ -2187,11 +2194,12 @@ public class WivrnLobbyView {
         if (count < 2)
             return;
 
-        Paint bgPaint = new Paint();
+        Paint bgPaint = reusePaint3;
         bgPaint.setColor(Color.argb(40, 32, 32, 32));
+        bgPaint.setStyle(Paint.Style.FILL);
         canvas.drawRect(x, y, x + w, y + h, bgPaint);
 
-        Paint borderPaint = new Paint();
+        Paint borderPaint = reusePaint4;
         borderPaint.setColor(Color.rgb(40, 45, 55));
         borderPaint.setStyle(Paint.Style.STROKE);
         borderPaint.setStrokeWidth(1);
@@ -2216,21 +2224,23 @@ public class WivrnLobbyView {
             if (min > 0) min = 0;
         }
 
-        Paint linePaint = new Paint();
+        Paint linePaint = reusePaint;
         linePaint.setColor(color);
         linePaint.setAntiAlias(true);
         linePaint.setStyle(Paint.Style.STROKE);
         linePaint.setStrokeWidth(2);
 
-        Paint fillPaint = new Paint();
+        Paint fillPaint = reusePaint2;
         fillPaint.setColor(Color.argb(60, Color.red(color), Color.green(color), Color.blue(color)));
         fillPaint.setAntiAlias(true);
         fillPaint.setStyle(Paint.Style.FILL);
 
         float stepX = w / (STATS_HISTORY_SIZE - 1);
 
-        Path linePath = new Path();
-        Path fillPath = new Path();
+        Path linePath = reusePath;
+        linePath.reset();
+        Path fillPath = reusePath2;
+        fillPath.reset();
 
         for (int i = 0; i < count; i++) {
             int idx = (offset - count + i + STATS_HISTORY_SIZE) % STATS_HISTORY_SIZE;
@@ -2267,9 +2277,10 @@ public class WivrnLobbyView {
             float lastPy = y + h - (lastV - min) / (max - min) * h;
             lastPy = Math.max(y, Math.min(y + h, lastPy));
 
-            Paint dotPaint = new Paint();
+            Paint dotPaint = reusePaint;
             dotPaint.setColor(color);
             dotPaint.setAntiAlias(true);
+            dotPaint.setStyle(Paint.Style.FILL);
             canvas.drawCircle(lastPx, lastPy, 3, dotPaint);
         }
     }
@@ -2311,14 +2322,14 @@ public class WivrnLobbyView {
         for (int i = 0; i < stages.length; i++) {
             if (stages[i] <= 0) continue;
             float segW = stages[i] / total * barW;
-            Paint segPaint = new Paint();
-            segPaint.setColor(colors[i]);
-            segPaint.setAntiAlias(true);
-            canvas.drawRect(accumX, barY, accumX + segW, barY + barH, segPaint);
+            reusePaint.setColor(colors[i]);
+            reusePaint.setAntiAlias(true);
+            reusePaint.setStyle(Paint.Style.FILL);
+            canvas.drawRect(accumX, barY, accumX + segW, barY + barH, reusePaint);
             accumX += segW;
         }
 
-        Paint borderPaint = new Paint();
+        Paint borderPaint = reusePaint2;
         borderPaint.setColor(Color.rgb(40, 45, 55));
         borderPaint.setStyle(Paint.Style.STROKE);
         borderPaint.setStrokeWidth(1);
@@ -2328,7 +2339,7 @@ public class WivrnLobbyView {
         float legendY = barY + barH + 18;
         float legendX = barX;
         float legendSpacing = barW / 3;
-        Paint legendPaint = new Paint();
+        Paint legendPaint = reusePaint3;
         legendPaint.setTextSize(18);
         legendPaint.setAntiAlias(true);
 
@@ -2338,10 +2349,10 @@ public class WivrnLobbyView {
             float lx = barX + col * legendSpacing;
             float ly = legendY + row * 24;
 
-            Paint swatchPaint = new Paint();
-            swatchPaint.setColor(colors[i]);
-            swatchPaint.setAntiAlias(true);
-            canvas.drawRect(lx, ly - 12, lx + 12, ly, swatchPaint);
+            reusePaint4.setColor(colors[i]);
+            reusePaint4.setAntiAlias(true);
+            reusePaint4.setStyle(Paint.Style.FILL);
+            canvas.drawRect(lx, ly - 12, lx + 12, ly, reusePaint4);
 
             legendPaint.setColor(Color.rgb(160, 170, 185));
             canvas.drawText(labels[i] + " " + String.format("%.1f", stages[i]) + unit,
