@@ -3700,11 +3700,12 @@ void *renderThread(void *) {
         // no video playing, so the user can launch apps from the headset.
         bool wivrnConnected = g_stream && g_stream->session && g_stream->connected_ns.load() > 0;
         gStreamingMode.store(wivrnConnected);
-        androidUiPushStreaming(wivrnConnected);
         // Auto-switch to the Launch tab when we first connect.
         static bool wasConnected = false;
-        if (wivrnConnected && !wasConnected) {
-            gSettingsCat = 4;  // Launch tab
+        if (wivrnConnected != wasConnected) {
+            androidUiPushStreaming(wivrnConnected);
+            if (wivrnConnected)
+                gSettingsCat = 4;  // Launch tab
         }
         wasConnected = wivrnConnected;
         // If we were on a streaming-only tab but lost connection, fall back to Settings.
