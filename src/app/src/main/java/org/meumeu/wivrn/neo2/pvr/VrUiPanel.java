@@ -29,12 +29,16 @@ public class VrUiPanel {
     private WivrnLobbyView mLobbyView;
     private Bitmap mBitmap;
 
-    // Double-buffered pixel storage: render thread writes to backBuffer,
-    // native reads from frontBuffer. Swap is atomic.
+    // Triple-buffered pixel storage: render thread writes to backBuffer,
+    // native reads from frontBuffer, and the third buffer is available for
+    // the next render. This prevents native from reading a buffer while the
+    // render thread writes to it.
     private final ByteBuffer mBufA = ByteBuffer.allocateDirect(UI_WIDTH * UI_HEIGHT * 4).order(ByteOrder.nativeOrder());
     private final ByteBuffer mBufB = ByteBuffer.allocateDirect(UI_WIDTH * UI_HEIGHT * 4).order(ByteOrder.nativeOrder());
+    private final ByteBuffer mBufC = ByteBuffer.allocateDirect(UI_WIDTH * UI_HEIGHT * 4).order(ByteOrder.nativeOrder());
     private volatile ByteBuffer mFrontBuffer = mBufA;
     private volatile ByteBuffer mBackBuffer = mBufB;
+    private ByteBuffer mFreeBuffer = mBufC;
     private final int[] mPixelInts = new int[UI_WIDTH * UI_HEIGHT];
     private final Object mSwapLock = new Object();
 
@@ -103,8 +107,11 @@ public class VrUiPanel {
                     back.rewind();
 
                     synchronized (mSwapLock) {
-                        mBackBuffer = mFrontBuffer;
+                        // Rotate: old front becomes free, back becomes front,
+                        // free becomes the new back for next render.
+                        mFreeBuffer = mFrontBuffer;
                         mFrontBuffer = back;
+                        mBackBuffer = mFreeBuffer;
                     }
                 } catch (InterruptedException e) {
                     break;
