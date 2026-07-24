@@ -163,7 +163,8 @@ public class VrUiPanel {
         mMainHandler.post(() -> {
             if (mLobbyView == null) return;
             if (connecting) {
-                mLobbyView.setConnectionState(WivrnLobbyView.STATE_CONNECTING, "Connecting...");
+                mLobbyView.setConnectionState(WivrnLobbyView.STATE_CONNECTING,
+                        mContext.getString(org.meumeu.wivrn.neo2.pvr.R.string.connecting));
             }
             markDirty();
         });

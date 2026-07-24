@@ -948,7 +948,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     public void requestPinEntry() {
         runOnUiThread(() -> {
             if (mVrUiPanel != null && mVrUiPanel.getLobbyView() != null)
-                mVrUiPanel.getLobbyView().setConnectionState(WivrnLobbyView.STATE_PIN_ENTRY, "Enter PIN");
+                mVrUiPanel.getLobbyView().setConnectionState(WivrnLobbyView.STATE_PIN_ENTRY,
+                        getString(org.meumeu.wivrn.neo2.pvr.R.string.enter_pin));
         });
     }
 

@@ -262,7 +262,7 @@ public class WivrnLobbyView {
             if (s.autoconnect) {
                 Log.i(TAG, "Autoconnecting to " + s.hostname + ":" + s.port);
                 connectionState = STATE_CONNECTING;
-                statusMessage = "Connecting...";
+                statusMessage = i18n.s(R.string.connecting);
                 ((MainActivity) context).onServerConnect(s.hostname, s.port, s.tcpOnly);
                 return;
             }
@@ -1143,28 +1143,29 @@ public class WivrnLobbyView {
 
         y = drawCheckbox(x, y, w, i18n.s(R.string.tcp_only), tcpOnly, false);
         y = drawCheckbox(x, y, w, i18n.s(R.string.setting_microphone), microphoneEnabled, false);
-        y = drawCheckbox(x, y, w, "PASSTHROUGH", passthroughEnabled, false);
+        y = drawCheckbox(x, y, w, i18n.s(R.string.setting_passthrough), passthroughEnabled, false);
 
         y = drawDropdown(x, y, w, i18n.s(R.string.setting_language),
             new String[]{i18n.s(R.string.lang_system), "English", "简体中文"},
             languageSetting, false, DROPDOWN_LANGUAGE);
 
         y += 15;
-        canvas.drawText("Debug", x, y + 30, textLargePaint);
+        canvas.drawText(i18n.s(R.string.debug_section), x, y + 30, textLargePaint);
         y += 55;
 
-        y = drawSliderFloat(x, y, w, "Brightness", brightnessFrac, 0, 1, "%", false, 0);
-        y = drawSliderFloat(x, y, w, "Controller Vibration", ctrlVibration, 0, 1, "%", false, 0);
-        y = drawCheckbox(x, y, w, "Eye-tracked Foveation", eyeFoveationEnabled, !eyeSupported);
-        y = drawCheckbox(x, y, w, "Eye Debug", eyeDebugOn, false);
-        y = drawDropdown(x, y, w, "Diagnostics HUD",
-            new String[]{"Off", "Pipeline", "System"}, diagHudMode, false, DROPDOWN_DIAG_HUD);
+        y = drawSliderFloat(x, y, w, i18n.s(R.string.setting_brightness), brightnessFrac, 0, 1, "%", false, 0);
+        y = drawSliderFloat(x, y, w, i18n.s(R.string.setting_ctrl_vibration), ctrlVibration, 0, 1, "%", false, 0);
+        y = drawCheckbox(x, y, w, i18n.s(R.string.setting_eye_foveation), eyeFoveationEnabled, !eyeSupported);
+        y = drawCheckbox(x, y, w, i18n.s(R.string.setting_eye_debug), eyeDebugOn, false);
+        y = drawDropdown(x, y, w, i18n.s(R.string.setting_diag_hud),
+            new String[]{i18n.s(R.string.diag_hud_off), i18n.s(R.string.diag_hud_pipeline), i18n.s(R.string.diag_hud_system)},
+            diagHudMode, false, DROPDOWN_DIAG_HUD);
 
         y += 10;
         RectF recenterBtn = new RectF(x, y, x + 200, y + BUTTON_HEIGHT);
         boolean recenterHover = touchDown && recenterBtn.contains(touchX, touchY + settingsScrollY);
         canvas.drawRoundRect(recenterBtn, 10, 10, recenterHover ? buttonHoverBgPaint : buttonBgPaint);
-        drawCenteredText("Recenter", recenterBtn, textPaint);
+        drawCenteredText(i18n.s(R.string.recenter), recenterBtn, textPaint);
         y += BUTTON_HEIGHT + 10;
 
         y += 20;
@@ -2563,7 +2564,7 @@ public class WivrnLobbyView {
             if (connectBtn.contains(x, y)) {
                 selectedServerIndex = i;
                 connectionState = STATE_CONNECTING;
-                statusMessage = "Connecting...";
+                statusMessage = i18n.s(R.string.connecting);
                 ((MainActivity) context).onServerConnect(s.hostname, s.port, s.tcpOnly);
                 markDirty();
                 return;
@@ -2820,7 +2821,7 @@ public class WivrnLobbyView {
         // Diagnostics HUD dropdown
         sy += 35;
         if (openDropdown == DROPDOWN_DIAG_HUD) {
-            String[] opts = {"Off", "Pipeline", "System"};
+            String[] opts = {i18n.s(R.string.diag_hud_off), i18n.s(R.string.diag_hud_pipeline), i18n.s(R.string.diag_hud_system)};
             for (int i = 0; i < opts.length; i++) {
                 RectF optBox = new RectF(contentX, sy + 40, contentX + 300, sy + 40 + 36);
                 if (optBox.contains(x, y)) {

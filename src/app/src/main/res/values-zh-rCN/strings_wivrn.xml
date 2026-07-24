@@ -38,11 +38,24 @@
     <string name="codec_h264">H.264</string>
     <string name="codec_h265">H.265</string>
     <string name="setting_microphone">启用麦克风</string>
+    <string name="setting_passthrough">透视</string>
     <string name="setting_language">语言</string>
     <string name="lang_system">系统</string>
     <string name="restore_defaults">恢复默认</string>
     <string name="reset_confirm">恢复所有设置为默认值？</string>
     <string name="reset">重置</string>
+
+    <!-- Debug settings -->
+    <string name="debug_section">调试</string>
+    <string name="setting_brightness">亮度</string>
+    <string name="setting_ctrl_vibration">手柄震动</string>
+    <string name="setting_eye_foveation">眼动注视点编码</string>
+    <string name="setting_eye_debug">眼动调试</string>
+    <string name="setting_diag_hud">诊断信息</string>
+    <string name="diag_hud_off">关闭</string>
+    <string name="diag_hud_pipeline">流水线</string>
+    <string name="diag_hud_system">系统</string>
+    <string name="recenter">重置朝向</string>
 
     <!-- About -->
     <string name="about_wivrn">WiVRn</string>
