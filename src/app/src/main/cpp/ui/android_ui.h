@@ -19,6 +19,7 @@ void androidUiPushConnError(const std::string &err);
 void androidUiPushStreaming(bool streaming);
 void androidUiPushBattery(int hmdBatt, int leftBatt, bool leftConn, int rightBatt, bool rightConn);
 void androidUiPushSettings();
+void androidUiPushDiag(int mode, const float *pipeline, const float *system);
 
 // Fetch pixels from Java's VrUiPanel and upload to the AndroidUi texture.
 // Called from the render thread each frame.

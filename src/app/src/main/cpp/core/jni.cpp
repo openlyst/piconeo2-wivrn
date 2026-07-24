@@ -41,6 +41,7 @@ static jmethodID g_uiSetAvailableAppsMethod = nullptr;
 static jmethodID g_uiSetStreamingMethod = nullptr;
 static jmethodID g_uiUpdateSettingsMethod = nullptr;
 static jmethodID g_uiSetBatteryMethod = nullptr;
+static jmethodID g_uiSetDiagMethod = nullptr;
 static jobject gUiPanel = nullptr;
 
 static jmethodID g_onServerConnectMethod = nullptr;
@@ -748,6 +749,7 @@ Java_org_meumeu_wivrn_neo2_pvr_VrUiPanel_nativeInit(JNIEnv *env, jobject panel) 
     g_uiSetStreamingMethod   = env->GetMethodID(cls, "setStreamingFromNative", "(Z)V");
     g_uiUpdateSettingsMethod = env->GetMethodID(cls, "updateSettingsFromNative", "(FFFFFZZZFIZ)V");
     g_uiSetBatteryMethod     = env->GetMethodID(cls, "setBatteryFromNative", "(IIZIZ)V");
+    g_uiSetDiagMethod        = env->GetMethodID(cls, "setDiagFromNative", "(I[F[F)V");
 
     env->DeleteLocalRef(cls);
     LOGI("VrUiPanel nativeInit: panel=%p pushPixels=%p", gUiPanel, g_uiPushPixelsMethod);
@@ -894,6 +896,27 @@ void androidUiPushSettings()
         gWivrnPassthrough.load() ? JNI_TRUE : JNI_FALSE,
         gWivrnCtrlVibration.load(), gDiagHudMode.load(),
         gEyeSupported.load() ? JNI_TRUE : JNI_FALSE);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+void androidUiPushDiag(int mode, const float *pipeline, const float *system)
+{
+    if (!gUiPanel || !g_uiSetDiagMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    // pipeline: [0]=total [1]=decode [2]=queue [3]=render [4]=fps [5]=decoded [6]=submit [7]=dropped [8]=gap [9]=encode [10]=enqueue [11]=fenceTmo
+    // system: [0]=cpuBusy [1]=cpuLittle [2]=cpuBig [3]=gpuBusy [4]=gpuClock [5]=gpuMhz [6]=cpuTemp [7]=gpuTemp [8]=ddrTemp [9]=socTemp [10]=ctrlLBatt [11]=ctrlRBatt
+    jfloatArray jpipe = env->NewFloatArray(12);
+    if (jpipe) { env->SetFloatArrayRegion(jpipe, 0, 12, pipeline); }
+    jfloatArray jsys = env->NewFloatArray(12);
+    if (jsys) { env->SetFloatArrayRegion(jsys, 0, 12, system); }
+    env->CallVoidMethod(gUiPanel, g_uiSetDiagMethod, mode, jpipe, jsys);
+    if (jpipe) env->DeleteLocalRef(jpipe);
+    if (jsys) env->DeleteLocalRef(jsys);
     if (attached) gVM->DetachCurrentThread();
 }
 

@@ -175,6 +175,11 @@ public class WivrnLobbyView {
     private int diagHudMode = 0;
     private boolean eyeSupported = false;
 
+    // Diag HUD data pushed from native (~3Hz)
+    private float[] diagPipeline = new float[12];
+    private float[] diagSystem = new float[12];
+    private boolean diagDataValid = false;
+
     // Dropdown open state: -1 = none open, otherwise the dropdown ID
     private int openDropdown = -1;
     private static final int DROPDOWN_CODEC = 0;
@@ -395,6 +400,15 @@ public class WivrnLobbyView {
         leftConnected = leftConn;
         rightBattery = rightBatt;
         rightConnected = rightConn;
+        markDirty();
+    }
+
+    public void updateDiagData(int mode, float[] pipeline, float[] system) {
+        if (pipeline != null && pipeline.length >= 12)
+            System.arraycopy(pipeline, 0, diagPipeline, 0, 12);
+        if (system != null && system.length >= 12)
+            System.arraycopy(system, 0, diagSystem, 0, 12);
+        diagDataValid = true;
         markDirty();
     }
 
@@ -1613,6 +1627,169 @@ public class WivrnLobbyView {
                 renderSettings(SIDEBAR_WIDTH + 20, width - SIDEBAR_WIDTH - 40);
                 canvas.restore();
                 break;
+        }
+
+        // Diag HUD overlay: floating panel in the bottom-right corner
+        if (diagHudMode != 0 && diagDataValid) {
+            renderDiagOverlay();
+        }
+    }
+
+    private void renderDiagOverlay() {
+        float panelW = 420;
+        float panelH = diagHudMode == 1 ? 250 : 290;
+        float panelX = width - panelW - 20;
+        float panelY = height - panelH - 20;
+
+        Paint bgPaint = new Paint();
+        bgPaint.setAntiAlias(true);
+        bgPaint.setColor(Color.argb(220, 18, 20, 28));
+        canvas.drawRoundRect(panelX, panelY, panelX + panelW, panelY + panelH, 8, 8, bgPaint);
+
+        Paint hdrPaint = new Paint();
+        hdrPaint.setAntiAlias(true);
+        hdrPaint.setColor(Color.rgb(80, 160, 240));
+        hdrPaint.setTextSize(18);
+        hdrPaint.setTypeface(Typeface.DEFAULT_BOLD);
+
+        Paint valPaint = new Paint();
+        valPaint.setAntiAlias(true);
+        valPaint.setColor(Color.rgb(230, 235, 245));
+        valPaint.setTextSize(16);
+
+        Paint lblPaint = new Paint();
+        lblPaint.setAntiAlias(true);
+        lblPaint.setColor(Color.rgb(140, 150, 165));
+        lblPaint.setTextSize(16);
+
+        float pad = 16;
+        float lineH = 22;
+
+        if (diagHudMode == 1) {
+            // Pipeline diagnostics
+            canvas.drawText("PIPELINE DIAGNOSTICS", panelX + pad, panelY + pad + 14, hdrPaint);
+            float y = panelY + pad + 14 + lineH + 8;
+
+            float colW = (panelW - pad * 3) / 2;
+            float col1X = panelX + pad;
+            float col2X = panelX + pad + colW + pad;
+
+            // Column 1: latency
+            canvas.drawText("LATENCY (MS)", col1X, y, hdrPaint);
+            y += lineH;
+            String[] latLabels = {"Total", "Decode", "Queue", "Render"};
+            int[] latIdx = {0, 1, 2, 3};
+            for (int i = 0; i < latIdx.length; i++) {
+                canvas.drawText(latLabels[i], col1X, y, lblPaint);
+                float v = diagPipeline[latIdx[i]];
+                canvas.drawText(v > 0 ? String.format("%.1f", v) : "--", col1X + 90, y, valPaint);
+                y += lineH;
+            }
+
+            // Column 2: video rate
+            float y2 = panelY + pad + 14 + lineH + 8;
+            canvas.drawText("VIDEO RATE", col2X, y2, hdrPaint);
+            y2 += lineH;
+            canvas.drawText("FPS", col2X, y2, lblPaint);
+            canvas.drawText(String.format("%.0f", diagPipeline[4]), col2X + 90, y2, valPaint);
+            y2 += lineH;
+            canvas.drawText("Decoded", col2X, y2, lblPaint);
+            canvas.drawText(String.format("%d", (int)diagPipeline[5]), col2X + 90, y2, valPaint);
+            y2 += lineH;
+            canvas.drawText("Submit", col2X, y2, lblPaint);
+            canvas.drawText(String.format("%d", (int)diagPipeline[6]), col2X + 90, y2, valPaint);
+            y2 += lineH;
+            canvas.drawText("Dropped", col2X, y2, lblPaint);
+            int dropped = (int)diagPipeline[7];
+            valPaint.setColor(dropped > 0 ? Color.rgb(240, 100, 80) : Color.rgb(230, 235, 245));
+            canvas.drawText(String.format("%d", dropped), col2X + 90, y2, valPaint);
+            valPaint.setColor(Color.rgb(230, 235, 245));
+
+            // Bottom row: frame timing
+            y = panelY + panelH - pad - lineH * 2;
+            canvas.drawText("FRAME TIMING (MS)", panelX + pad, y, hdrPaint);
+            y += lineH;
+            String[] tmLabels = {"Gap", "Encode", "Enqueue", "FenceTmo"};
+            int[] tmIdx = {8, 9, 10, 11};
+            float tx = panelX + pad;
+            for (int i = 0; i < tmLabels.length; i++) {
+                canvas.drawText(tmLabels[i], tx, y, lblPaint);
+                float v = diagPipeline[tmIdx[i]];
+                if (tmLabels[i].equals("FenceTmo")) {
+                    valPaint.setColor(v > 0 ? Color.rgb(240, 100, 80) : Color.rgb(230, 235, 245));
+                }
+                canvas.drawText(v > 0 ? String.format("%.1f", v) : "0", tx + 60, y, valPaint);
+                valPaint.setColor(Color.rgb(230, 235, 245));
+                tx += 95;
+            }
+        } else if (diagHudMode == 2) {
+            // System telemetry
+            canvas.drawText("SYSTEM TELEMETRY", panelX + pad, panelY + pad + 14, hdrPaint);
+            float y = panelY + pad + 14 + lineH + 8;
+
+            float colW = (panelW - pad * 3) / 2;
+            float col1X = panelX + pad;
+            float col2X = panelX + pad + colW + pad;
+
+            // Column 1: CPU
+            canvas.drawText("CPU", col1X, y, hdrPaint);
+            y += lineH;
+            String[] cpuLabels = {"Usage", "Little", "Big", "Temp"};
+            int[] cpuIdx = {0, 1, 2, 6};
+            for (int i = 0; i < cpuLabels.length; i++) {
+                canvas.drawText(cpuLabels[i], col1X, y, lblPaint);
+                float v = diagSystem[cpuIdx[i]];
+                if (cpuLabels[i].equals("Temp") && v >= 80) valPaint.setColor(Color.rgb(255, 140, 80));
+                canvas.drawText(v >= 0 ? (cpuLabels[i].equals("Temp") ? String.format("%.0fC", v) : String.format("%.0f%%", v)) : "--", col1X + 70, y, valPaint);
+                valPaint.setColor(Color.rgb(230, 235, 245));
+                y += lineH;
+            }
+
+            // Column 2: GPU
+            float y2 = panelY + pad + 14 + lineH + 8;
+            canvas.drawText("GPU", col2X, y2, hdrPaint);
+            y2 += lineH;
+            canvas.drawText("Usage", col2X, y2, lblPaint);
+            canvas.drawText(diagSystem[3] >= 0 ? String.format("%.0f%%", diagSystem[3]) : "--", col2X + 70, y2, valPaint);
+            y2 += lineH;
+            canvas.drawText("Clock", col2X, y2, lblPaint);
+            canvas.drawText(diagSystem[4] >= 0 ? String.format("%.0f%%", diagSystem[4]) : "--", col2X + 70, y2, valPaint);
+            y2 += lineH;
+            canvas.drawText("MHz", col2X, y2, lblPaint);
+            canvas.drawText(diagSystem[5] >= 0 ? String.format("%.0f", diagSystem[5]) : "--", col2X + 70, y2, valPaint);
+            y2 += lineH;
+            canvas.drawText("Temp", col2X, y2, lblPaint);
+            if (diagSystem[7] >= 80) valPaint.setColor(Color.rgb(255, 140, 80));
+            canvas.drawText(diagSystem[7] >= 0 ? String.format("%.0fC", diagSystem[7]) : "--", col2X + 70, y2, valPaint);
+            valPaint.setColor(Color.rgb(230, 235, 245));
+
+            // Bottom: heat + controller battery
+            y = panelY + panelH - pad - lineH * 3;
+            canvas.drawText("HEAT (C)", panelX + pad, y, hdrPaint);
+            y += lineH;
+            String[] heatLabels = {"DDR", "SoC"};
+            int[] heatIdx = {8, 9};
+            float tx = panelX + pad;
+            for (int i = 0; i < heatLabels.length; i++) {
+                canvas.drawText(heatLabels[i], tx, y, lblPaint);
+                float v = diagSystem[heatIdx[i]];
+                if (v >= 80) valPaint.setColor(Color.rgb(255, 140, 80));
+                canvas.drawText(v >= 0 ? String.format("%.0f", v) : "--", tx + 45, y, valPaint);
+                valPaint.setColor(Color.rgb(230, 235, 245));
+                tx += 110;
+            }
+            // Controller battery
+            canvas.drawText("Ctrl L", tx, y, lblPaint);
+            float lb = diagSystem[10];
+            if (lb >= 0 && lb < 20) valPaint.setColor(Color.rgb(255, 140, 80));
+            canvas.drawText(lb >= 0 ? String.format("%.0f%%", lb) : "--", tx + 55, y, valPaint);
+            valPaint.setColor(Color.rgb(230, 235, 245));
+            tx += 130;
+            canvas.drawText("Ctrl R", tx, y, lblPaint);
+            float rb = diagSystem[11];
+            if (rb >= 0 && rb < 20) valPaint.setColor(Color.rgb(255, 140, 80));
+            canvas.drawText(rb >= 0 ? String.format("%.0f%%", rb) : "--", tx + 55, y, valPaint);
+            valPaint.setColor(Color.rgb(230, 235, 245));
         }
     }
 
