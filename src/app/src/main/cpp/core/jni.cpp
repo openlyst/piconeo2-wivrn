@@ -935,6 +935,25 @@ void androidUiPushDiagOverlayOnly(bool diagOnly)
     if (attached) gVM->DetachCurrentThread();
 }
 
+void androidUiPushStats(int fps, float totalLatency, float bwRx, float bwTx,
+                         float cpuMs, float gpuMs, float encodeMs, float sendMs,
+                         float networkMs, float decodeMs, float renderMs, float blitMs,
+                         int bitrate, int streamW, int streamH, bool micOn)
+{
+    if (!gUiPanel || !g_uiSetStatsMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    env->CallVoidMethod(gUiPanel, g_uiSetStatsMethod,
+        fps, totalLatency, bwRx, bwTx, cpuMs, gpuMs, encodeMs, sendMs,
+        networkMs, decodeMs, renderMs, blitMs, bitrate, streamW, streamH,
+        micOn ? JNI_TRUE : JNI_FALSE);
+    if (attached) gVM->DetachCurrentThread();
+}
+
 void androidUiFetchAndUpload()
 {
     if (!gUiPanel || !g_uiPushPixelsMethod) return;

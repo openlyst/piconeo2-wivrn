@@ -21,6 +21,10 @@ void androidUiPushBattery(int hmdBatt, int leftBatt, bool leftConn, int rightBat
 void androidUiPushSettings();
 void androidUiPushDiag(int mode, const float *pipeline, const float *system);
 void androidUiPushDiagOverlayOnly(bool diagOnly);
+void androidUiPushStats(int fps, float totalLatency, float bwRx, float bwTx,
+                         float cpuMs, float gpuMs, float encodeMs, float sendMs,
+                         float networkMs, float decodeMs, float renderMs, float blitMs,
+                         int bitrate, int streamW, int streamH, bool micOn);
 
 // Fetch pixels from Java's VrUiPanel and upload to the AndroidUi texture.
 // Called from the render thread each frame.

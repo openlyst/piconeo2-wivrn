@@ -185,7 +185,20 @@ public class VrUiPanel {
         mMainHandler.post(() -> {
             if (mLobbyView == null) return;
             mLobbyView.updateStreamStats(fps, (int)totalLatency, (int)(download * 1000000), (int)(upload * 1000000), bitrate);
-            float[] detailed = {cpuMs, gpuMs, encodeMs, sendMs, networkMs, decodeMs, renderMs, blitMs, totalLatency};
+            float[] detailed = new float[13];
+            detailed[0] = fps;
+            detailed[1] = totalLatency;
+            detailed[2] = download * 1000000;
+            detailed[3] = upload * 1000000;
+            detailed[4] = bitrate;
+            detailed[5] = cpuMs;
+            detailed[6] = gpuMs;
+            detailed[7] = encodeMs;
+            detailed[8] = sendMs;
+            detailed[9] = networkMs;
+            detailed[10] = decodeMs;
+            detailed[11] = renderMs;
+            detailed[12] = blitMs;
             mLobbyView.updateStreamStatsDetailed(detailed);
             markDirty();
         });

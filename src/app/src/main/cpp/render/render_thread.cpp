@@ -3591,6 +3591,25 @@ void *renderThread(void *) {
 
                         LOGI("LATENCY: total=%.1fms enc=%.1f send=%.1f net=%.1f dec=%.1f wait=%.1f blit=%.1f fps=%.1f",
                              total_ms, bd[0], bd[1], bd[2], bd[3], bd[4], bd[5], fps);
+
+                        // Push stats to Java UI for the streaming stats tab.
+                        androidUiPushStats(
+                            g_stream->stats_fps,
+                            g_stream->stats_total_latency_ms,
+                            g_stream->stats_bandwidth_rx,
+                            g_stream->stats_bandwidth_tx,
+                            g_stream->stats_cpu_time_ms,
+                            g_stream->stats_gpu_time_ms,
+                            g_stream->stats_encode_ms,
+                            g_stream->stats_send_ms,
+                            g_stream->stats_network_ms,
+                            g_stream->stats_decode_ms,
+                            g_stream->stats_render_wait_ms,
+                            g_stream->stats_blit_ms,
+                            gWivrnBitrateMbps.load(),
+                            g_stream->eye_width.load(),
+                            g_stream->eye_height.load(),
+                            gWivrnMicrophone.load());
                     }
 
                     gVidDecoded.store(sDecoded); gVidSubmit.store(sSubmits); gVidDropped.store(sDropped);
