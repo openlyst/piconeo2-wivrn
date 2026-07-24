@@ -123,6 +123,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     public native void nativeSetBrightness(float frac);
     public native void nativeSetCtrlVibration(float strength);
     public native void nativeSetEyeFoveation(boolean enabled);
+    public native void nativeSetFoveationEnabled(boolean enabled);
     public native void nativeSetEyeDebug(boolean enabled);
     public native void nativeSetDiagHud(int mode);
     public native boolean nativeIsEyeSupported();
@@ -408,6 +409,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         lastConnectFlushMs = System.currentTimeMillis();
         if (mVrUiPanel != null && mVrUiPanel.getLobbyView() != null) {
             try { nativeSetBitrate(mVrUiPanel.getLobbyView().getBitrate()); } catch (Throwable t) {}
+            try { nativeSetFoveationEnabled(mVrUiPanel.getLobbyView().getFoveationEnabled()); } catch (Throwable t) {}
             mVrUiPanel.getLobbyView().markAutoconnectAttempted();
         }
         nativeConnect(pendingHost, pendingPort, pendingTcpOnly);
