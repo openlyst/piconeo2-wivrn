@@ -681,11 +681,17 @@ static void sendBatteryReports() {
     }
 
     int  cbat[2] = { -1, -1 };
+    bool cconn[2] = { false, false };
     { std::lock_guard<std::mutex> lk(gCtrlMutex);
-      for (int h = 0; h < 2; h++)
-          if (gCtrl[h].conn == 1 && gCtrl[h].keyCount > 10) cbat[h] = gCtrl[h].keys[10]; }
+      for (int h = 0; h < 2; h++) {
+          cconn[h] = (gCtrl[h].conn == 1);
+          if (cconn[h] && gCtrl[h].keyCount > 10) cbat[h] = gCtrl[h].keys[10];
+      } }
     for (int h = 0; h < 2; h++)
         if (cbat[h] >= 0) alvr_send_battery(alvrHandId[h], (float) cbat[h] / 100.0f, false);
+
+    // Push to Java UI
+    androidUiPushBattery((int)cap, cbat[0], cconn[0], cbat[1], cconn[1]);
 }
 
 
@@ -2405,8 +2411,8 @@ void *renderThread(void *) {
                 logActualClocks("cpu");
             }
 
-            // Report battery to the server (~1/sec).
-            if (gStreaming) {
+            // Report battery to the server + UI (~1/sec).
+            {
                 static uint64_t sLastBatt = 0;
                 uint64_t nb = nowNs();
                 if (nb - sLastBatt > 1000000000ULL) { sLastBatt = nb; sendBatteryReports(); }

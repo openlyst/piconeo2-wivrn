@@ -220,6 +220,14 @@ public class VrUiPanel {
         });
     }
 
+    public void setBatteryFromNative(int hmdBatt, int leftBatt, boolean leftConn, int rightBatt, boolean rightConn) {
+        mMainHandler.post(() -> {
+            if (mLobbyView == null) return;
+            mLobbyView.updateBatteryStatus(hmdBatt, leftBatt, leftConn, rightBatt, rightConn);
+            markDirty();
+        });
+    }
+
     public void updateSettingsFromNative(float ipd, float brightness, float fov,
             float resScale, float bitrate, boolean eyeFov, boolean mic,
             boolean passthrough, float ctrlVib, int diagHud, boolean eyeSupported) {

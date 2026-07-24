@@ -40,6 +40,7 @@ static jmethodID g_uiSetRunningAppsMethod = nullptr;
 static jmethodID g_uiSetAvailableAppsMethod = nullptr;
 static jmethodID g_uiSetStreamingMethod = nullptr;
 static jmethodID g_uiUpdateSettingsMethod = nullptr;
+static jmethodID g_uiSetBatteryMethod = nullptr;
 static jobject gUiPanel = nullptr;
 
 static jmethodID g_onServerConnectMethod = nullptr;
@@ -746,6 +747,7 @@ Java_org_meumeu_wivrn_neo2_pvr_VrUiPanel_nativeInit(JNIEnv *env, jobject panel) 
     g_uiSetAvailableAppsMethod = env->GetMethodID(cls, "setAvailableAppsFromNative", "([Ljava/lang/String;[Ljava/lang/String;)V");
     g_uiSetStreamingMethod   = env->GetMethodID(cls, "setStreamingFromNative", "(Z)V");
     g_uiUpdateSettingsMethod = env->GetMethodID(cls, "updateSettingsFromNative", "(FFFFFZZZFIZ)V");
+    g_uiSetBatteryMethod     = env->GetMethodID(cls, "setBatteryFromNative", "(IIZIZ)V");
 
     env->DeleteLocalRef(cls);
     LOGI("VrUiPanel nativeInit: panel=%p pushPixels=%p", gUiPanel, g_uiPushPixelsMethod);
@@ -857,6 +859,21 @@ void androidUiPushStreaming(bool streaming)
     }
     if (!env) return;
     env->CallVoidMethod(gUiPanel, g_uiSetStreamingMethod, streaming ? JNI_TRUE : JNI_FALSE);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+void androidUiPushBattery(int hmdBatt, int leftBatt, bool leftConn, int rightBatt, bool rightConn)
+{
+    if (!gUiPanel || !g_uiSetBatteryMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    env->CallVoidMethod(gUiPanel, g_uiSetBatteryMethod,
+                        hmdBatt, leftBatt, leftConn ? JNI_TRUE : JNI_FALSE,
+                        rightBatt, rightConn ? JNI_TRUE : JNI_FALSE);
     if (attached) gVM->DetachCurrentThread();
 }
 

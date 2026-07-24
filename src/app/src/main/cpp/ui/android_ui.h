@@ -17,6 +17,7 @@ void androidUiPushServers(const std::vector<ServerInfo> &servers);
 void androidUiPushConnecting(bool connecting);
 void androidUiPushConnError(const std::string &err);
 void androidUiPushStreaming(bool streaming);
+void androidUiPushBattery(int hmdBatt, int leftBatt, bool leftConn, int rightBatt, bool rightConn);
 void androidUiPushSettings();
 
 // Fetch pixels from Java's VrUiPanel and upload to the AndroidUi texture.
