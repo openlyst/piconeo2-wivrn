@@ -3247,12 +3247,13 @@ void *renderThread(void *) {
                 if (diagTiming) { _tRender = nowNs(); if (_tRender - _tRenderStart > _mRender) _mRender = _tRender - _tRenderStart; }
 
                 {
-                    // The video is rendered in ALVR's wgpu context. With the
-                    // zero-pipeline submit, we MUST guarantee the GPU has finished
-                    // writing the texture before handing it to the warp. glFinish
-                    // blocks the CPU until all GPU commands complete, a ~3ms stall
-                    // for the de-foveation blit, but it eliminates tearing.
-                    glFinish();
+                    // The video is rendered in ALVR's wgpu context. Flush to kick
+                    // off the GPU work, then fence. The submitSlot below does
+                    // glClientWaitSync on the fence, which is the actual GPU
+                    // completion wait. Using glFlush + fence instead of glFinish
+                    // lets the CPU continue (read server poses, set up overlay)
+                    // while the GPU blit runs in parallel.
+                    glFlush();
                     GLsync alvrFence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
                     // wgpu made its ctx current; restore ours (offscreen pbuffer; the
                     // warp owns the window). Textures are shared across the group.
@@ -3667,27 +3668,28 @@ void *renderThread(void *) {
             // streaming. Do NOT target above 72Hz or drop the floor to 0.
             {
                 const uint64_t kVsyncNs = (uint64_t)(1e9 / 72.0);   // 72Hz panel (do NOT exceed)
-                // Align to the ACTUAL display vsync phase instead of the iteration
-                // start time. GetFractionalVsync() returns the fractional progress
-                // through the current refresh interval, so the next vsync boundary
-                // is (1-frac)*interval ahead. Keeps the loop phase-locked to the
-                // display instead of drifting on wall-clock time.
-                float interval = 1e9f / (gRefreshHint > 1.0f ? gRefreshHint : 72.0f);
-                double fv = PVR::GetFractionalVsync();
-                double frac = fv - floor(fv);
-                uint64_t sleepTarget;
-                if (frac >= 0.0 && frac <= 1.0) {
-                    // Sleep until the next vsync boundary
-                    sleepTarget = nowNs() + (uint64_t)((1.0 - frac) * interval);
-                } else {
-                    // Fallback: pace from iteration start
-                    sleepTarget = tLoopStart + kVsyncNs;
+                uint64_t now = nowNs();
+                uint64_t iterTime = now - tLoopStart;
+                // If the iteration already consumed >= one vsync (frame wait +
+                // render), don't add another vsync sleep -- that would double the
+                // cycle to ~28ms (36Hz). Go straight to the next
+                // alvr_get_frame_timeout which blocks until the next frame anyway.
+                if (iterTime < kVsyncNs) {
+                    // Iteration was faster than one vsync: sleep the remainder to
+                    // prevent spinning faster than 72Hz in the burst case.
+                    float interval = 1e9f / (gRefreshHint > 1.0f ? gRefreshHint : 72.0f);
+                    double fv = PVR::GetFractionalVsync();
+                    double frac = fv - floor(fv);
+                    uint64_t sleepTarget;
+                    if (frac >= 0.0 && frac <= 1.0) {
+                        sleepTarget = now + (uint64_t)((1.0 - frac) * interval);
+                    } else {
+                        sleepTarget = tLoopStart + kVsyncNs;
+                    }
+                    uint64_t minTarget = tLoopStart + kVsyncNs;
+                    if (sleepTarget < minTarget) sleepTarget = minTarget;
+                    sleepUntilMonoNs(sleepTarget);
                 }
-                // Ensure we never sleep less than the iteration-start-based deadline
-                // (prevents spinning faster than 72Hz in the burst case).
-                uint64_t minTarget = tLoopStart + kVsyncNs;
-                if (sleepTarget < minTarget) sleepTarget = minTarget;
-                sleepUntilMonoNs(sleepTarget);
             }
             frame++; framesWithSurface++;
             continue;
