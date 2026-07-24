@@ -55,6 +55,11 @@ extern std::atomic<bool>   gWivrnEyeFoveation;
 // thread re-send the override_foveation_center packet.
 extern std::atomic<bool>   gEyeFoveationDirty;
 
+// Foveated encoding master switch. When false, caps.foveated_encoding is set
+// to false so the server sends full-resolution frames (no edge stretching).
+// Takes effect on the next stream connection.
+extern std::atomic<bool>   gFoveationEnabled;
+
 // ---- Stream FOV (higher-DPI lever) -----------------------------------------
 // The server renders into a fixed 1664^2 per-eye buffer at whatever FOV the
 // client commands. Shrinking the commanded FOV packs the same pixels into fewer

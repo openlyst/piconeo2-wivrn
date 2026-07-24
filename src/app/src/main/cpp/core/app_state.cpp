@@ -51,6 +51,7 @@ std::atomic<bool>   gWivrnRecenterReq{false};
 
 std::atomic<bool>   gWivrnEyeFoveation{true};
 std::atomic<bool>   gEyeFoveationDirty{false};
+std::atomic<bool>   gFoveationEnabled{true};
 
 std::atomic<float> gStreamFovDeg{101.0f};   // full per-eye FOV; 101 = SDK native (no change)
 std::atomic<bool>  gFovDirty{false};
