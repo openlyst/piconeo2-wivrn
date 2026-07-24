@@ -236,6 +236,14 @@ public class VrUiPanel {
         });
     }
 
+    public void setDiagOverlayOnlyFromNative(boolean diagOnly) {
+        mMainHandler.post(() -> {
+            if (mLobbyView == null) return;
+            mLobbyView.setDiagOverlayOnly(diagOnly);
+            markDirty();
+        });
+    }
+
     public void updateSettingsFromNative(float ipd, float brightness, float fov,
             float resScale, float bitrate, boolean eyeFov, boolean mic,
             boolean passthrough, float ctrlVib, int diagHud, boolean eyeSupported) {

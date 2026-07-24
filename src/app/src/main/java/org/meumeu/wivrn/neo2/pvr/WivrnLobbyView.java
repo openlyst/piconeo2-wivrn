@@ -179,6 +179,13 @@ public class WivrnLobbyView {
     private float[] diagPipeline = new float[12];
     private float[] diagSystem = new float[12];
     private boolean diagDataValid = false;
+    private boolean diagOverlayOnly = false;
+
+    public void setDiagOverlayOnly(boolean diagOnly) {
+        if (diagOverlayOnly == diagOnly) return;
+        diagOverlayOnly = diagOnly;
+        markDirty();
+    }
 
     // Dropdown open state: -1 = none open, otherwise the dropdown ID
     private int openDropdown = -1;
@@ -943,6 +950,17 @@ public class WivrnLobbyView {
     public boolean isMicrophoneEnabled() { return microphoneEnabled; }
 
     public void render() {
+        // Diag-overlay-only mode: transparent background, just the diag HUD.
+        // Used when streaming with diag on but lobby overlay closed.
+        if (diagOverlayOnly) {
+            canvas.drawColor(Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR);
+            if (diagHudMode != 0 && diagDataValid) {
+                renderDiagOverlay();
+            }
+            markClean();
+            return;
+        }
+
         canvas.drawRect(0, 0, width, height, bgPaint);
 
         if (connectionState == STATE_PIN_ENTRY) {

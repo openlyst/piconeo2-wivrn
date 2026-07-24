@@ -2785,6 +2785,7 @@ void *renderThread(void *) {
                 // (old SPS/PPS, maybe old resolution) decodes the new stream -> garbled.
                 gStreaming = false;
                 gManualLobby.store(false);   // back to the normal disconnected lobby
+                androidUiPushDiagOverlayOnly(false);  // diag overlay off when not streaming
                 gHaveDecCfg = false;         // stale config; next stream sends a fresh one
                 setStrBounded(gStatusText, "Disconnected", sizeof(gStatusText));
                 if (gDecoderReady) { alvr_destroy_decoder(); gDecoderReady = false; }
@@ -3414,12 +3415,69 @@ void *renderThread(void *) {
                         }
                         glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     }
+                    // ---- Diag-only overlay: when diag HUD is on but lobby is closed,
+                    // composite just the diag overlay (transparent bg) on the video. ----
+                    {
+                        int dm = gDiagHudMode.load();
+                        bool wantDiagOnly = (dm != 0) && !gManualLobby.load();
+                        static bool sDiagOnlyState = false;
+                        if (wantDiagOnly != sDiagOnlyState) {
+                            sDiagOnlyState = wantDiagOnly;
+                            androidUiPushDiagOverlayOnly(wantDiagOnly);
+                        }
+                        if (wantDiagOnly) {
+                            if (alvrFence) { glWaitSync(alvrFence, 0, GL_TIMEOUT_IGNORED); glDeleteSync(alvrFence); alvrFence = 0; }
+                            glBindFramebuffer(GL_FRAMEBUFFER, gStreamFbo);
+                            glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_SCISSOR_TEST);
+                            {
+                                int ew = g_stream ? g_stream->eye_width.load() : 0;
+                                int eh = g_stream ? g_stream->eye_height.load() : 0;
+                                glViewport(0, 0, (GLsizei)(ew > 0 ? ew : gStreamW),
+                                                  (GLsizei)(eh > 0 ? eh : gStreamH));
+                            }
+                            androidUiFetchAndUpload();
+                            Mat4 hRot = quatToMat4(qx, qy, qz, qw);
+                            Mat4 invRot = mat4Transpose3x3(hRot);
+                            Mat4 viewBase = mat4Mul(invRot, mat4Translate(-px, -py, -pz));
+                            float lobbyFovDeg = (fEyeTextureFov0 > 1.0f) ? fEyeTextureFov0 : 101.0f;
+                            float fovy = lobbyFovDeg * (float)M_PI / 180.0f;
+                            Mat4 sproj = mat4Perspective(fovy, 1.0f, 0.05f, 250.0f);
+                            if (!hudAnchored) {
+                                float fx = -hRot.m[8], fz = -hRot.m[10];
+                                float fn = sqrtf(fx*fx + fz*fz);
+                                if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
+                                const float kHudDist = 2.0f;
+                                float ax = px + fx * kHudDist, ay = py, az = pz + fz * kHudDist;
+                                float cphi = -fz, sphi = -fx;
+                                Mat4 m = mat4Identity();
+                                m.m[0] = cphi; m.m[2] = -sphi;
+                                m.m[8] = sphi; m.m[10] = cphi;
+                                m.m[12] = ax;  m.m[13] = ay;  m.m[14] = az;
+                                settingsWorld = m;
+                                hudAnchored = true;
+                            }
+                            for (int e = 0; e < 2; e++) {
+                                float ex = (e == 0 ? -softIpdM()*0.5f : softIpdM()*0.5f);
+                                Mat4 eyeShift = mat4Translate(-ex, 0, 0);
+                                Mat4 view = mat4Mul(eyeShift, viewBase);
+                                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                                       GL_TEXTURE_2D, gSwap[e][gSwapIdx], 0);
+                                glViewport(0, 0, gStreamW, gStreamH);
+                                Mat4 mvp = mat4Mul(sproj, mat4Mul(view, settingsWorld));
+                                glEnable(GL_BLEND);
+                                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                                gAndroidUi.draw(mvp.m);
+                                glDisable(GL_BLEND);
+                            }
+                            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                        }
+                    }
                     // PIPELINE: fence THIS slot and flush so the GPU starts it, but
                     // do NOT block. The warp samples this slot a frame from now, by
                     // which point the fence is long-signalled -> no torn texture.
                     uint64_t _tEncStart = diagTiming ? nowNs() : 0;
                     if (gSwapFence[gSwapIdx]) glDeleteSync(gSwapFence[gSwapIdx]);
-                    if (warnActive || gManualLobby.load()) {
+                    if (warnActive || gManualLobby.load() || (gDiagHudMode.load() != 0 && !gManualLobby.load())) {
                         // HUD / battery-popup path: extra work was issued in our ctx,
                         // ordered after ALVR via glWaitSync; a fresh fence covers it all.
                         gSwapFence[gSwapIdx] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);

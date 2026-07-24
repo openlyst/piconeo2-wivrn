@@ -42,6 +42,7 @@ static jmethodID g_uiSetStreamingMethod = nullptr;
 static jmethodID g_uiUpdateSettingsMethod = nullptr;
 static jmethodID g_uiSetBatteryMethod = nullptr;
 static jmethodID g_uiSetDiagMethod = nullptr;
+static jmethodID g_uiSetDiagOnlyMethod = nullptr;
 static jobject gUiPanel = nullptr;
 
 static jmethodID g_onServerConnectMethod = nullptr;
@@ -750,6 +751,7 @@ Java_org_meumeu_wivrn_neo2_pvr_VrUiPanel_nativeInit(JNIEnv *env, jobject panel) 
     g_uiUpdateSettingsMethod = env->GetMethodID(cls, "updateSettingsFromNative", "(FFFFFZZZFIZ)V");
     g_uiSetBatteryMethod     = env->GetMethodID(cls, "setBatteryFromNative", "(IIZIZ)V");
     g_uiSetDiagMethod        = env->GetMethodID(cls, "setDiagFromNative", "(I[F[F)V");
+    g_uiSetDiagOnlyMethod    = env->GetMethodID(cls, "setDiagOverlayOnlyFromNative", "(Z)V");
 
     env->DeleteLocalRef(cls);
     LOGI("VrUiPanel nativeInit: panel=%p pushPixels=%p", gUiPanel, g_uiPushPixelsMethod);
@@ -917,6 +919,19 @@ void androidUiPushDiag(int mode, const float *pipeline, const float *system)
     env->CallVoidMethod(gUiPanel, g_uiSetDiagMethod, mode, jpipe, jsys);
     if (jpipe) env->DeleteLocalRef(jpipe);
     if (jsys) env->DeleteLocalRef(jsys);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+void androidUiPushDiagOverlayOnly(bool diagOnly)
+{
+    if (!gUiPanel || !g_uiSetDiagOnlyMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    env->CallVoidMethod(gUiPanel, g_uiSetDiagOnlyMethod, diagOnly ? JNI_TRUE : JNI_FALSE);
     if (attached) gVM->DetachCurrentThread();
 }
 
