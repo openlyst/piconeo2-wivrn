@@ -714,7 +714,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                         // controller as disconnected so the native uplink drops it
                         // (the render thread skips conn != 1), no controller tracking
                         // or button input reaches the server while the user is away.
-                        int sendConn = mForeground ? conn : 0;
+                        // Also check sensor status: Pico SDK can report conn==1 for
+                        // an unpaired/ghost controller. If sensor status != 1 (not
+                        // tracking), treat as disconnected.
+                        int sendConn = 0;
+                        if (mForeground && conn == 1) {
+                            try {
+                                int sstat = ControllerClient.getControllerSensorStatus(h);
+                                sendConn = (sstat == 1) ? 1 : 0;
+                            } catch (Throwable t) {
+                                sendConn = 1; // fallback: trust conn if sensor status fails
+                            }
+                        }
                         nativeControllerState(h, sendConn, sensor, angVel, keys);
                         // Always drain the parked haptic so a stale pulse can't buzz on
                         // resume, but only actually rumble the CV2 wand while foreground
