@@ -24,13 +24,11 @@ extern const char *kEqPresetNames[kEqNumPresets];
 // ---- state (render-thread owned; read by the interaction code) ----
 extern float    gEqGains[kEqBands];        // current band gains (dB)
 extern float    gEqCustoms[2][kEqBands];   // two PERSISTENT user curves
-extern int      gEqActiveBand;             // band last painted while dragging (-1 = none)
-extern bool     gEqGrabbing;               // a drag is in progress
+// gEqActiveBand, gEqGrabbing, gDominantHand moved to app_state.h
 extern bool     gEqDirty;                  // gains changed, needs persisting
 extern uint64_t gEqChangeNs;               // last-change time (debounce save)
 extern bool     gEqPresetOpen;             // preset dropdown expanded
 extern int      gEqPresetIdx;              // active preset (0 = CUSTOM 1)
-extern int      gDominantHand;             // laser hand (1=right default)
 
 // ---- coordinate helpers ----
 static inline float eqColCenterX(int b) {

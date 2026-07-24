@@ -96,6 +96,23 @@ extern std::atomic<uint64_t> gBattWarnStartNs;   // 0 = inactive; else popup sta
 extern std::atomic<int>      gBattWarnPct;        // percentage to display in the popup
 constexpr uint64_t kBattWarnDurNs = 5000000000ULL;  // popup lifetime (5 s)
 
+// ---- streaming / lobby mode ------------------------------------------------
+extern std::atomic<bool> gStreamingMode;     // true while connected to a server
+extern int gSettingsCat;                     // legacy 3D settings category index (stubbed)
+
+// ---- PIN entry -------------------------------------------------------------
+extern std::atomic<bool> gPinEntryRequested;  // server requested PIN pairing
+extern std::atomic<int>  gDominantHand;       // 0=left, 1=right
+#include <functional>
+#include <string>
+extern std::function<void(const std::string &)> gOnPinSubmit;
+void requestPinEntryUI();
+void submitPin(const std::string &pin);
+
+// ---- EQ state (moved from eq_panel.h) --------------------------------------
+extern std::atomic<bool> gEqGrabbing;
+extern std::atomic<int>  gEqActiveBand;
+
 // ---- persistence (single $HOME/config.txt) ---------------------------------
 // loadAllConfig() restores every setting at boot; saveAllConfig() rewrites the
 // whole file. saveX() wrappers just call saveAllConfig().

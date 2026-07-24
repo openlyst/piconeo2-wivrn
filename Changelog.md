@@ -3,7 +3,7 @@
 - Reimplements Eye tracking
 - Adds foveated streaming
 - Adds controller models
-- Adds MIT-licensed submodule* (temporary; will be removed in the future)
+- Adds MIT-licensed submodule for license compliance
 - Fixed stereo IPD mismatch
 - Fixed springing HMD tracking
 - Fixed passthrough warping at the edges of the view

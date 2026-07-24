@@ -20,11 +20,30 @@
 #include "log.h"
 #include "pico_sdk.h"        // Pvr_ResetSensor
 #include "streaming/streaming_client.h"
+#include "android_ui.h"
+#include "eye_tracking.h"
 #include <ctime>
 
 // Font data loaded from assets, used by ImGuiManager::init().
 std::vector<unsigned char> gFontData;
 std::vector<unsigned char> gFontDataBold;
+
+// Android View-based UI (replaces ImGui)
+AndroidUi gAndroidUi;
+static jmethodID g_uiPushPixelsMethod = nullptr;
+static jmethodID g_uiSetTouchMethod = nullptr;
+static jmethodID g_uiSetServersMethod = nullptr;
+static jmethodID g_uiSetConnectingMethod = nullptr;
+static jmethodID g_uiSetConnErrorMethod = nullptr;
+static jmethodID g_uiSetStatsMethod = nullptr;
+static jmethodID g_uiSetRunningAppsMethod = nullptr;
+static jmethodID g_uiSetAvailableAppsMethod = nullptr;
+static jmethodID g_uiSetStreamingMethod = nullptr;
+static jmethodID g_uiUpdateSettingsMethod = nullptr;
+static jmethodID g_uiSetBatteryMethod = nullptr;
+static jmethodID g_uiSetDiagMethod = nullptr;
+static jmethodID g_uiSetDiagOnlyMethod = nullptr;
+static jobject gUiPanel = nullptr;
 
 static jmethodID g_onServerConnectMethod = nullptr;
 static jmethodID g_onServerRemoveMethod = nullptr;
@@ -599,6 +618,52 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetRenderResolution(JNIEnv *, 
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetBrightness(JNIEnv *, jobject, jfloat frac) {
+    float f = frac < 0 ? 0 : (frac > 1 ? 1 : frac);
+    gBrightnessFrac.store(f);
+    gBrightnessSaved.store(true);
+    gBrightnessApply.store(true);
+    saveBrightness();
+    LOGI("Brightness set to %.0f%%", f * 100.0f);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetCtrlVibration(JNIEnv *, jobject, jfloat strength) {
+    float v = strength < 0 ? 0 : (strength > 1 ? 1 : strength);
+    gWivrnCtrlVibration.store(v);
+    saveAllConfig();
+    LOGI("Controller vibration set to %.0f%%", v * 100.0f);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetEyeFoveation(JNIEnv *, jobject, jboolean enabled) {
+    gWivrnEyeFoveation.store(enabled == JNI_TRUE);
+    gEyeFoveationDirty.store(true);
+    saveAllConfig();
+    LOGI("Eye-tracked foveation %s", enabled == JNI_TRUE ? "enabled" : "disabled");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetEyeDebug(JNIEnv *, jobject, jboolean enabled) {
+    gEyeDebugOn.store(enabled == JNI_TRUE);
+    gEyeTrackReapply.store(true);
+    saveEyeDebug();
+    LOGI("Eye debug %s", enabled == JNI_TRUE ? "on" : "off");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetDiagHud(JNIEnv *, jobject, jint mode) {
+    gDiagHudMode.store(mode);
+    saveDiagHud();
+    LOGI("Diagnostics HUD mode set to %d", mode);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeIsEyeSupported(JNIEnv *, jobject) {
+    return gEyeSupported.load() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeRequestAppList(JNIEnv *, jobject) {
     if (!g_stream || !g_stream->session) return;
     LOGI("nativeRequestAppList");
@@ -664,6 +729,305 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeStopApp(JNIEnv *, jobject, jin
     } catch (std::exception & e) {
         LOGE("Failed to stop app: %s", e.what());
     }
+}
+
+// ---- Android View UI bridge ----
+// Java calls this to register the VrUiPanel object and its callback methods.
+extern "C" JNIEXPORT void JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_VrUiPanel_nativeInit(JNIEnv *env, jobject panel) {
+    if (gUiPanel) { env->DeleteGlobalRef(gUiPanel); }
+    gUiPanel = env->NewGlobalRef(panel);
+    jclass cls = env->GetObjectClass(panel);
+
+    g_uiPushPixelsMethod     = env->GetMethodID(cls, "renderIfNeeded", "()Ljava/nio/ByteBuffer;");
+    g_uiSetTouchMethod       = env->GetMethodID(cls, "setTouchState", "(FFZZF)V");
+    g_uiSetServersMethod     = env->GetMethodID(cls, "setServersFromNative", "([Ljava/lang/String;[Ljava/lang/String;[I[Z[Z[Z)V");
+    g_uiSetConnectingMethod  = env->GetMethodID(cls, "setConnectingFromNative", "(Z)V");
+    g_uiSetConnErrorMethod   = env->GetMethodID(cls, "setConnectionErrorFromNative", "(Ljava/lang/String;)V");
+    g_uiSetStatsMethod       = env->GetMethodID(cls, "setStatsFromNative", "(IFFFFFFFFFFFIIIZ)V");
+    g_uiSetRunningAppsMethod = env->GetMethodID(cls, "setRunningAppsFromNative", "([Ljava/lang/String;[I[Z)V");
+    g_uiSetAvailableAppsMethod = env->GetMethodID(cls, "setAvailableAppsFromNative", "([Ljava/lang/String;[Ljava/lang/String;)V");
+    g_uiSetStreamingMethod   = env->GetMethodID(cls, "setStreamingFromNative", "(Z)V");
+    g_uiUpdateSettingsMethod = env->GetMethodID(cls, "updateSettingsFromNative", "(FFFFFZZZFIZ)V");
+    g_uiSetBatteryMethod     = env->GetMethodID(cls, "setBatteryFromNative", "(IIZIZ)V");
+    g_uiSetDiagMethod        = env->GetMethodID(cls, "setDiagFromNative", "(I[F[F)V");
+    g_uiSetDiagOnlyMethod    = env->GetMethodID(cls, "setDiagOverlayOnlyFromNative", "(Z)V");
+
+    env->DeleteLocalRef(cls);
+    LOGI("VrUiPanel nativeInit: panel=%p pushPixels=%p", gUiPanel, g_uiPushPixelsMethod);
+}
+
+// Render thread calls this to get the latest pixel buffer from Java.
+// Returns a direct ByteBuffer of kUiW*kUiH*4 bytes (RGBA8888), or null.
+extern "C" JNIEXPORT jobject JNICALL
+Java_org_meumeu_wivrn_neo2_pvr_VrUiPanel_nativeGetPixels(JNIEnv *env, jobject) {
+    if (!gUiPanel || !g_uiPushPixelsMethod) return nullptr;
+    return env->CallObjectMethod(gUiPanel, g_uiPushPixelsMethod);
+}
+
+// Push touch state from native to Java for dispatch to the View hierarchy.
+void androidUiPushTouch(float x, float y, bool pressed, bool clickEdge, float stickY)
+{
+    if (!gUiPanel || !g_uiSetTouchMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    env->CallVoidMethod(gUiPanel, g_uiSetTouchMethod, x, y, pressed ? JNI_TRUE : JNI_FALSE,
+                        clickEdge ? JNI_TRUE : JNI_FALSE, stickY);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+// Push server list from native to Java.
+void androidUiPushServers(const std::vector<ServerInfo> &servers)
+{
+    if (!gUiPanel || !g_uiSetServersMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    int n = (int)servers.size();
+    jclass strCls = env->FindClass("java/lang/String");
+    jobjectArray names = env->NewObjectArray(n, strCls, nullptr);
+    jobjectArray hosts = env->NewObjectArray(n, strCls, nullptr);
+    jintArray ports = env->NewIntArray(n);
+    jbooleanArray tcpOnly = env->NewBooleanArray(n);
+    jbooleanArray discovered = env->NewBooleanArray(n);
+    jbooleanArray autoconnect = env->NewBooleanArray(n);
+    jint *portsArr = env->GetIntArrayElements(ports, nullptr);
+    jboolean *tcpArr = env->GetBooleanArrayElements(tcpOnly, nullptr);
+    jboolean *discArr = env->GetBooleanArrayElements(discovered, nullptr);
+    jboolean *autoArr = env->GetBooleanArrayElements(autoconnect, nullptr);
+    for (int i = 0; i < n; i++) {
+        env->SetObjectArrayElement(names, i, env->NewStringUTF(servers[i].name.c_str()));
+        env->SetObjectArrayElement(hosts, i, env->NewStringUTF(servers[i].hostname.c_str()));
+        portsArr[i] = servers[i].port;
+        tcpArr[i] = servers[i].tcp_only ? JNI_TRUE : JNI_FALSE;
+        discArr[i] = servers[i].discovered ? JNI_TRUE : JNI_FALSE;
+        autoArr[i] = servers[i].autoconnect ? JNI_TRUE : JNI_FALSE;
+    }
+    env->ReleaseIntArrayElements(ports, portsArr, 0);
+    env->ReleaseBooleanArrayElements(tcpOnly, tcpArr, 0);
+    env->ReleaseBooleanArrayElements(discovered, discArr, 0);
+    env->ReleaseBooleanArrayElements(autoconnect, autoArr, 0);
+    env->CallVoidMethod(gUiPanel, g_uiSetServersMethod, names, hosts, ports, tcpOnly, discovered, autoconnect);
+    env->DeleteLocalRef(names);
+    env->DeleteLocalRef(hosts);
+    env->DeleteLocalRef(ports);
+    env->DeleteLocalRef(tcpOnly);
+    env->DeleteLocalRef(discovered);
+    env->DeleteLocalRef(autoconnect);
+    env->DeleteLocalRef(strCls);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+void androidUiPushConnecting(bool connecting)
+{
+    if (!gUiPanel || !g_uiSetConnectingMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    env->CallVoidMethod(gUiPanel, g_uiSetConnectingMethod, connecting ? JNI_TRUE : JNI_FALSE);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+void androidUiPushConnError(const std::string &err)
+{
+    if (!gUiPanel || !g_uiSetConnErrorMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    jstring jerr = env->NewStringUTF(err.c_str());
+    env->CallVoidMethod(gUiPanel, g_uiSetConnErrorMethod, jerr);
+    env->DeleteLocalRef(jerr);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+void androidUiPushStreaming(bool streaming)
+{
+    if (!gUiPanel || !g_uiSetStreamingMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    env->CallVoidMethod(gUiPanel, g_uiSetStreamingMethod, streaming ? JNI_TRUE : JNI_FALSE);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+void androidUiPushBattery(int hmdBatt, int leftBatt, bool leftConn, int rightBatt, bool rightConn)
+{
+    if (!gUiPanel || !g_uiSetBatteryMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    env->CallVoidMethod(gUiPanel, g_uiSetBatteryMethod,
+                        hmdBatt, leftBatt, leftConn ? JNI_TRUE : JNI_FALSE,
+                        rightBatt, rightConn ? JNI_TRUE : JNI_FALSE);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+void androidUiPushSettings()
+{
+    if (!gUiPanel || !g_uiUpdateSettingsMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    env->CallVoidMethod(gUiPanel, g_uiUpdateSettingsMethod,
+        gSoftIpdMm.load(), gBrightnessFrac.load(), gStreamFovDeg.load(),
+        gWivrnResolutionScale.load(), gWivrnBitrateMbps.load(),
+        gWivrnEyeFoveation.load() ? JNI_TRUE : JNI_FALSE,
+        gWivrnMicrophone.load() ? JNI_TRUE : JNI_FALSE,
+        gWivrnPassthrough.load() ? JNI_TRUE : JNI_FALSE,
+        gWivrnCtrlVibration.load(), gDiagHudMode.load(),
+        gEyeSupported.load() ? JNI_TRUE : JNI_FALSE);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+void androidUiPushDiag(int mode, const float *pipeline, const float *system)
+{
+    if (!gUiPanel || !g_uiSetDiagMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    // pipeline: [0]=total [1]=decode [2]=queue [3]=render [4]=fps [5]=decoded [6]=submit [7]=dropped [8]=gap [9]=encode [10]=enqueue [11]=fenceTmo
+    // system: [0]=cpuBusy [1]=cpuLittle [2]=cpuBig [3]=gpuBusy [4]=gpuClock [5]=gpuMhz [6]=cpuTemp [7]=gpuTemp [8]=ddrTemp [9]=socTemp [10]=ctrlLBatt [11]=ctrlRBatt
+    jfloatArray jpipe = env->NewFloatArray(12);
+    if (jpipe) { env->SetFloatArrayRegion(jpipe, 0, 12, pipeline); }
+    jfloatArray jsys = env->NewFloatArray(12);
+    if (jsys) { env->SetFloatArrayRegion(jsys, 0, 12, system); }
+    env->CallVoidMethod(gUiPanel, g_uiSetDiagMethod, mode, jpipe, jsys);
+    if (jpipe) env->DeleteLocalRef(jpipe);
+    if (jsys) env->DeleteLocalRef(jsys);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+void androidUiPushDiagOverlayOnly(bool diagOnly)
+{
+    if (!gUiPanel || !g_uiSetDiagOnlyMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    env->CallVoidMethod(gUiPanel, g_uiSetDiagOnlyMethod, diagOnly ? JNI_TRUE : JNI_FALSE);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+void androidUiPushStats(int fps, float totalLatency, float bwRx, float bwTx,
+                         float cpuMs, float gpuMs, float encodeMs, float sendMs,
+                         float networkMs, float decodeMs, float renderMs, float blitMs,
+                         int bitrate, int streamW, int streamH, bool micOn)
+{
+    if (!gUiPanel || !g_uiSetStatsMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    env->CallVoidMethod(gUiPanel, g_uiSetStatsMethod,
+        fps, totalLatency, bwRx, bwTx, cpuMs, gpuMs, encodeMs, sendMs,
+        networkMs, decodeMs, renderMs, blitMs, bitrate, streamW, streamH,
+        micOn ? JNI_TRUE : JNI_FALSE);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+void androidUiPushRunningApps(const std::vector<std::string> &names,
+                               const std::vector<int> &ids,
+                               const std::vector<bool> &actives)
+{
+    if (!gUiPanel || !g_uiSetRunningAppsMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    int n = (int)names.size();
+    jclass strCls = env->FindClass("java/lang/String");
+    jobjectArray jnames = env->NewObjectArray(n, strCls, nullptr);
+    jintArray jids = env->NewIntArray(n);
+    jbooleanArray jactives = env->NewBooleanArray(n);
+    jint *idsArr = env->GetIntArrayElements(jids, nullptr);
+    jboolean *actArr = env->GetBooleanArrayElements(jactives, nullptr);
+    for (int i = 0; i < n; i++) {
+        env->SetObjectArrayElement(jnames, i, env->NewStringUTF(names[i].c_str()));
+        idsArr[i] = ids[i];
+        actArr[i] = actives[i] ? JNI_TRUE : JNI_FALSE;
+    }
+    env->ReleaseIntArrayElements(jids, idsArr, 0);
+    env->ReleaseBooleanArrayElements(jactives, actArr, 0);
+    env->CallVoidMethod(gUiPanel, g_uiSetRunningAppsMethod, jnames, jids, jactives);
+    env->DeleteLocalRef(jnames);
+    env->DeleteLocalRef(jids);
+    env->DeleteLocalRef(jactives);
+    env->DeleteLocalRef(strCls);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+void androidUiPushAvailableApps(const std::vector<std::string> &ids,
+                                 const std::vector<std::string> &names)
+{
+    if (!gUiPanel || !g_uiSetAvailableAppsMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    int n = (int)ids.size();
+    jclass strCls = env->FindClass("java/lang/String");
+    jobjectArray jids = env->NewObjectArray(n, strCls, nullptr);
+    jobjectArray jnames = env->NewObjectArray(n, strCls, nullptr);
+    for (int i = 0; i < n; i++) {
+        env->SetObjectArrayElement(jids, i, env->NewStringUTF(ids[i].c_str()));
+        env->SetObjectArrayElement(jnames, i, env->NewStringUTF(names[i].c_str()));
+    }
+    env->CallVoidMethod(gUiPanel, g_uiSetAvailableAppsMethod, jnames, jids);
+    env->DeleteLocalRef(jids);
+    env->DeleteLocalRef(jnames);
+    env->DeleteLocalRef(strCls);
+    if (attached) gVM->DetachCurrentThread();
+}
+
+void androidUiFetchAndUpload()
+{
+    if (!gUiPanel || !g_uiPushPixelsMethod) return;
+    JNIEnv *env = nullptr;
+    bool attached = false;
+    if (gVM->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+        if (gVM->AttachCurrentThread(&env, nullptr) == JNI_OK) attached = true;
+    }
+    if (!env) return;
+    jobject buf = env->CallObjectMethod(gUiPanel, g_uiPushPixelsMethod);
+    if (buf) {
+        void *pixels = env->GetDirectBufferAddress(buf);
+        if (pixels) gAndroidUi.uploadPixels(pixels);
+        env->DeleteLocalRef(buf);
+    }
+    if (attached) gVM->DetachCurrentThread();
 }
 
 

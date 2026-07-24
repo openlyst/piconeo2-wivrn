@@ -32,19 +32,14 @@
 #include "gl_util.h"     // compile()
 #include "eye_tracking.h"// readEyeGazes() + gaze/openness state
 #include "device_info.h" // IP / status / model strings + readers
-#include "ui_kit.h"      // font + appendTextLine/Quad + immediate-mode widget kit
-#include "imgui_manager.h"     // ImGui offscreen rendering
-#include "imgui_compositor.h"  // composite ImGui texture as 3D quad
-#include "imgui_ui.h"          // ImGui UI panel code
-#include "eq_panel.h"    // 16-band audio EQ: state + persistence + buildEqVerts
-#include "settings_panel.h"  // unified lobby SETTINGS window (sidebar + scroll)
-#include "server_list.h"     // wiVRn-style server list panel
+#include "android_ui.h"  // Android View-based UI (replaces ImGui)
+#include "ui_kit.h"      // font + appendTextLine/Quad for reticle/crosshair
+#include "eq_panel.h"    // EQ state for config persistence
+#include "server_list.h"     // server list data layer
 #include "app_state.h"   // shared lobby/render knobs: IPD, input edges, toggles, diag
-#include "lobby.h"       // ported pico_oxr WiVRn lobby UI panel
+#include "lobby.h"       // 3D lobby environment
 #include "passthrough.h" // passthrough camera background for the lobby
 #include "simple_lobby.h"// simple 3D lobby environment (floor grid + sky)
-#include "pin_pad.h"     // PIN entry numpad overlay for pairing
-#include "lobby_panels.h"// diagnostics overlay builders
 #include "input.h"       // controller + head-pose shared state
 #include "foveation.h"   // readFoveationParams() from the settings JSON
 #include "render_thread.h"// shared render-thread lifetime/window/sleep state
@@ -686,11 +681,83 @@ static void sendBatteryReports() {
     }
 
     int  cbat[2] = { -1, -1 };
+    bool cconn[2] = { false, false };
     { std::lock_guard<std::mutex> lk(gCtrlMutex);
-      for (int h = 0; h < 2; h++)
-          if (gCtrl[h].conn == 1 && gCtrl[h].keyCount > 10) cbat[h] = gCtrl[h].keys[10]; }
+      for (int h = 0; h < 2; h++) {
+          if (gCtrl[h].conn != 1) continue;
+          // Treat origin+identity as not actually connected (ghost from SDK)
+          if (gCtrl[h].pos[0] == 0.0f && gCtrl[h].pos[1] == 0.0f && gCtrl[h].pos[2] == 0.0f &&
+              gCtrl[h].q[0] == 0.0f && gCtrl[h].q[1] == 0.0f && gCtrl[h].q[2] == 0.0f && gCtrl[h].q[3] == 1.0f)
+              continue;
+          cconn[h] = true;
+          if (gCtrl[h].keyCount > 10) cbat[h] = gCtrl[h].keys[10];
+      } }
     for (int h = 0; h < 2; h++)
         if (cbat[h] >= 0) alvr_send_battery(alvrHandId[h], (float) cbat[h] / 100.0f, false);
+
+    // Push to Java UI
+    androidUiPushBattery((int)cap, cbat[0], cconn[0], cbat[1], cconn[1]);
+}
+
+// Forward declarations for sysfs helpers (defined below readSysfsLong).
+static bool diagReadLong(const char *path, long *out);
+static float diagZoneTempC(const char *needle);
+static float diagCpuClockPct(int lo, int hi);
+static float diagCpuBusyPct();
+
+// Push diagnostics data (pipeline + system telemetry) to the Java UI for the
+// diag HUD overlay. Throttled to ~3Hz to match the old 3D overlay cadence.
+static void sendDiagData() {
+    int mode = gDiagHudMode.load();
+    if (mode == 0) return;
+    static uint64_t lastDiagPush = 0;
+    uint64_t now = nowNs();
+    if (now - lastDiagPush < 333000000ULL) return;
+    lastDiagPush = now;
+
+    float pipeline[12] = {0};
+    float system[12] = {-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
+
+    // Pipeline stats from streaming_client + frame timing globals
+    if (mode == 1) {
+        if (g_stream) {
+            pipeline[0] = g_stream->stats_total_latency_ms;
+            pipeline[1] = g_stream->stats_decode_ms;
+            pipeline[2] = 0;  // queue (not separately tracked)
+            pipeline[3] = g_stream->stats_render_wait_ms;
+        }
+        pipeline[4] = g_stream ? (float)g_stream->stats_fps : 0;
+        pipeline[5] = (float)gVidDecoded.load();
+        pipeline[6] = (float)gVidSubmit.load();
+        pipeline[7] = (float)gVidDropped.load();
+        pipeline[8]  = gGapMsX10.load() / 10.0f;
+        pipeline[9]  = gEncMsX10.load() / 10.0f;
+        pipeline[10] = gEnqMsX10.load() / 10.0f;
+        pipeline[11] = (float)gFenceTimeouts.load();
+    }
+
+    // System telemetry from sysfs
+    if (mode == 2) {
+        system[0] = diagCpuBusyPct();
+        system[1] = diagCpuClockPct(0, 3);
+        system[2] = diagCpuClockPct(4, 7);
+        long gl = 0;
+        system[3] = diagReadLong("/sys/class/kgsl/kgsl-3d0/devfreq/gpu_load", &gl) ? (float)gl : -1.0f;
+        long gc = 0, gm = 0;
+        bool okc = diagReadLong("/sys/class/kgsl/kgsl-3d0/devfreq/cur_freq", &gc);
+        bool okm = diagReadLong("/sys/class/kgsl/kgsl-3d0/devfreq/max_freq", &gm);
+        system[4] = (okc && okm && gm > 0) ? 100.0f * (float)gc / (float)gm : -1.0f;
+        system[5] = okc ? (float)gc / 1e6f : -1.0f;
+        system[6] = diagZoneTempC("cpu");
+        system[7] = diagZoneTempC("gpu");
+        system[8] = diagZoneTempC("ddr");
+        system[9] = diagZoneTempC("aoss");
+        { std::lock_guard<std::mutex> lk(gCtrlMutex);
+          if (gCtrl[0].conn == 1 && gCtrl[0].keyCount > 10) system[10] = (float)gCtrl[0].keys[10];
+          if (gCtrl[1].conn == 1 && gCtrl[1].keyCount > 10) system[11] = (float)gCtrl[1].keys[10]; }
+    }
+
+    androidUiPushDiag(mode, pipeline, system);
 }
 
 
@@ -827,10 +894,8 @@ static void drawBatteryWarn(int eye) {
     static uint64_t sWarnKey = 0;
     if (sWarnKey != bwStart) {   // rebuild geometry once per activation
         sWarnV.clear();
-        buildBatteryWarn(sWarnV, gBattWarnPct.load());
-        sWarnCount = (int)(sWarnV.size()/6);
-        glBindBuffer(GL_ARRAY_BUFFER, gWarnVbo);
-        glBufferData(GL_ARRAY_BUFFER, sWarnV.size()*sizeof(float), sWarnV.data(), GL_DYNAMIC_DRAW);
+        // buildBatteryWarn removed - battery warning now handled by Android UI
+        sWarnCount = 0;
         sWarnKey = bwStart;
     }
     if (sWarnCount <= 0) return;
@@ -1042,13 +1107,8 @@ static void drawLaserBeam(float ox, float oy, float oz,
 
 static void drawSettingsPanelVerts(int sliderVertCount, const Mat4 &sproj, const Mat4 &sview, const Mat4 &settingsWorld)
 {
-    if (sliderVertCount <= 0) return;
-    Mat4 mvp = mat4Mul(sproj, mat4Mul(sview, settingsWorld));
-    glUseProgram(gProg);
-    glBindVertexArray(gSliderVao);
-    glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, mvp.m);
-    glDrawArrays(GL_TRIANGLES, 0, sliderVertCount);
-    glBindVertexArray(0);
+    // 3D settings panel rendering removed - UI now composited from Android View texture
+    (void)sliderVertCount; (void)sproj; (void)sview; (void)settingsWorld;
 }
 
 static void drawPointerCursor(float cursorLx, float cursorLy, bool cursorPressed,
@@ -1386,6 +1446,80 @@ static long readSysfsLong(const char *path) {
     long v = -1; if (fscanf(f, "%ld", &v) != 1) v = -1;
     fclose(f);
     return v;
+}
+
+static bool diagReadLong(const char *path, long *out) {
+    FILE *f = fopen(path, "r");
+    if (!f) return false;
+    long v = 0; int n = fscanf(f, "%ld", &v); fclose(f);
+    if (n != 1) return false;
+    *out = v; return true;
+}
+
+static float diagZoneTempC(const char *needle) {
+    struct Cache { char needle[16]; int zones[8]; int n; };
+    static Cache sCache[6];
+    static int   sCacheN = 0;
+    Cache *c = nullptr;
+    for (int i = 0; i < sCacheN; i++)
+        if (strncmp(sCache[i].needle, needle, sizeof(sCache[i].needle) - 1) == 0) { c = &sCache[i]; break; }
+    if (!c && sCacheN < (int)(sizeof(sCache) / sizeof(sCache[0]))) {
+        c = &sCache[sCacheN++];
+        snprintf(c->needle, sizeof(c->needle), "%s", needle);
+        c->n = 0;
+        for (int z = 0; z < 40 && c->n < 8; z++) {
+            char p[128], type[64] = {0};
+            snprintf(p, sizeof(p), "/sys/class/thermal/thermal_zone%d/type", z);
+            FILE *f = fopen(p, "r");
+            if (!f) continue;
+            if (!fgets(type, sizeof(type), f)) { fclose(f); continue; }
+            fclose(f);
+            if (strstr(type, needle)) c->zones[c->n++] = z;
+        }
+    }
+    if (!c) return -1.0f;
+    long best = -1;
+    for (int i = 0; i < c->n; i++) {
+        char p[128];
+        snprintf(p, sizeof(p), "/sys/class/thermal/thermal_zone%d/temp", c->zones[i]);
+        long t = 0; if (diagReadLong(p, &t) && t > best) best = t;
+    }
+    return best < 0 ? -1.0f : (float)best / 1000.0f;
+}
+
+static float diagCpuClockPct(int lo, int hi) {
+    static long sMaxFreq[8] = {0};
+    float sum = 0; int n = 0;
+    for (int c = lo; c <= hi && c < 8; c++) {
+        char p[128]; long cur = 0;
+        if (sMaxFreq[c] == 0) {
+            snprintf(p, sizeof(p), "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", c);
+            if (!diagReadLong(p, &sMaxFreq[c]) || sMaxFreq[c] <= 0) { sMaxFreq[c] = -1; }
+        }
+        if (sMaxFreq[c] <= 0) continue;
+        snprintf(p, sizeof(p), "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_cur_freq", c);
+        if (!diagReadLong(p, &cur)) continue;
+        sum += 100.0f * (float)cur / (float)sMaxFreq[c]; n++;
+    }
+    return n ? sum / n : -1.0f;
+}
+
+static float diagCpuBusyPct() {
+    FILE *f = fopen("/proc/stat", "r");
+    if (!f) return -1.0f;
+    char cpu[8]; unsigned long long u=0,ni=0,s=0,id=0,io=0,irq=0,sirq=0,st=0;
+    int n = fscanf(f, "%7s %llu %llu %llu %llu %llu %llu %llu %llu",
+                   cpu,&u,&ni,&s,&id,&io,&irq,&sirq,&st);
+    fclose(f);
+    if (n < 5) return -1.0f;
+    unsigned long long idle = id + io;
+    unsigned long long total = u+ni+s+id+io+irq+sirq+st;
+    static unsigned long long pIdle = 0, pTotal = 0;
+    unsigned long long dT = total - pTotal, dI = idle - pIdle;
+    pIdle = idle; pTotal = total;
+    if (dT == 0) return -1.0f;
+    float pct = 100.0f * (float)(dT - dI) / (float)dT;
+    return pct < 0 ? 0 : (pct > 100 ? 100 : pct);
 }
 
 // Log the real GPU + per-cluster CPU clocks the SoC settled at for the perf sweep.
@@ -1965,9 +2099,8 @@ void *renderThread(void *) {
     // across launches. Delete and recreate so they build fresh GL resources.
     if (gSimpleLobby) { delete gSimpleLobby; gSimpleLobby = nullptr; }
     if (gPassthrough) { delete gPassthrough; gPassthrough = new pico_passthrough(); }
-    // ImGui manager + compositor: global objects with m_initialized guards.
-    gImGui.reset();
-    gImGuiComposite.reset();
+    // Android View UI: global object with init guard.
+    gAndroidUi.reset();
     JNIEnv *env = nullptr;
     gVM->AttachCurrentThread(&env, nullptr);
     int reservedCpu = pinSubmitThreadForLowLatency();   // big-core affinity + prio; returns core reserved for warp
@@ -2185,9 +2318,8 @@ void *renderThread(void *) {
     buildTextBuffers();      // dynamic VBOs for lobby HUD text + slider
     buildReticle();          // head-gaze crosshair
     buildControllerMeshes(); // Neo 2 controller wireframes
-    // Initialize ImGui + offscreen FBO + composite shader.
-    gImGui.init();
-    gImGuiComposite.init();
+    // Initialize Android View UI + GL texture + composite shader.
+    gAndroidUi.init();
     // Passthrough camera background replaces the dark-void environment.
     // The lobby UI panels composite on top of the live camera feed.
     if (gPassthrough) {
@@ -2419,11 +2551,41 @@ void *renderThread(void *) {
                 logActualClocks("cpu");
             }
 
-            // Report battery to the server (~1/sec).
-            if (gStreaming) {
+            // Report battery to the server + UI (~1/sec).
+            {
                 static uint64_t sLastBatt = 0;
                 uint64_t nb = nowNs();
                 if (nb - sLastBatt > 1000000000ULL) { sLastBatt = nb; sendBatteryReports(); }
+            }
+            // Push diag HUD data to Java UI (~3/sec, throttled inside).
+            sendDiagData();
+            // Push running apps to Java UI (~1/sec).
+            {
+                static uint64_t sLastApps = 0;
+                uint64_t na = nowNs();
+                if (na - sLastApps > 1000000000ULL && g_stream) {
+                    sLastApps = na;
+                    std::vector<std::string> names;
+                    std::vector<int> ids;
+                    std::vector<bool> actives;
+                    std::vector<std::string> appIds;
+                    std::vector<std::string> appNames;
+                    {
+                        std::lock_guard<std::mutex> lk(g_stream->app_mutex);
+                        for (auto &a : g_stream->running_apps) {
+                            names.push_back(a.name);
+                            ids.push_back((int)a.id);
+                            actives.push_back(a.active);
+                        }
+                        for (auto &a : g_stream->available_apps) {
+                            appIds.push_back(a.id);
+                            appNames.push_back(a.name);
+                        }
+                    }
+                    androidUiPushRunningApps(names, ids, actives);
+                    if (!appIds.empty())
+                        androidUiPushAvailableApps(appIds, appNames);
+                }
             }
         }
 
@@ -2651,6 +2813,7 @@ void *renderThread(void *) {
                 // (old SPS/PPS, maybe old resolution) decodes the new stream -> garbled.
                 gStreaming = false;
                 gManualLobby.store(false);   // back to the normal disconnected lobby
+                androidUiPushDiagOverlayOnly(false);  // diag overlay off when not streaming
                 gHaveDecCfg = false;         // stale config; next stream sends a fresh one
                 setStrBounded(gStatusText, "Disconnected", sizeof(gStatusText));
                 if (gDecoderReady) { alvr_destroy_decoder(); gDecoderReady = false; }
@@ -2859,7 +3022,7 @@ void *renderThread(void *) {
         // ---- ALVR video path: async TimeWarp (present every refresh) --------
         // The overlay (gManualLobby) draws on top of the video below.
         if (gStreaming && gDecoderReady) {
-            gStreamingMode = true;
+            gStreamingMode.store(true);
             // Servers tab is hidden while streaming; fall back to Settings.
             if (gSettingsCat == 0) gSettingsCat = 1;
             hudAnchored = false;   // re-anchor the lobby HUD next time we return to it
@@ -3084,12 +3247,13 @@ void *renderThread(void *) {
                 if (diagTiming) { _tRender = nowNs(); if (_tRender - _tRenderStart > _mRender) _mRender = _tRender - _tRenderStart; }
 
                 {
-                    // The video is rendered in ALVR's wgpu context. With the
-                    // zero-pipeline submit, we MUST guarantee the GPU has finished
-                    // writing the texture before handing it to the warp. glFinish
-                    // blocks the CPU until all GPU commands complete, a ~3ms stall
-                    // for the de-foveation blit, but it eliminates tearing.
-                    glFinish();
+                    // The video is rendered in ALVR's wgpu context. Flush to kick
+                    // off the GPU work, then fence. The submitSlot below does
+                    // glClientWaitSync on the fence, which is the actual GPU
+                    // completion wait. Using glFlush + fence instead of glFinish
+                    // lets the CPU continue (read server poses, set up overlay)
+                    // while the GPU blit runs in parallel.
+                    glFlush();
                     GLsync alvrFence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
                     // wgpu made its ctx current; restore ours (offscreen pbuffer; the
                     // warp owns the window). Textures are shared across the group.
@@ -3097,18 +3261,12 @@ void *renderThread(void *) {
                     // PicoNeo2 fork: NO encode blit. The forked stream shader
                     // already wrote the final present-domain bytes directly into
                     // gSwap[e][gSwapIdx], so we feed gSwap straight to the warp.
-                    // The only thing left to draw here is the optional diag HUD.
-                    int diagPage = gDiagHudMode.load();
+                    // Diag HUD is now rendered by the Android UI (WivrnLobbyView).
                     // Low-battery popup active window (5s after a 15%/5% crossing).
-                    // Draws into gSwap on OUR ctx like the HUD, so it shares the
-                    // FBO-bind / fence handling even when the HUD is off.
+                    // Draws into gSwap on OUR ctx, shares the FBO-bind / fence handling.
                     bool warnActive = gBattWarnStartNs.load() != 0 &&
                                       (nowNs() - gBattWarnStartNs.load()) < kBattWarnDurNs;
-                    if (diagPage != 0 || warnActive) {
-                        // The HUD draws into gSwap in OUR ctx, so it must be
-                        // ordered after ALVR's de-foveation render -> make our
-                        // queue wait on the ALVR fence (GPU-side, no CPU stall),
-                        // then a fresh fence below covers render+HUD.
+                    if (warnActive) {
                         if (alvrFence) { glWaitSync(alvrFence, 0, GL_TIMEOUT_IGNORED); glDeleteSync(alvrFence); alvrFence = 0; }
                         glBindFramebuffer(GL_FRAMEBUFFER, gStreamFbo);
                         glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_SCISSOR_TEST);
@@ -3118,111 +3276,20 @@ void *renderThread(void *) {
                             glViewport(0, 0, (GLsizei)(ew > 0 ? ew : gStreamW),
                                               (GLsizei)(eh > 0 ? eh : gStreamH));
                         }
-                      if (diagPage != 0) {
-                        // Rebuild + re-upload the HUD geometry at most ~4Hz, not
-                        // every video frame. Its content only changes at the 1-3Hz
-                        // stat cadence, so regenerating ~6.5k floats every frame on
-                        // the submit critical path would stutter. Keep a persistent
-                        // vector (clear() retains capacity) and only re-spec the VBO
-                        // when we rebuild; the draw still runs every frame.
-                        static std::vector<float> sDiagV;
-                        static int sDiagCount = 0;
-                        static uint64_t sDiagBuilt = 0;
-                        static int sDiagPage = -1;
-                        uint64_t dnow = nowNs();
-                        // Rebuild on the throttle OR immediately when the page changes.
-                        if (sDiagBuilt == 0 || dnow - sDiagBuilt > 250000000ULL || sDiagPage != diagPage) {
-                            sDiagV.clear();
-                            buildDiagOverlay(sDiagV, diagPage);
-                            sDiagPage = diagPage;
-                            sDiagCount = (int)(sDiagV.size()/6);
-                            glBindBuffer(GL_ARRAY_BUFFER, gDiagVbo);
-                            glBufferData(GL_ARRAY_BUFFER, sDiagV.size()*sizeof(float),
-                                         sDiagV.data(), GL_DYNAMIC_DRAW);
-                            sDiagBuilt = dnow;
+                        // Low-battery popup, per-eye.
+                        for (int e = 0; e < 2; e++) {
+                            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                                   GL_TEXTURE_2D, gSwap[e][gSwapIdx], 0);
+                            drawBatteryWarn(e);
                         }
-                        int dc = sDiagCount;
-                        if (dc > 0) {
-                            // Flat panel floating below centre, ~1m away, tilted up
-                            // ~30deg. Project at the warp's CURRENT texture FOV
-                            // (fEyeTextureFov0), not a fixed 90deg: the warp maps
-                            // this eye texture as spanning that FOV, so authoring
-                            // the panel in the same angular space makes its on-lens
-                            // position/size independent of the FIELD OF VIEW setting.
-                            float hudFovRad = (fEyeTextureFov0 > 1.0f ? fEyeTextureFov0 : 101.0f) * 0.01745329f;
-                            Mat4 proj = mat4Perspective(hudFovRad, 1.0f, 0.05f, 50.0f);
-                            const float a = -30.0f * 0.01745329f;   // -ve = face tilts UP
-                            float ca = cosf(a), sa = sinf(a);
-                            Mat4 rx = mat4Identity();
-                            rx.m[5]=ca; rx.m[6]=sa; rx.m[9]=-sa; rx.m[10]=ca;
-                            // 1.125 uniform (no glyph squish; columns condensed in layout).
-                            Mat4 sc = mat4Identity(); sc.m[0]=1.125f; sc.m[5]=1.125f; sc.m[10]=1.125f;
-                            Mat4 model = mat4Mul(mat4Mul(mat4Translate(0.0f, -0.34f, -1.0f), rx), sc);
-                            glUseProgram(gProg);
-                            glBindVertexArray(gDiagVao);
-                            // PERF: this draw goes into gSwap, which ALVR's
-                            // de-foveation pass already rendered. On the Adreno
-                            // (tiler) a fresh draw into an existing target makes
-                            // the GPU LOAD every tile back into tilemem and STORE
-                            // it again, a full-res read+write per eye/frame.
-                            // SCISSOR the draw to the panel's projected screen box
-                            // so only the tiles the panel covers (~15%) pay the
-                            // load/store.
-                            glEnable(GL_SCISSOR_TEST);
-                            for (int e = 0; e < 2; e++) {
-                                float exh = (e == 0 ? -softIpdM()*0.5f : softIpdM()*0.5f);
-                                Mat4 mvp = mat4Mul(proj, mat4Mul(mat4Translate(-exh,0,0), model));
-                                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                                                       GL_TEXTURE_2D, gSwap[e][gSwapIdx], 0);
-                                glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, mvp.m);
-                                // Project the panel's local AABB to pixels and
-                                // scissor to its bounding box (+8px margin).
-                                const float cx[4] = { -0.30f, 0.30f, 0.30f, -0.30f };
-                                const float cy[4] = { -0.11f, -0.11f, 0.14f, 0.14f };
-                                float minX = 1e9f, minY = 1e9f, maxX = -1e9f, maxY = -1e9f;
-                                for (int k = 0; k < 4; k++) {
-                                    float X = cx[k], Y = cy[k];
-                                    float cw = mvp.m[3]*X + mvp.m[7]*Y + mvp.m[15];
-                                    float cxx = mvp.m[0]*X + mvp.m[4]*Y + mvp.m[12];
-                                    float cyy = mvp.m[1]*X + mvp.m[5]*Y + mvp.m[13];
-                                    if (cw < 1e-4f) cw = 1e-4f;
-                                    float sx = ( cxx/cw*0.5f + 0.5f) * (float)gStreamW;
-                                    float sy = ( cyy/cw*0.5f + 0.5f) * (float)gStreamH;
-                                    if (sx < minX) minX = sx; if (sx > maxX) maxX = sx;
-                                    if (sy < minY) minY = sy; if (sy > maxY) maxY = sy;
-                                }
-                                int rx = (int)floorf(minX) - 8, ry = (int)floorf(minY) - 8;
-                                int rw = (int)ceilf(maxX) + 8 - rx, rh = (int)ceilf(maxY) + 8 - ry;
-                                if (rx < 0) { rw += rx; rx = 0; }
-                                if (ry < 0) { rh += ry; ry = 0; }
-                                if (rx + rw > (int)gStreamW) rw = (int)gStreamW - rx;
-                                if (ry + rh > (int)gStreamH) rh = (int)gStreamH - ry;
-                                if (rw < 0) rw = 0; if (rh < 0) rh = 0;
-                                glScissor(rx, ry, rw, rh);
-                                glDrawArrays(GL_TRIANGLES, 0, dc);
-                            }
-                            glDisable(GL_SCISSOR_TEST);
-                            glBindVertexArray(0);
-                        }
-                      } // end if (diagPage != 0)
-
-                      // Low-battery popup, drawn LAST so it layers over the diag HUD.
-                      // Per-eye: bind that eye's slot, then the shared head-locked draw.
-                      if (warnActive) {
-                          for (int e = 0; e < 2; e++) {
-                              glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                                                     GL_TEXTURE_2D, gSwap[e][gSwapIdx], 0);
-                              drawBatteryWarn(e);
-                          }
-                      }
-                      glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                        glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     }
                     // ---- Stream overlay: draw lobby UI on top of the live video ----
                     // When gManualLobby is toggled mid-stream, composite the lobby
                     // UI directly on top of the video in gSwap (overlay mode: no
                     // color clear, only depth). The video keeps playing underneath.
                     if (gManualLobby.load()) {
-                        gStreamingMode = true;   // show streaming tabs in sidebar
+                        gStreamingMode.store(true);   // show streaming tabs in sidebar
                         // Compute view/projection from the head pose + stream FOV.
                         Mat4 hRot = quatToMat4(qx, qy, qz, qw);
                         Mat4 invRot = mat4Transpose3x3(hRot);
@@ -3259,14 +3326,14 @@ void *renderThread(void *) {
                             CtrlState cc[2];
                             { std::lock_guard<std::mutex> lk(gCtrlMutex); cc[0]=gCtrl[0]; cc[1]=gCtrl[1]; }
                             for (int hh=0; hh<2; hh++)
-                                if (cc[hh].conn==1 && !staleSkip[hh] && cc[hh].keyCount>5 && cc[hh].keys[5]!=0) recenterDown = true;
+                                if (cc[hh].conn==1 && cc[hh].keyCount>5 && cc[hh].keys[5]!=0) recenterDown = true;
                             auto trig = [](const CtrlState &s){
                                 return (s.keyCount>2 && s.keys[2]!=0) || (s.keyCount>8 && s.keys[8]>40);
                             };
                             for (int hh=0; hh<2; hh++)
-                                if (hh != gDominantHand && cc[hh].conn==1 && !staleSkip[hh] && trig(cc[hh])) gDominantHand = hh;
-                            int h = (cc[gDominantHand].conn==1 && !staleSkip[gDominantHand]) ? gDominantHand
-                                  : (cc[0].conn==1 && !staleSkip[0] ? 0 : (cc[1].conn==1 && !staleSkip[1] ? 1 : -1));
+                                if (hh != gDominantHand && cc[hh].conn==1 && trig(cc[hh])) gDominantHand.store(hh);
+                            int h = (cc[gDominantHand.load()].conn==1) ? gDominantHand.load()
+                                  : (cc[0].conn==1 ? 0 : (cc[1].conn==1 ? 1 : -1));
                             if (h >= 0) {
                                 Quat oq = quatNorm({ -cc[h].q[0], -cc[h].q[1], cc[h].q[2], cc[h].q[3] });
                                 float qx2=oq.x, qy2=oq.y, qz2=oq.z, qw2=oq.w;
@@ -3343,15 +3410,14 @@ void *renderThread(void *) {
                         glBindFramebuffer(GL_FRAMEBUFFER, gStreamFbo);
                         glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_SCISSOR_TEST);
 
-                        // Build ImGui frame once for both eyes.
-                        gImGui.setInput(pi.cursorLx, pi.cursorLy, pi.cursorPressed, pi.cursorOnPanel, pi.clickEdge);
-                        gImGui.newFrame();
-                        buildImGuiUI();
-                        gImGui.render();
-                        // gImGui.render() leaves FBO 0 bound; rebind gStreamFbo
-                        // so the per-eye draws go into the swapchain textures.
-                        glBindFramebuffer(GL_FRAMEBUFFER, gStreamFbo);
-                        glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_SCISSOR_TEST);
+                        // Set input + upload pixels from Java's View rendering.
+                        gAndroidUi.setInput(pi.cursorLx, pi.cursorLy, pi.cursorPressed, pi.cursorOnPanel, pi.clickEdge);
+                        if (pi.cursorOnPanel)
+                            androidUiPushTouch(AndroidUi::mToPxX(pi.cursorLx), AndroidUi::mToPxY(pi.cursorLy),
+                                               pi.cursorPressed, pi.clickEdge, pi.ptrStickY);
+                        else
+                            androidUiPushTouch(-1, -1, false, false, pi.ptrStickY);
+                        androidUiFetchAndUpload();
 
                         for (int e = 0; e < 2; e++) {
                             float ex = (e == 0 ? -softIpdM()*0.5f : softIpdM()*0.5f);
@@ -3365,21 +3431,82 @@ void *renderThread(void *) {
                                 drawLaserBeam(ptrOx, ptrOy, ptrOz, ptrDx, ptrDy, ptrDz, pi.laserLen, sproj, view);
                             drawSettingsPanelVerts(pi.sliderVertCount, sproj, view, settingsWorld);
 
-                            // Composite ImGui UI texture on top of the panel.
+                            // Composite Android UI texture on top of the panel.
                             Mat4 mvp = mat4Mul(sproj, mat4Mul(view, settingsWorld));
                             glEnable(GL_BLEND);
                             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                            gImGuiComposite.draw(mvp.m, gImGui.texture());
+                            gAndroidUi.draw(mvp.m);
                             glDisable(GL_BLEND);
+
+                            // Pointer cursor: ring when hovering, filled disc when pressed.
+                            if (pi.cursorOnPanel)
+                                drawPointerCursor(pi.cursorLx, pi.cursorLy, pi.cursorPressed, sproj, view, settingsWorld);
                         }
                         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                    }
+                    // ---- Diag-only overlay: when diag HUD is on but lobby is closed,
+                    // composite just the diag overlay (transparent bg) on the video. ----
+                    {
+                        int dm = gDiagHudMode.load();
+                        bool wantDiagOnly = (dm != 0) && !gManualLobby.load();
+                        static bool sDiagOnlyState = false;
+                        if (wantDiagOnly != sDiagOnlyState) {
+                            sDiagOnlyState = wantDiagOnly;
+                            androidUiPushDiagOverlayOnly(wantDiagOnly);
+                        }
+                        if (wantDiagOnly) {
+                            if (alvrFence) { glWaitSync(alvrFence, 0, GL_TIMEOUT_IGNORED); glDeleteSync(alvrFence); alvrFence = 0; }
+                            glBindFramebuffer(GL_FRAMEBUFFER, gStreamFbo);
+                            glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glDisable(GL_SCISSOR_TEST);
+                            {
+                                int ew = g_stream ? g_stream->eye_width.load() : 0;
+                                int eh = g_stream ? g_stream->eye_height.load() : 0;
+                                glViewport(0, 0, (GLsizei)(ew > 0 ? ew : gStreamW),
+                                                  (GLsizei)(eh > 0 ? eh : gStreamH));
+                            }
+                            androidUiFetchAndUpload();
+                            Mat4 hRot = quatToMat4(qx, qy, qz, qw);
+                            Mat4 invRot = mat4Transpose3x3(hRot);
+                            Mat4 viewBase = mat4Mul(invRot, mat4Translate(-px, -py, -pz));
+                            float lobbyFovDeg = (fEyeTextureFov0 > 1.0f) ? fEyeTextureFov0 : 101.0f;
+                            float fovy = lobbyFovDeg * (float)M_PI / 180.0f;
+                            Mat4 sproj = mat4Perspective(fovy, 1.0f, 0.05f, 250.0f);
+                            if (!hudAnchored) {
+                                float fx = -hRot.m[8], fz = -hRot.m[10];
+                                float fn = sqrtf(fx*fx + fz*fz);
+                                if (fn > 1e-5f) { fx /= fn; fz /= fn; } else { fx = 0; fz = -1; }
+                                const float kHudDist = 2.0f;
+                                float ax = px + fx * kHudDist, ay = py, az = pz + fz * kHudDist;
+                                float cphi = -fz, sphi = -fx;
+                                Mat4 m = mat4Identity();
+                                m.m[0] = cphi; m.m[2] = -sphi;
+                                m.m[8] = sphi; m.m[10] = cphi;
+                                m.m[12] = ax;  m.m[13] = ay;  m.m[14] = az;
+                                settingsWorld = m;
+                                hudAnchored = true;
+                            }
+                            for (int e = 0; e < 2; e++) {
+                                float ex = (e == 0 ? -softIpdM()*0.5f : softIpdM()*0.5f);
+                                Mat4 eyeShift = mat4Translate(-ex, 0, 0);
+                                Mat4 view = mat4Mul(eyeShift, viewBase);
+                                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                                       GL_TEXTURE_2D, gSwap[e][gSwapIdx], 0);
+                                glViewport(0, 0, gStreamW, gStreamH);
+                                Mat4 mvp = mat4Mul(sproj, mat4Mul(view, settingsWorld));
+                                glEnable(GL_BLEND);
+                                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                                gAndroidUi.draw(mvp.m);
+                                glDisable(GL_BLEND);
+                            }
+                            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                        }
                     }
                     // PIPELINE: fence THIS slot and flush so the GPU starts it, but
                     // do NOT block. The warp samples this slot a frame from now, by
                     // which point the fence is long-signalled -> no torn texture.
                     uint64_t _tEncStart = diagTiming ? nowNs() : 0;
                     if (gSwapFence[gSwapIdx]) glDeleteSync(gSwapFence[gSwapIdx]);
-                    if (diagPage != 0 || warnActive || gManualLobby.load()) {
+                    if (warnActive || gManualLobby.load() || (gDiagHudMode.load() != 0 && !gManualLobby.load())) {
                         // HUD / battery-popup path: extra work was issued in our ctx,
                         // ordered after ALVR via glWaitSync; a fresh fence covers it all.
                         gSwapFence[gSwapIdx] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
@@ -3493,6 +3620,25 @@ void *renderThread(void *) {
 
                         LOGI("LATENCY: total=%.1fms enc=%.1f send=%.1f net=%.1f dec=%.1f wait=%.1f blit=%.1f fps=%.1f",
                              total_ms, bd[0], bd[1], bd[2], bd[3], bd[4], bd[5], fps);
+
+                        // Push stats to Java UI for the streaming stats tab.
+                        androidUiPushStats(
+                            g_stream->stats_fps,
+                            g_stream->stats_total_latency_ms,
+                            g_stream->stats_bandwidth_rx,
+                            g_stream->stats_bandwidth_tx,
+                            g_stream->stats_cpu_time_ms,
+                            g_stream->stats_gpu_time_ms,
+                            g_stream->stats_encode_ms,
+                            g_stream->stats_send_ms,
+                            g_stream->stats_network_ms,
+                            g_stream->stats_decode_ms,
+                            g_stream->stats_render_wait_ms,
+                            g_stream->stats_blit_ms,
+                            gWivrnBitrateMbps.load(),
+                            g_stream->eye_width.load(),
+                            g_stream->eye_height.load(),
+                            gWivrnMicrophone.load());
                     }
 
                     gVidDecoded.store(sDecoded); gVidSubmit.store(sSubmits); gVidDropped.store(sDropped);
@@ -3522,27 +3668,28 @@ void *renderThread(void *) {
             // streaming. Do NOT target above 72Hz or drop the floor to 0.
             {
                 const uint64_t kVsyncNs = (uint64_t)(1e9 / 72.0);   // 72Hz panel (do NOT exceed)
-                // Align to the ACTUAL display vsync phase instead of the iteration
-                // start time. GetFractionalVsync() returns the fractional progress
-                // through the current refresh interval, so the next vsync boundary
-                // is (1-frac)*interval ahead. Keeps the loop phase-locked to the
-                // display instead of drifting on wall-clock time.
-                float interval = 1e9f / (gRefreshHint > 1.0f ? gRefreshHint : 72.0f);
-                double fv = PVR::GetFractionalVsync();
-                double frac = fv - floor(fv);
-                uint64_t sleepTarget;
-                if (frac >= 0.0 && frac <= 1.0) {
-                    // Sleep until the next vsync boundary
-                    sleepTarget = nowNs() + (uint64_t)((1.0 - frac) * interval);
-                } else {
-                    // Fallback: pace from iteration start
-                    sleepTarget = tLoopStart + kVsyncNs;
+                uint64_t now = nowNs();
+                uint64_t iterTime = now - tLoopStart;
+                // If the iteration already consumed >= one vsync (frame wait +
+                // render), don't add another vsync sleep -- that would double the
+                // cycle to ~28ms (36Hz). Go straight to the next
+                // alvr_get_frame_timeout which blocks until the next frame anyway.
+                if (iterTime < kVsyncNs) {
+                    // Iteration was faster than one vsync: sleep the remainder to
+                    // prevent spinning faster than 72Hz in the burst case.
+                    float interval = 1e9f / (gRefreshHint > 1.0f ? gRefreshHint : 72.0f);
+                    double fv = PVR::GetFractionalVsync();
+                    double frac = fv - floor(fv);
+                    uint64_t sleepTarget;
+                    if (frac >= 0.0 && frac <= 1.0) {
+                        sleepTarget = now + (uint64_t)((1.0 - frac) * interval);
+                    } else {
+                        sleepTarget = tLoopStart + kVsyncNs;
+                    }
+                    uint64_t minTarget = tLoopStart + kVsyncNs;
+                    if (sleepTarget < minTarget) sleepTarget = minTarget;
+                    sleepUntilMonoNs(sleepTarget);
                 }
-                // Ensure we never sleep less than the iteration-start-based deadline
-                // (prevents spinning faster than 72Hz in the burst case).
-                uint64_t minTarget = tLoopStart + kVsyncNs;
-                if (sleepTarget < minTarget) sleepTarget = minTarget;
-                sleepUntilMonoNs(sleepTarget);
             }
             frame++; framesWithSurface++;
             continue;
@@ -3554,25 +3701,18 @@ void *renderThread(void *) {
         // Keep streaming tabs visible when connected to the server even with
         // no video playing, so the user can launch apps from the headset.
         bool wivrnConnected = g_stream && g_stream->session && g_stream->connected_ns.load() > 0;
-        gStreamingMode = wivrnConnected;
+        gStreamingMode.store(wivrnConnected);
         // Auto-switch to the Launch tab when we first connect.
         static bool wasConnected = false;
-        if (wivrnConnected && !wasConnected) {
-            // Launch is the last streaming-only category (index 4: Stats, Apps, Launch).
-            MenuModel &mm = settingsModel();
-            for (int i = (int)mm.size() - 1; i >= 0; i--) {
-                if (mm[i].streamingOnly && mm[i].name == "Launch") {
-                    gSettingsCat = i;
-                    break;
-                }
-            }
+        if (wivrnConnected != wasConnected) {
+            androidUiPushStreaming(wivrnConnected);
+            if (wivrnConnected)
+                gSettingsCat = 4;  // Launch tab
         }
         wasConnected = wivrnConnected;
         // If we were on a streaming-only tab but lost connection, fall back to Settings.
-        if (!gStreamingMode) {
-            MenuModel &mm = settingsModel();
-            if (gSettingsCat >= 0 && gSettingsCat < (int)mm.size()
-                && mm[gSettingsCat].streamingOnly)
+        if (!gStreamingMode.load()) {
+            if (gSettingsCat >= 2)  // streaming-only tabs are 2+
                 gSettingsCat = 1;   // Settings
         }
 
@@ -3654,10 +3794,13 @@ void *renderThread(void *) {
             CtrlState cc[2];
             { std::lock_guard<std::mutex> lk(gCtrlMutex); cc[0]=gCtrl[0]; cc[1]=gCtrl[1]; }
             for (int hh=0; hh<2; hh++)
-                if (cc[hh].conn==1 && !staleSkip[hh] && cc[hh].keyCount>5 && cc[hh].keys[5]!=0) recenterDown = true;
+                if (cc[hh].conn==1 && cc[hh].keyCount>5 && cc[hh].keys[5]!=0) recenterDown = true;
+            auto trig = [](const CtrlState &s){
+                return (s.keyCount>2 && s.keys[2]!=0) || (s.keyCount>8 && s.keys[8]>40);
+            };
             // Capture both hands' world pose for the controller-model draw.
             // Same conversion as the laser path: pos*0.001, quat = (-x,-y,z,w).
-            for (int hh=0; hh<2; hh++) if (cc[hh].conn==1 && !staleSkip[hh]) {
+            for (int hh=0; hh<2; hh++) if (cc[hh].conn==1) {
                 ctrlConn[hh] = true;
                 ctrlPos[hh][0]=cc[hh].pos[0]*0.001f; ctrlPos[hh][1]=cc[hh].pos[1]*0.001f; ctrlPos[hh][2]=cc[hh].pos[2]*0.001f;
                 Quat cq = quatNorm({ -cc[hh].q[0], -cc[hh].q[1], cc[hh].q[2], cc[hh].q[3] });
@@ -3665,15 +3808,12 @@ void *renderThread(void *) {
                 ctrlKeyCount[hh] = cc[hh].keyCount;
                 for (int k=0; k<cc[hh].keyCount && k<16; k++) ctrlKeys[hh][k] = cc[hh].keys[k];
             }
-            auto trig = [](const CtrlState &s){
-                return (s.keyCount>2 && s.keys[2]!=0) || (s.keyCount>8 && s.keys[8]>40);
-            };
             // Off-hand dominance: pulling the trigger on a connected NON-dominant
             // controller claims the laser.
             for (int hh=0; hh<2; hh++)
-                if (hh != gDominantHand && cc[hh].conn==1 && !staleSkip[hh] && trig(cc[hh])) gDominantHand = hh;
-            int h = (cc[gDominantHand].conn==1 && !staleSkip[gDominantHand]) ? gDominantHand
-                  : (cc[0].conn==1 && !staleSkip[0] ? 0 : (cc[1].conn==1 && !staleSkip[1] ? 1 : -1));
+                if (hh != gDominantHand && cc[hh].conn==1 && trig(cc[hh])) gDominantHand.store(hh);
+            int h = (cc[gDominantHand.load()].conn==1) ? gDominantHand.load()
+                  : (cc[0].conn==1 ? 0 : (cc[1].conn==1 ? 1 : -1));
             if (h >= 0) {
                 // Same conversion as the streaming controller path (CV service
                 // returns a world-frame pose): pos*0.001 and (-x,-y,z,w) directly.
@@ -3878,7 +4018,7 @@ void *renderThread(void *) {
                 glDisable(GL_DEPTH_TEST);
                 glEnable(GL_BLEND);
                 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                gImGuiComposite.draw(mvp.m, gImGui.texture());
+                gAndroidUi.draw(mvp.m);
                 glDisable(GL_BLEND);
             }
             // Pointer cursor: ring when hovering, filled disc when pressed.
@@ -3886,42 +4026,7 @@ void *renderThread(void *) {
             if (pi.cursorOnPanel)
                 drawPointerCursor(pi.cursorLx, pi.cursorLy, pi.cursorPressed, sproj, sview, settingsWorld);
 
-            // PIN pad overlay (shown when server requests pairing PIN).
-            if (gPinEntryRequested.load()) {
-                // Position the PIN pad in front of the settings panel, slightly
-                // closer to the user so it's clearly on top.
-                Mat4 pinOffset = mat4Translate(0, 0, 0.1f);
-                Mat4 pinWorld = mat4Mul(settingsWorld, pinOffset);
-                // Build PIN pad verts with cursor mapped to panel-local coords.
-                float pinCursorLx = 0, pinCursorLy = 0;
-                bool pinOnPad = false;
-                // Ray-march the pointer against the PIN pad plane.
-                // The PIN pad is at settingsWorld * (0,0,0.1) in world space.
-                // Use the same rayPanelHit logic as the settings panel.
-                float pinT = 0;
-                bool onPad = rayPanelHit(pinWorld, pi.ptrOx, pi.ptrOy, pi.ptrOz,
-                                         pi.ptrDx, pi.ptrDy, pi.ptrDz,
-                                         false, pi.laserLen,
-                                         pinCursorLx, pinCursorLy, pinT);
-                pinOnPad = onPad;
-                static std::vector<float> pinVerts;
-                pinVerts.clear();
-                // Only process clicks on the first eye to avoid double-input
-                bool active = buildPinPad(pinVerts, pinCursorLx, pinCursorLy,
-                                           pi.clickEdge && eyeIdx == 0, pinOnPad);
-                if (active && !pinVerts.empty()) {
-                    int pinVc = (int)(pinVerts.size() / 6);
-                    glBindBuffer(GL_ARRAY_BUFFER, gSliderVbo);
-                    glBufferData(GL_ARRAY_BUFFER, pinVerts.size() * sizeof(float),
-                                 pinVerts.data(), GL_DYNAMIC_DRAW);
-                    Mat4 pinMvp = mat4Mul(sproj, mat4Mul(sview, pinWorld));
-                    glUseProgram(gProg);
-                    glBindVertexArray(gSliderVao);
-                    glUniformMatrix4fv(gMvpLoc, 1, GL_FALSE, pinMvp.m);
-                    glDrawArrays(GL_TRIANGLES, 0, pinVc);
-                    glBindVertexArray(0);
-                }
-            }
+            // PIN pad overlay removed - PIN entry now handled by Android UI.
 
             glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);
         };
@@ -3947,11 +4052,14 @@ void *renderThread(void *) {
                 {
                     eglMakeCurrent(dpy, pbuf, pbuf, ctx);   // stay offscreen; warp owns the window
                     if (gGridThemeDirty.exchange(false)) { buildControllerMeshes(); }   // recolour controllers (grid floor removed, passthrough replaces it)
-                    // Build ImGui frame once per frame (not per eye).
-                    gImGui.setInput(pi.cursorLx, pi.cursorLy, pi.cursorPressed, pi.cursorOnPanel, pi.clickEdge);
-                    gImGui.newFrame();
-                    buildImGuiUI();
-                    gImGui.render();
+                    // Set input + fetch pixels from Java's View rendering once per frame.
+                    gAndroidUi.setInput(pi.cursorLx, pi.cursorLy, pi.cursorPressed, pi.cursorOnPanel, pi.clickEdge);
+                    if (pi.cursorOnPanel)
+                        androidUiPushTouch(AndroidUi::mToPxX(pi.cursorLx), AndroidUi::mToPxY(pi.cursorLy),
+                                           pi.cursorPressed, pi.clickEdge, pi.ptrStickY);
+                    else
+                        androidUiPushTouch(-1, -1, false, false, pi.ptrStickY);
+                    androidUiFetchAndUpload();
                     for (int eye = 0; eye < 2; eye++) {
                         float ex = (eye == 0 ? -softIpdM()*0.5f : softIpdM()*0.5f);
                         Mat4 eyeShift = mat4Translate(-ex, 0, 0);

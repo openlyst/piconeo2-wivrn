@@ -1,6 +1,7 @@
 #include "server_list.h"
-#include "settings_panel.h"  // kCtX0, kCtX1, kCtTop, kCtBot
-#include "pin_pad.h"         // gPinEntryRequested (cleared when connecting ends)
+#include "panel_geometry.h"  // kCtX0, kCtX1, kCtTop, kCtBot
+#include "app_state.h"       // gPinEntryRequested (moved here)
+#include "android_ui.h"      // androidUiPushServers
 #include "log.h"
 #include <mutex>
 #include <cstring>
@@ -18,8 +19,11 @@ std::function<void()> gOnRefreshServers;
 std::function<void(bool connecting)> gOnConnectingChanged;
 
 void setServerList(const std::vector<ServerInfo> & servers) {
-    std::lock_guard<std::mutex> lk(gSrvMutex);
-    gServers = servers;
+    {
+        std::lock_guard<std::mutex> lk(gSrvMutex);
+        gServers = servers;
+    }
+    androidUiPushServers(servers);
 }
 
 void updateAutoconnect(const std::string &hostname, int port, bool on) {
@@ -38,8 +42,11 @@ std::vector<ServerInfo> getServerList() {
 }
 
 void setConnectionError(const std::string & msg) {
-    std::lock_guard<std::mutex> lk(gErrMutex);
-    gConnectionError = msg;
+    {
+        std::lock_guard<std::mutex> lk(gErrMutex);
+        gConnectionError = msg;
+    }
+    androidUiPushConnError(msg);
 }
 
 std::string getConnectionError() {
@@ -48,14 +55,18 @@ std::string getConnectionError() {
 }
 
 void clearConnectionError() {
-    std::lock_guard<std::mutex> lk(gErrMutex);
-    gConnectionError.clear();
+    {
+        std::lock_guard<std::mutex> lk(gErrMutex);
+        gConnectionError.clear();
+    }
+    androidUiPushConnError("");
 }
 
 void setConnecting(bool connecting) {
     gConnecting.store(connecting);
     if (gOnConnectingChanged)
         gOnConnectingChanged(connecting);
+    androidUiPushConnecting(connecting);
     if (!connecting)
         gPinEntryRequested.store(false);
 }

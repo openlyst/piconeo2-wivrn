@@ -38,11 +38,24 @@
     <string name="codec_h264">H.264</string>
     <string name="codec_h265">H.265</string>
     <string name="setting_microphone">启用麦克风</string>
+    <string name="setting_passthrough">透视</string>
     <string name="setting_language">语言</string>
     <string name="lang_system">系统</string>
     <string name="restore_defaults">恢复默认</string>
     <string name="reset_confirm">恢复所有设置为默认值？</string>
     <string name="reset">重置</string>
+
+    <!-- Debug settings -->
+    <string name="debug_section">调试</string>
+    <string name="setting_brightness">亮度</string>
+    <string name="setting_ctrl_vibration">手柄震动</string>
+    <string name="setting_eye_foveation">眼动注视点编码</string>
+    <string name="setting_eye_debug">眼动调试</string>
+    <string name="setting_diag_hud">诊断信息</string>
+    <string name="diag_hud_off">关闭</string>
+    <string name="diag_hud_pipeline">流水线</string>
+    <string name="diag_hud_system">系统</string>
+    <string name="recenter">重置朝向</string>
 
     <!-- About -->
     <string name="about_wivrn">WiVRn</string>
@@ -57,6 +70,8 @@
     <!-- Licenses -->
     <string name="licenses_title">许可证</string>
     <string name="license_gpl_text">WiVRn - GPL v3\n\n本程序是自由软件：您可以根据自由软件基金会发布的 GNU 通用公共许可证条款重新分发和/或修改它，许可证版本为第 3 版或（由您选择）任何更高版本。\n\n本程序的发布是希望它能有用，但不提供任何保证；甚至不提供适销性或特定用途适用性的暗示保证。\n\n详情请参阅 GNU 通用公共许可证。</string>
+    <string name="license_alvr_title">ALVR - MIT</string>
+    <string name="license_alvr_text">ALVR - MIT 许可证\n\nCopyright (c) 2026 Juspertinry\nCopyright (c) 2018-2019 polygraphene\nCopyright (c) 2020-2024 alvr-org\n\n特此免费向任何获得本软件副本及相关文档文件（"软件"）的人授权：不受限制地处理本软件，包括使用、复制、修改、合并、发布、分发、再授权和/或销售软件副本的权利，并允许接受软件的人这样做，但须满足以下条件：\n\n上述版权声明和本许可声明应包含在软件的所有副本或重要部分中。\n\n本软件按"原样"提供，不提供任何明示或暗示的保证，包括但不限于适销性、特定用途适用性和非侵权的保证。在任何情况下，作者或版权持有人不对任何索赔、损害或其他责任负责，无论是在合同诉讼、侵权行为或其他方面，由软件或软件的使用或其他交易引起。</string>
 
     <!-- Exit -->
     <string name="exit_confirm">退出 WiVRn？</string>
@@ -75,6 +90,50 @@
     <string name="disconnected">已断开</string>
     <string name="reconnect">重新连接</string>
     <string name="close">关闭</string>
+
+    <!-- Stream tabs -->
+    <string name="stream_applications">应用</string>
+    <string name="stream_launch">启动</string>
+    <string name="stream_stats">统计</string>
+    <string name="stream_settings">设置</string>
+
+    <!-- Stream applications -->
+    <string name="running_xr_apps">运行中的 XR 应用</string>
+    <string name="no_apps_running">没有运行中的应用</string>
+    <string name="overlays">覆盖层</string>
+
+    <!-- Stream launch -->
+    <string name="launch_application">启动应用</string>
+    <string name="loading_apps">正在加载应用...</string>
+    <string name="no_apps_available">没有可用的应用</string>
+    <string name="press_to_refresh">按此刷新</string>
+    <string name="refresh">刷新</string>
+    <string name="launching_app">正在启动 %1$s...</string>
+    <string name="waiting_for_server">等待服务器响应（%1$d 秒）</string>
+
+    <!-- Stream stats -->
+    <string name="perf_stats">性能统计</string>
+    <string name="stat_fps">帧率</string>
+    <string name="stat_mtp_latency">运动到光子延迟</string>
+    <string name="stat_download">下载</string>
+    <string name="stat_upload">上传</string>
+    <string name="stat_bitrate">码率</string>
+    <string name="stat_resolution">分辨率</string>
+    <string name="stat_microphone">麦克风</string>
+    <string name="stat_disabled">已禁用</string>
+    <string name="stat_enabled">已启用</string>
+    <string name="toggle_overlay_hint">同时按下两个摇杆切换此界面</string>
+    <string name="stat_cpu_time">CPU 时间</string>
+    <string name="stat_gpu_time">GPU 时间</string>
+    <string name="stat_encode">编码</string>
+    <string name="stat_send">发送</string>
+    <string name="stat_network">网络</string>
+    <string name="stat_decode">解码</string>
+    <string name="stat_render_wait">渲染等待</string>
+    <string name="stat_blit">合成</string>
+    <string name="stat_total_latency">总延迟</string>
+    <string name="stat_latency_breakdown">延迟分解</string>
+    <string name="stat_bandwidth">带宽</string>
 
     <!-- Units -->
     <string name="unit_mbit_s">Mbit/s</string>

@@ -28,6 +28,10 @@ extern std::atomic<bool> gSleepReq;
 class pico_lobby;
 extern pico_lobby * gLobby;
 
+// Android View-based UI (replaces ImGui). Defined in jni.cpp.
+class AndroidUi;
+extern AndroidUi gAndroidUi;
+
 // Hand the render thread a new window (or null when the surface is destroyed).
 void  setWindow(ANativeWindow *win);
 // Set $HOME from the activity's files dir (needed before any file-based config).
