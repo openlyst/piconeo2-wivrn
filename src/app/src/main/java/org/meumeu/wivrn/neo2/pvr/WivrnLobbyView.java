@@ -1143,8 +1143,8 @@ public class WivrnLobbyView {
         y = drawCheckbox(x, y, w, i18n.s(R.string.tcp_only), tcpOnly, false);
         y = drawCheckbox(x, y, w, i18n.s(R.string.setting_microphone), microphoneEnabled, false);
         y = drawCheckbox(x, y, w, i18n.s(R.string.setting_passthrough), passthroughEnabled, false);
-        y = drawSliderFloat(x, y, w, i18n.s(R.string.setting_brightness), brightnessFrac, 0, 1, "%", false, 0);
-        y = drawSliderFloat(x, y, w, i18n.s(R.string.setting_ctrl_vibration), ctrlVibration, 0, 1, "%", false, 0);
+        y = drawSliderFloat(x, y, w, i18n.s(R.string.setting_brightness), brightnessFrac * 100, 0, 100, "%", false, 0);
+        y = drawSliderFloat(x, y, w, i18n.s(R.string.setting_ctrl_vibration), ctrlVibration * 100, 0, 100, "%", false, 0);
 
         y = drawDropdown(x, y, w, i18n.s(R.string.setting_language),
             new String[]{i18n.s(R.string.lang_system), "English", "简体中文"},
