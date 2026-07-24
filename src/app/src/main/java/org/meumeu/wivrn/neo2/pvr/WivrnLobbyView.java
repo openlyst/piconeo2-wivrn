@@ -2837,9 +2837,17 @@ public class WivrnLobbyView {
         RectF saveBtn = new RectF(popupX + popupW - 180, py, popupX + popupW - 30, py + BUTTON_HEIGHT);
         if (saveBtn.contains(x, y)) {
             if (!addServerName.isEmpty() && !addServerAddress.isEmpty()) {
+                int port = 9757;
+                try {
+                    if (!addServerPort.isEmpty())
+                        port = Integer.parseInt(addServerPort);
+                } catch (NumberFormatException e) {
+                    showAddServer = false;
+                    markDirty();
+                    return;
+                }
                 servers.add(new ServerEntry(addServerName, addServerAddress,
-                    Integer.parseInt(addServerPort.isEmpty() ? "9757" : addServerPort),
-                    addServerTcpOnly, true));
+                    port, addServerTcpOnly, true));
                 saveServers();
             }
             showAddServer = false;
