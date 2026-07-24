@@ -12,7 +12,7 @@
 // side just uploads the bitmap pixels to a texture and draws it.
 
 // JNI bridge functions (defined in jni.cpp) for pushing data to Java.
-void androidUiPushTouch(float x, float y, bool pressed, bool clickEdge);
+void androidUiPushTouch(float x, float y, bool pressed, bool clickEdge, float stickY);
 void androidUiPushServers(const std::vector<ServerInfo> &servers);
 void androidUiPushConnecting(bool connecting);
 void androidUiPushConnError(const std::string &err);
