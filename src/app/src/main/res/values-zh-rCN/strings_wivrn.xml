@@ -70,6 +70,8 @@
     <!-- Licenses -->
     <string name="licenses_title">许可证</string>
     <string name="license_gpl_text">WiVRn - GPL v3\n\n本程序是自由软件：您可以根据自由软件基金会发布的 GNU 通用公共许可证条款重新分发和/或修改它，许可证版本为第 3 版或（由您选择）任何更高版本。\n\n本程序的发布是希望它能有用，但不提供任何保证；甚至不提供适销性或特定用途适用性的暗示保证。\n\n详情请参阅 GNU 通用公共许可证。</string>
+    <string name="license_alvr_title">ALVR - MIT</string>
+    <string name="license_alvr_text">ALVR - MIT 许可证\n\nCopyright (c) 2026 Juspertinry\nCopyright (c) 2018-2019 polygraphene\nCopyright (c) 2020-2024 alvr-org\n\n特此免费向任何获得本软件副本及相关文档文件（"软件"）的人授权：不受限制地处理本软件，包括使用、复制、修改、合并、发布、分发、再授权和/或销售软件副本的权利，并允许接受软件的人这样做，但须满足以下条件：\n\n上述版权声明和本许可声明应包含在软件的所有副本或重要部分中。\n\n本软件按"原样"提供，不提供任何明示或暗示的保证，包括但不限于适销性、特定用途适用性和非侵权的保证。在任何情况下，作者或版权持有人不对任何索赔、损害或其他责任负责，无论是在合同诉讼、侵权行为或其他方面，由软件或软件的使用或其他交易引起。</string>
 
     <!-- Exit -->
     <string name="exit_confirm">退出 WiVRn？</string>

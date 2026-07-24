@@ -1392,11 +1392,11 @@ public class WivrnLobbyView {
         canvas.drawText(i18n.s(R.string.licenses_title), x, y + 30, textLargePaint);
         y += 70;
 
-        String licenseText = i18n.s(R.string.license_gpl_text);
-
         textSmallPaint.setColor(Color.rgb(180, 190, 200));
-        android.text.StaticLayout sl = new android.text.StaticLayout(
-            licenseText,
+
+        String gplText = i18n.s(R.string.license_gpl_text);
+        android.text.StaticLayout gpl = new android.text.StaticLayout(
+            gplText,
             new android.text.TextPaint(textSmallPaint),
             (int) w,
             android.text.Layout.Alignment.ALIGN_NORMAL,
@@ -1406,8 +1406,25 @@ public class WivrnLobbyView {
         );
         canvas.save();
         canvas.translate(x, y);
-        sl.draw(canvas);
+        gpl.draw(canvas);
         canvas.restore();
+        y += gpl.getHeight() + 30;
+
+        String alvrText = i18n.s(R.string.license_alvr_text);
+        android.text.StaticLayout alvr = new android.text.StaticLayout(
+            alvrText,
+            new android.text.TextPaint(textSmallPaint),
+            (int) w,
+            android.text.Layout.Alignment.ALIGN_NORMAL,
+            1.0f,
+            0.0f,
+            false
+        );
+        canvas.save();
+        canvas.translate(x, y);
+        alvr.draw(canvas);
+        canvas.restore();
+
         textSmallPaint.setColor(Color.rgb(160, 170, 185));
     }
 
