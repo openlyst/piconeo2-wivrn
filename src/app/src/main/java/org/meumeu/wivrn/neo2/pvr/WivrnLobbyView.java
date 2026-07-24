@@ -99,6 +99,8 @@ public class WivrnLobbyView {
     private float settingsScrollY = 0;
     private float settingsMaxScroll = 0;
     private float settingsThumbstickAccum = 0;
+    private float settingsDragStartY = -1;
+    private float settingsDragStartScroll = 0;
     private float pressStartX = -1;
     private float pressStartY = -1;
     private boolean pressDragged = false;
@@ -2181,6 +2183,22 @@ public class WivrnLobbyView {
             }
         } else if ((connectionState != STATE_CONNECTED && currentTab == TAB_SETTINGS) ||
                    (connectionState == STATE_CONNECTED && streamTab == STREAM_TAB_SETTINGS)) {
+            // Drag-to-scroll with trigger held
+            if (down && prevDown && y != prevY) {
+                if (settingsDragStartY < 0) {
+                    settingsDragStartY = prevY;
+                    settingsDragStartScroll = settingsScrollY;
+                }
+                settingsScrollY = settingsDragStartScroll + (settingsDragStartY - y);
+                settingsScrollY = Math.max(0, Math.min(settingsMaxScroll, settingsScrollY));
+                if (pressStartX >= 0 && Math.hypot(x - pressStartX, y - pressStartY) > DRAG_THRESHOLD) {
+                    pressDragged = true;
+                }
+            }
+            if (!down) {
+                settingsDragStartY = -1;
+            }
+            // Thumbstick scroll
             float stickMag = Math.abs(thumbstickY);
             if (stickMag > 0.3f) {
                 settingsThumbstickAccum -= thumbstickY * 15f;
@@ -2201,7 +2219,20 @@ public class WivrnLobbyView {
             pressDragged = false;
         }
 
+        boolean onSettingsTab = (connectionState != STATE_CONNECTED && currentTab == TAB_SETTINGS) ||
+                                (connectionState == STATE_CONNECTED && streamTab == STREAM_TAB_SETTINGS);
+
         if (connectionState == STATE_CONNECTED && streamTab == STREAM_TAB_LAUNCH) {
+            if (pressed) {
+                activeSlider = SLIDER_NONE;
+            } else if (!down && prevDown && !pressDragged) {
+                activeSlider = SLIDER_NONE;
+                handleClick(x, y);
+            } else if (down && activeSlider != SLIDER_NONE) {
+                handleSliderDrag(x, y);
+            }
+        } else if (onSettingsTab) {
+            // Click on release so drag-to-scroll doesn't trigger clicks
             if (pressed) {
                 activeSlider = SLIDER_NONE;
             } else if (!down && prevDown && !pressDragged) {
