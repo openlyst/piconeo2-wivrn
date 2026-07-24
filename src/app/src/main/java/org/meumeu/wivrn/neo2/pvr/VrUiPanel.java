@@ -184,12 +184,12 @@ public class VrUiPanel {
             int bitrate, int streamW, int streamH, boolean micOn) {
         mMainHandler.post(() -> {
             if (mLobbyView == null) return;
-            mLobbyView.updateStreamStats(fps, (int)totalLatency, (int)(download * 1000000), (int)(upload * 1000000), bitrate);
+            mLobbyView.updateStreamStats(fps, (int)totalLatency, (int)(download * 8), (int)(upload * 8), bitrate);
             float[] detailed = new float[13];
             detailed[0] = fps;
             detailed[1] = totalLatency;
-            detailed[2] = download * 1000000;
-            detailed[3] = upload * 1000000;
+            detailed[2] = download * 8;
+            detailed[3] = upload * 8;
             detailed[4] = bitrate;
             detailed[5] = cpuMs;
             detailed[6] = gpuMs;
