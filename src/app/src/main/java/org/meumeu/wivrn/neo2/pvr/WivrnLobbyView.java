@@ -175,6 +175,12 @@ public class WivrnLobbyView {
     private int diagHudMode = 0;
     private boolean eyeSupported = false;
 
+    // Dropdown open state: -1 = none open, otherwise the dropdown ID
+    private int openDropdown = -1;
+    private static final int DROPDOWN_CODEC = 0;
+    private static final int DROPDOWN_LANGUAGE = 1;
+    private static final int DROPDOWN_DIAG_HUD = 2;
+
     private String addServerName = "";
     private String addServerAddress = "";
     private String addServerPort = "9757";
@@ -1141,7 +1147,7 @@ public class WivrnLobbyView {
 
         y = drawDropdown(x, y, w, i18n.s(R.string.setting_language),
             new String[]{i18n.s(R.string.lang_system), "English", "简体中文"},
-            languageSetting, false);
+            languageSetting, false, DROPDOWN_LANGUAGE);
 
         y += 15;
         canvas.drawText("Debug", x, y + 30, textLargePaint);
@@ -1152,7 +1158,7 @@ public class WivrnLobbyView {
         y = drawCheckbox(x, y, w, "Eye-tracked Foveation", eyeFoveationEnabled, !eyeSupported);
         y = drawCheckbox(x, y, w, "Eye Debug", eyeDebugOn, false);
         y = drawDropdown(x, y, w, "Diagnostics HUD",
-            new String[]{"Off", "Pipeline", "System"}, diagHudMode, false);
+            new String[]{"Off", "Pipeline", "System"}, diagHudMode, false, DROPDOWN_DIAG_HUD);
 
         y += 10;
         RectF recenterBtn = new RectF(x, y, x + 200, y + BUTTON_HEIGHT);
@@ -1296,10 +1302,14 @@ public class WivrnLobbyView {
     }
 
     private float drawDropdown(float x, float y, float w, String label, String[] options, int selected) {
-        return drawDropdown(x, y, w, label, options, selected, false);
+        return drawDropdown(x, y, w, label, options, selected, false, -1);
     }
 
     private float drawDropdown(float x, float y, float w, String label, String[] options, int selected, boolean disabled) {
+        return drawDropdown(x, y, w, label, options, selected, disabled, -1);
+    }
+
+    private float drawDropdown(float x, float y, float w, String label, String[] options, int selected, boolean disabled, int dropdownId) {
         int prevTextColor = textPaint.getColor();
         int prevSmallColor = textSmallPaint.getColor();
         if (disabled) {
@@ -1309,15 +1319,35 @@ public class WivrnLobbyView {
         canvas.drawText(label, x, y + 20, textPaint);
         y += 35;
 
+        boolean isOpen = !disabled && openDropdown == dropdownId;
+
         String selectedText = options[selected];
         RectF box = new RectF(x, y, x + 300, y + 40);
-        canvas.drawRoundRect(box, 6, 6, dimPaint);
+        canvas.drawRoundRect(box, 6, 6, isOpen ? accentPaint : dimPaint);
         canvas.drawText(selectedText, x + 15, y + 28, textPaint);
-        canvas.drawText("v", x + 280, y + 28, textSmallPaint);
+        canvas.drawText(isOpen ? "^" : "v", x + 280, y + 28, textSmallPaint);
+
+        y += 40;
+
+        if (isOpen) {
+            for (int i = 0; i < options.length; i++) {
+                RectF optBox = new RectF(x, y, x + 300, y + 36);
+                boolean hover = touchDown && optBox.contains(touchX, touchY + settingsScrollY);
+                canvas.drawRoundRect(optBox, 4, 4, hover ? buttonHoverBgPaint : cardBgPaint);
+                if (i == selected) {
+                    int pc = textPaint.getColor();
+                    textPaint.setColor(accentPaint.getColor());
+                    canvas.drawText("*", x + 8, y + 25, textPaint);
+                    textPaint.setColor(pc);
+                }
+                canvas.drawText(options[i], x + 25, y + 25, textPaint);
+                y += 36;
+            }
+        }
 
         textPaint.setColor(prevTextColor);
         textSmallPaint.setColor(prevSmallColor);
-        return y + 50;
+        return y + 10;
     }
 
     private RectF gitlabBtnRect;
@@ -2706,15 +2736,35 @@ public class WivrnLobbyView {
 
         // Language dropdown
         sy += 35;
-        RectF langBox = new RectF(contentX, sy, contentX + 300, sy + 40);
-        if (langBox.contains(x, y) || (x >= contentX && x <= contentX + contentW && y >= sy - 5 && y <= sy + 45)) {
-            languageSetting = (languageSetting + 1) % 3;
-            i18n.setLanguage(languageSetting);
-            saveSettings();
+        if (openDropdown == DROPDOWN_LANGUAGE) {
+            // Option list is open: check option clicks
+            String[] langs = {i18n.s(R.string.lang_system), "English", "简体中文"};
+            for (int i = 0; i < langs.length; i++) {
+                RectF optBox = new RectF(contentX, sy + 40, contentX + 300, sy + 40 + 36);
+                if (optBox.contains(x, y)) {
+                    languageSetting = i;
+                    i18n.setLanguage(i);
+                    saveSettings();
+                    openDropdown = -1;
+                    markDirty();
+                    return;
+                }
+                sy += 36;
+            }
+            sy += 40 + 10;
+            // Click outside the dropdown closes it
+            openDropdown = -1;
             markDirty();
             return;
+        } else {
+            RectF langBox = new RectF(contentX, sy, contentX + 300, sy + 40);
+            if (langBox.contains(x, y) || (x >= contentX && x <= contentX + contentW && y >= sy - 5 && y <= sy + 45)) {
+                openDropdown = DROPDOWN_LANGUAGE;
+                markDirty();
+                return;
+            }
+            sy += 50;
         }
-        sy += 50;
 
         // Debug section header
         sy += 15 + 55;
@@ -2769,14 +2819,32 @@ public class WivrnLobbyView {
 
         // Diagnostics HUD dropdown
         sy += 35;
-        if (x >= contentX && x <= contentX + contentW && y >= sy - 5 && y <= sy + 45) {
-            diagHudMode = (diagHudMode + 1) % 3;
-            saveSettings();
-            ((MainActivity) context).nativeSetDiagHud(diagHudMode);
+        if (openDropdown == DROPDOWN_DIAG_HUD) {
+            String[] opts = {"Off", "Pipeline", "System"};
+            for (int i = 0; i < opts.length; i++) {
+                RectF optBox = new RectF(contentX, sy + 40, contentX + 300, sy + 40 + 36);
+                if (optBox.contains(x, y)) {
+                    diagHudMode = i;
+                    saveSettings();
+                    ((MainActivity) context).nativeSetDiagHud(diagHudMode);
+                    openDropdown = -1;
+                    markDirty();
+                    return;
+                }
+                sy += 36;
+            }
+            sy += 40 + 10;
+            openDropdown = -1;
             markDirty();
             return;
+        } else {
+            if (x >= contentX && x <= contentX + contentW && y >= sy - 5 && y <= sy + 45) {
+                openDropdown = DROPDOWN_DIAG_HUD;
+                markDirty();
+                return;
+            }
+            sy += 50;
         }
-        sy += 50;
 
         // Recenter button
         sy += 10;
