@@ -3025,7 +3025,12 @@ void *renderThread(void *) {
             gStreamingMode.store(true);
             // Servers tab is hidden while streaming; fall back to Settings.
             if (gSettingsCat == 0) gSettingsCat = 1;
-            hudAnchored = false;   // re-anchor the lobby HUD next time we return to it
+            // Re-anchor the lobby HUD next time we return to the non-streaming
+            // lobby. Don't reset while the manual lobby overlay is open, or the
+            // panel re-anchors in front of the head every frame and follows the
+            // HMD instead of staying world-locked.
+            if (!gManualLobby.load())
+                hudAnchored = false;
             // Free the lobby eye-texture ring (~94 MB) while streaming; rebuilt
             // lazily when we next return to the lobby. DEFER the free, arm a
             // countdown, then free only once the warp ring has been refilled with
