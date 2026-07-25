@@ -3419,13 +3419,20 @@ void *renderThread(void *) {
                             androidUiPushTouch(-1, -1, false, false, pi.ptrStickY);
                         androidUiFetchAndUpload();
 
+                        int ovW = 0, ovH = 0;
+                        {
+                            int ew = g_stream ? g_stream->eye_width.load() : 0;
+                            int eh = g_stream ? g_stream->eye_height.load() : 0;
+                            ovW = (ew > 0) ? ew : (int)gStreamW;
+                            ovH = (eh > 0) ? eh : (int)gStreamH;
+                        }
                         for (int e = 0; e < 2; e++) {
                             float ex = (e == 0 ? -softIpdM()*0.5f : softIpdM()*0.5f);
                             Mat4 eyeShift = mat4Translate(-ex, 0, 0);
                             Mat4 view = mat4Mul(eyeShift, viewBase);
                             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                                                    GL_TEXTURE_2D, gSwap[e][gSwapIdx], 0);
-                            glViewport(0, 0, gStreamW, gStreamH);
+                            glViewport(0, 0, ovW, ovH);
 
                             if (ptrFromController)
                                 drawLaserBeam(ptrOx, ptrOy, ptrOz, ptrDx, ptrDy, ptrDz, pi.laserLen, sproj, view);
@@ -3485,13 +3492,20 @@ void *renderThread(void *) {
                                 settingsWorld = m;
                                 hudAnchored = true;
                             }
+                            int doW = 0, doH = 0;
+                            {
+                                int ew = g_stream ? g_stream->eye_width.load() : 0;
+                                int eh = g_stream ? g_stream->eye_height.load() : 0;
+                                doW = (ew > 0) ? ew : (int)gStreamW;
+                                doH = (eh > 0) ? eh : (int)gStreamH;
+                            }
                             for (int e = 0; e < 2; e++) {
                                 float ex = (e == 0 ? -softIpdM()*0.5f : softIpdM()*0.5f);
                                 Mat4 eyeShift = mat4Translate(-ex, 0, 0);
                                 Mat4 view = mat4Mul(eyeShift, viewBase);
                                 glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                                                        GL_TEXTURE_2D, gSwap[e][gSwapIdx], 0);
-                                glViewport(0, 0, gStreamW, gStreamH);
+                                glViewport(0, 0, doW, doH);
                                 Mat4 mvp = mat4Mul(sproj, mat4Mul(view, settingsWorld));
                                 glEnable(GL_BLEND);
                                 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
