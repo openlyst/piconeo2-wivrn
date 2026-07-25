@@ -693,37 +693,38 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 
 	neo2::quat hq = neo2::normalize_quat({h_orient[0], h_orient[1], h_orient[2], h_orient[3]});
 
-	// Light EMA on head position only. SLAM position samples carry per-sample
-	// noise that the server's polynomial extrapolator amplifies into visible
-	// shake when you're looking at a fixed object. tau=0.025s at the 300Hz
-	// uplink rate gives alpha ~= 0.125 -- enough to knock down the noise
-	// without adding perceptible lag. Orientation is left untouched (the IMU
-	// fusion already produces clean quaternions) and controllers are not
-	// touched here.
-	constexpr float k_pos_tau = 0.025f;
+	// One-Euro on head position. The old fixed-tau EMA (tau=0.025s) killed
+	// static-fixation shake but lagged position behind orientation during
+	// head turns, producing eye swim and nausea. One-Euro with min_cutoff=2Hz
+	// smooths hard at rest and opens up the cutoff when the head is moving,
+	// so position tracks orientation during turns without rest-time jitter.
+	// Same pattern as the controller position filter below.
 	constexpr float k_dt = 1.0f / 300.0f;
-	const float k_pos_alpha = 1.0f - expf(-k_dt / k_pos_tau);
-	if (!head_smooth_pos_init)
+	float smooth_pos[3];
+	if (!head_pos_filter_init)
 	{
-		head_smooth_pos[0] = h_pos[0];
-		head_smooth_pos[1] = h_pos[1];
-		head_smooth_pos[2] = h_pos[2];
-		head_smooth_pos_init = true;
+		head_pos_filter[0].reset();
+		head_pos_filter[1].reset();
+		head_pos_filter[2].reset();
+		smooth_pos[0] = h_pos[0];
+		smooth_pos[1] = h_pos[1];
+		smooth_pos[2] = h_pos[2];
+		head_pos_filter_init = true;
 	}
 	else
 	{
-		head_smooth_pos[0] += (h_pos[0] - head_smooth_pos[0]) * k_pos_alpha;
-		head_smooth_pos[1] += (h_pos[1] - head_smooth_pos[1]) * k_pos_alpha;
-		head_smooth_pos[2] += (h_pos[2] - head_smooth_pos[2]) * k_pos_alpha;
+		smooth_pos[0] = head_pos_filter[0].filter(h_pos[0], k_dt);
+		smooth_pos[1] = head_pos_filter[1].filter(h_pos[1], k_dt);
+		smooth_pos[2] = head_pos_filter[2].filter(h_pos[2], k_dt);
 	}
 
 	XrPosef head_pose;
 	head_pose.orientation = neo2::to_xr_quat(hq);
 	float h_offset = floor_relative.load() ? 0.0f : height_offset.load();
 	head_pose.position = {
-		head_smooth_pos[0],
-		head_smooth_pos[1] + h_offset,
-		head_smooth_pos[2]};
+		smooth_pos[0],
+		smooth_pos[1] + h_offset,
+		smooth_pos[2]};
 
 	// Pico Neo 2 has a square ~101 degree per-eye FOV. The OpenXR runtime
 	// may report wider values; use the known-correct value from the Pico SDK.
