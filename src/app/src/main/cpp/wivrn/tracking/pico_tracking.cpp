@@ -693,38 +693,17 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 
 	neo2::quat hq = neo2::normalize_quat({h_orient[0], h_orient[1], h_orient[2], h_orient[3]});
 
-	// One-Euro on head position. The old fixed-tau EMA (tau=0.025s) killed
-	// static-fixation shake but lagged position behind orientation during
-	// head turns, producing eye swim and nausea. One-Euro with min_cutoff=2Hz
-	// smooths hard at rest and opens up the cutoff when the head is moving,
-	// so position tracks orientation during turns without rest-time jitter.
-	// Same pattern as the controller position filter below.
-	constexpr float k_dt = 1.0f / 300.0f;
-	float smooth_pos[3];
-	if (!head_pos_filter_init)
-	{
-		head_pos_filter[0].reset();
-		head_pos_filter[1].reset();
-		head_pos_filter[2].reset();
-		smooth_pos[0] = h_pos[0];
-		smooth_pos[1] = h_pos[1];
-		smooth_pos[2] = h_pos[2];
-		head_pos_filter_init = true;
-	}
-	else
-	{
-		smooth_pos[0] = head_pos_filter[0].filter(h_pos[0], k_dt);
-		smooth_pos[1] = head_pos_filter[1].filter(h_pos[1], k_dt);
-		smooth_pos[2] = head_pos_filter[2].filter(h_pos[2], k_dt);
-	}
-
+	// Head position is sent raw. See note in pico_tracking.h: any position
+	// filter either causes eye swim during turns or drift after stopping.
+	// Jitter is handled by the velocity One-Euro + deadband and the server's
+	// polynomial extrapolator.
 	XrPosef head_pose;
 	head_pose.orientation = neo2::to_xr_quat(hq);
 	float h_offset = floor_relative.load() ? 0.0f : height_offset.load();
 	head_pose.position = {
-		smooth_pos[0],
-		smooth_pos[1] + h_offset,
-		smooth_pos[2]};
+		h_pos[0],
+		h_pos[1] + h_offset,
+		h_pos[2]};
 
 	// Pico Neo 2 has a square ~101 degree per-eye FOV. The OpenXR runtime
 	// may report wider values; use the known-correct value from the Pico SDK.

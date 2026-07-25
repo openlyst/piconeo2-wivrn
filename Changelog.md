@@ -1,6 +1,6 @@
 # [1.0.0]() (Unreleased)
 
-- Replace fixed-tau EMA on HMD position with One-Euro filter, fixing eye swim and nausea during head turns while keeping rest-time de-jitter.
+- Remove HMD position smoothing filter, fixing eye swim during head turns and drift after stopping. Jitter is handled by the velocity One-Euro + deadband and the server's polynomial extrapolator.
 
 # [Beta 1.1](https://github.com/openlyst/piconeo2-wivrn/releases/download/Beta-1.1-(Unreleased)/wivrn-pvr-Beta-1.1-.Unreleased.apk)
 

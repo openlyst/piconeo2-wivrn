@@ -212,16 +212,11 @@ private:
 	bool height_calibrated = false;
 	bool hw_velocity_valid = false;
 
-	// Adaptive position smoothing for the HMD. The SLAM position samples carry
-	// small per-sample noise that the server's polynomial extrapolator
-	// amplifies into visible shake when looking at a fixed object. The old
-	// fixed-tau EMA (tau=0.025s) killed that shake but lagged position behind
-	// orientation during head turns, producing eye swim and nausea. One-Euro
-	// smooths hard at rest (low min_cutoff) and opens up the cutoff when the
-	// head is moving, so position tracks orientation during turns without the
-	// rest-time jitter. Mirrors the controller position filter pattern.
-	one_euro_filter head_pos_filter[3]{{2.0f, 0.01f}, {2.0f, 0.01f}, {2.0f, 0.01f}};
-	bool head_pos_filter_init = false;
+	// HMD position is sent raw. Any position filter (fixed EMA or One-Euro)
+	// either lags behind orientation during turns (eye swim) or keeps drifting
+	// after the head stops (the filter catching up to where the head actually
+	// is). Jitter is handled upstream by the velocity One-Euro + deadband and
+	// the server's polynomial extrapolator, so no position filter is needed.
 
 	// One-Euro filters for head velocity components. min_cutoff=1.2 Hz gives
 	// strong smoothing at rest (kills the "still but shaking" jitter), beta=0.05
