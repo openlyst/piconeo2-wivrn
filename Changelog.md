@@ -1,3 +1,7 @@
+# [1.0.0](https://github.com/openlyst/piconeo2-wivrn/releases/download/1.0.0/wivrn-pvr-1.0.0.apk)
+
+- First stable release.
+
 # [Beta 1.1](https://github.com/openlyst/piconeo2-wivrn/releases/download/Beta-1.1-(Unreleased)/wivrn-pvr-Beta-1.1-.Unreleased.apk)
 
 - Reimplements Eye tracking
