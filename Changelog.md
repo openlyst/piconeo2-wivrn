@@ -7,6 +7,7 @@
 - Adds MIT-licensed submodule for license compliance (This is only for the ALVR shim)
 - Fixed stereo IPD mismatch
 - Fixed springing HMD tracking
+- Fixed HMD shake by adopting the official streaming assistant's velocity model: heavy EMA (tau=0.66s) on head linear/angular velocity plus a small rest deadband, replacing the One-Euro filter that leaked noise during slow drift
 - Fixed passthrough warping at the edges of the view
 - Fixed race conditions on stream lifecycle
 - Fixed lobby status text mislabeling "Disconnected" as "Connecting"

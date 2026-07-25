@@ -138,12 +138,36 @@ void pico_native_tracker::set_head_pose(const float orient[4], const float pos[3
 
 	if (lin_vel && ang_vel)
 	{
-		head_lin_vel[0] = lin_vel[0];
-		head_lin_vel[1] = lin_vel[1];
-		head_lin_vel[2] = lin_vel[2];
-		head_ang_vel[0] = ang_vel[0];
-		head_ang_vel[1] = ang_vel[1];
-		head_ang_vel[2] = ang_vel[2];
+		// Smooth the hardware-fused velocity with the same heavy EMA as the
+		// finite-difference path. IMU fusion is cleaner than differencing
+		// but still carries enough per-sample noise to extrapolate into
+		// shake; tau=0.66s matches the official streaming assistant.
+		constexpr float k_ema_tau = 0.66f;
+		double dt = head_ema_init ? (double)(ts - head_prev_ts) * 1e-9 : 1.0 / 150.0;
+		if (dt <= 0.002 || dt > 0.05)
+			dt = 1.0 / 150.0;
+		float a = 1.0f - expf(-(float)dt / k_ema_tau);
+		if (!head_ema_init)
+		{
+			head_ema_lin[0] = lin_vel[0]; head_ema_lin[1] = lin_vel[1]; head_ema_lin[2] = lin_vel[2];
+			head_ema_ang[0] = ang_vel[0]; head_ema_ang[1] = ang_vel[1]; head_ema_ang[2] = ang_vel[2];
+			head_ema_init = true;
+		}
+		else
+		{
+			head_ema_lin[0] += (lin_vel[0] - head_ema_lin[0]) * a;
+			head_ema_lin[1] += (lin_vel[1] - head_ema_lin[1]) * a;
+			head_ema_lin[2] += (lin_vel[2] - head_ema_lin[2]) * a;
+			head_ema_ang[0] += (ang_vel[0] - head_ema_ang[0]) * a;
+			head_ema_ang[1] += (ang_vel[1] - head_ema_ang[1]) * a;
+			head_ema_ang[2] += (ang_vel[2] - head_ema_ang[2]) * a;
+		}
+		head_lin_vel[0] = head_ema_lin[0];
+		head_lin_vel[1] = head_ema_lin[1];
+		head_lin_vel[2] = head_ema_lin[2];
+		head_ang_vel[0] = head_ema_ang[0];
+		head_ang_vel[1] = head_ema_ang[1];
+		head_ang_vel[2] = head_ema_ang[2];
 		hw_velocity_valid = true;
 		head_prev_pos[0] = pos[0];
 		head_prev_pos[1] = pos[1];
@@ -151,13 +175,6 @@ void pico_native_tracker::set_head_pose(const float orient[4], const float pos[3
 		head_prev_orient = hq;
 		head_prev_ts = ts;
 		head_filter_init = true;
-		// Reset One-Euro state so it re-initializes cleanly if we later
-		// fall back to finite-differenced velocity.
-		for (int i = 0; i < 3; i++)
-		{
-			head_lin_filter[i].reset();
-			head_ang_filter[i].reset();
-		}
 		// Deadband hw velocity too: even IMU-fused velocity has small noise
 		// at rest that the server will extrapolate into jitter.
 		constexpr float lin_db = 0.01f;
@@ -351,27 +368,40 @@ void pico_native_tracker::step_head_filter(const float pos[3], const neo2::quat 
 				avx = delta.x * k; avy = delta.y * k; avz = delta.z * k;
 			}
 
-			// One-Euro adaptive filter replaces the old fixed-tau EMA. The EMA
-			// with tau=0.08s was a compromise: smooth enough at rest to hide
-			// some jitter, but it lagged real motion by ~80ms and still let
-			// per-sample noise through during slow drift. One-Euro scales its
-			// cutoff with speed, so it's far smoother when the head is still
-			// (kills the "shaky when not moving" complaint) and equally
-			// responsive when turning.
-			float fdt = (float)dt;
-			head_lin_vel[0] = head_lin_filter[0].filter(lvx, fdt);
-			head_lin_vel[1] = head_lin_filter[1].filter(lvy, fdt);
-			head_lin_vel[2] = head_lin_filter[2].filter(lvz, fdt);
-			head_ang_vel[0] = head_ang_filter[0].filter(avx, fdt);
-			head_ang_vel[1] = head_ang_filter[1].filter(avy, fdt);
-			head_ang_vel[2] = head_ang_filter[2].filter(avz, fdt);
+			// Heavy dt-normalized EMA (tau=0.66s) mirrors the official Pico
+			// streaming assistant. The long time constant averages SLAM noise
+			// across many samples so the server's polynomial extrapolator sees
+			// a clean velocity. One-Euro was tried before; its adaptive cutoff
+			// opened up during slow drift and let per-sample noise through,
+			// which the server then amplified into visible shake.
+			constexpr float k_ema_tau = 0.66f;
+			float a = 1.0f - expf(-(float)dt / k_ema_tau);
+			if (!head_ema_init)
+			{
+				head_ema_lin[0] = lvx; head_ema_lin[1] = lvy; head_ema_lin[2] = lvz;
+				head_ema_ang[0] = avx; head_ema_ang[1] = avy; head_ema_ang[2] = avz;
+				head_ema_init = true;
+			}
+			else
+			{
+				head_ema_lin[0] += (lvx - head_ema_lin[0]) * a;
+				head_ema_lin[1] += (lvy - head_ema_lin[1]) * a;
+				head_ema_lin[2] += (lvz - head_ema_lin[2]) * a;
+				head_ema_ang[0] += (avx - head_ema_ang[0]) * a;
+				head_ema_ang[1] += (avy - head_ema_ang[1]) * a;
+				head_ema_ang[2] += (avz - head_ema_ang[2]) * a;
+			}
+			head_lin_vel[0] = head_ema_lin[0];
+			head_lin_vel[1] = head_ema_lin[1];
+			head_lin_vel[2] = head_ema_lin[2];
+			head_ang_vel[0] = head_ema_ang[0];
+			head_ang_vel[1] = head_ema_ang[1];
+			head_ang_vel[2] = head_ema_ang[2];
 
 			// Velocity deadband: when the filtered velocity is small enough that
 			// extrapolating it over the prediction horizon (typically 20-40ms)
-			// would move the pose by less than ~0.2mm / 0.05deg, zero it out.
-			// This is the single most effective fix for "shaky when completely
-			// still": without it, residual noise of e.g. 0.005 m/s extrapolated
-			// 30ms forward produces 0.15mm of wander every frame.
+			// would move the pose by less than ~0.3mm / 0.03deg, zero it out.
+			// Belt-and-suspenders on top of the heavy EMA for rock-solid rest.
 			constexpr float lin_deadband = 0.01f;  // m/s -> 0.3mm at 30ms
 			constexpr float ang_deadband = 0.01f;  // rad/s -> 0.03deg at 30ms
 			if (std::abs(head_lin_vel[0]) < lin_deadband) head_lin_vel[0] = 0;

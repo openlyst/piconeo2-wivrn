@@ -212,11 +212,15 @@ private:
 	bool height_calibrated = false;
 	bool hw_velocity_valid = false;
 
-	// One-Euro filters for head velocity components. min_cutoff=1.2 Hz gives
-	// strong smoothing at rest (kills the "still but shaking" jitter), beta=0.05
-	// keeps it responsive enough during head turns without overshoot.
-	one_euro_filter head_lin_filter[3]{{1.2f, 0.05f}, {1.2f, 0.05f}, {1.2f, 0.05f}};
-	one_euro_filter head_ang_filter[3]{{1.2f, 0.05f}, {1.2f, 0.05f}, {1.2f, 0.05f}};
+	// Head velocity smoothing. A heavy dt-normalized EMA (tau=0.66s) mirrors
+	// the official Pico streaming assistant: the long time constant averages
+	// SLAM/IMU noise across many samples so the server's polynomial
+	// extrapolator sees a clean velocity instead of per-sample jitter that
+	// gets amplified into visible shake. One-Euro was tried before; its
+	// adaptive cutoff opened up during slow drift and let noise through.
+	float head_ema_lin[3]{0, 0, 0};
+	float head_ema_ang[3]{0, 0, 0};
+	bool head_ema_init = false;
 
 	// Prediction offset from server's tracking_control
 	std::atomic<int64_t> prediction_ns{0};
