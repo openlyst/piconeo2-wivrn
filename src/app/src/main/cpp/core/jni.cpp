@@ -586,6 +586,7 @@ Java_org_meumeu_wivrn_neo2_pvr_MainActivity_nativeSetMicrophone(JNIEnv *, jobjec
     g_stream->microphone_enabled.store(enabled == JNI_TRUE);
     if (g_stream->audio_handle)
         g_stream->audio_handle->set_mic_state(enabled == JNI_TRUE);
+    g_stream->send_headset_info();
     LOGI("Microphone %s", enabled == JNI_TRUE ? "enabled" : "disabled");
 }
 
