@@ -29,19 +29,8 @@ constexpr float k_grip_up_mm = 12.5f;
 constexpr float k_grip_back_mm = 40.0f;
 constexpr float k_rot_swing = 1.0f;
 
-constexpr float k_predict = 0.8f;
-
-// Head has no hardware velocity on this SDK; it's differentiated position.
-// Linear and angular reach must match: sending full-strength rotation
-// extrapolation with dialed-back position extrapolation (the old 0.4/1.0
-// split) desyncs the eyes' predicted swing around the neck from the
-// predicted orientation, so nearby geometry swims during head turns even
-// though the frame rate itself is smooth. That swim is a much stronger
-// sickness trigger than the reach itself, so both axes use the same factor.
-// Now that the velocity filter (step_head_filter) tracks real motion within
-// ~80ms instead of ~660ms, this can run closer to full strength without the
-// old overshoot-after-stop behaviour.
-constexpr float k_head_predict = 0.7f;
+constexpr float k_predict = 1.0f;
+constexpr float k_head_predict = 1.0f;
 
 neo2::quat apply_controller_orientation(const float raw_orient[4], int hand)
 {
@@ -160,8 +149,8 @@ void pico_native_tracker::set_head_pose(const float orient[4], const float pos[3
 		}
 		// Deadband hw velocity too: even IMU-fused velocity has small noise
 		// at rest that the server will extrapolate into jitter.
-		constexpr float lin_db = 0.01f;
-		constexpr float ang_db = 0.01f;
+		constexpr float lin_db = 0.03f;
+		constexpr float ang_db = 0.03f;
 		if (std::abs(head_lin_vel[0]) < lin_db) head_lin_vel[0] = 0;
 		if (std::abs(head_lin_vel[1]) < lin_db) head_lin_vel[1] = 0;
 		if (std::abs(head_lin_vel[2]) < lin_db) head_lin_vel[2] = 0;
@@ -351,29 +340,26 @@ void pico_native_tracker::step_head_filter(const float pos[3], const neo2::quat 
 				avx = delta.x * k; avy = delta.y * k; avz = delta.z * k;
 			}
 
-			// One-Euro adaptive filter replaces the old fixed-tau EMA. The EMA
-			// with tau=0.08s was a compromise: smooth enough at rest to hide
-			// some jitter, but it lagged real motion by ~80ms and still let
-			// per-sample noise through during slow drift. One-Euro scales its
-			// cutoff with speed, so it's far smoother when the head is still
-			// (kills the "shaky when not moving" complaint) and equally
-			// responsive when turning.
-			float fdt = (float)dt;
-			head_lin_vel[0] = head_lin_filter[0].filter(lvx, fdt);
-			head_lin_vel[1] = head_lin_filter[1].filter(lvy, fdt);
-			head_lin_vel[2] = head_lin_filter[2].filter(lvz, fdt);
-			head_ang_vel[0] = head_ang_filter[0].filter(avx, fdt);
-			head_ang_vel[1] = head_ang_filter[1].filter(avy, fdt);
-			head_ang_vel[2] = head_ang_filter[2].filter(avz, fdt);
+			// Raw finite differencing, no filter. The Pico official streaming
+			// app does zero PC-side filtering; the HMD's SLAM+IMU fusion
+			// produces clean enough poses, and the server's polynomial
+			// interpolator (quadratic fit over a 30ms weighted window) handles
+			// residual noise across multiple samples. The previous One-Euro
+			// filter added lag that biased the polynomial fit and caused a
+			// derivative-overshoot glitch every now and then at rest.
+			head_lin_vel[0] = lvx;
+			head_lin_vel[1] = lvy;
+			head_lin_vel[2] = lvz;
+			head_ang_vel[0] = avx;
+			head_ang_vel[1] = avy;
+			head_ang_vel[2] = avz;
 
-			// Velocity deadband: when the filtered velocity is small enough that
-			// extrapolating it over the prediction horizon (typically 20-40ms)
-			// would move the pose by less than ~0.2mm / 0.05deg, zero it out.
-			// This is the single most effective fix for "shaky when completely
-			// still": without it, residual noise of e.g. 0.005 m/s extrapolated
-			// 30ms forward produces 0.15mm of wander every frame.
-			constexpr float lin_deadband = 0.01f;  // m/s -> 0.3mm at 30ms
-			constexpr float ang_deadband = 0.01f;  // rad/s -> 0.03deg at 30ms
+			// Wider deadband since we're not pre-filtering. At 30ms prediction
+			// horizon, 0.03 m/s -> 0.9mm, 0.03 rad/s -> 0.05deg. Below this the
+			// server's polynomial fit holds the pose steady from position
+			// history alone.
+			constexpr float lin_deadband = 0.03f;
+			constexpr float ang_deadband = 0.03f;
 			if (std::abs(head_lin_vel[0]) < lin_deadband) head_lin_vel[0] = 0;
 			if (std::abs(head_lin_vel[1]) < lin_deadband) head_lin_vel[1] = 0;
 			if (std::abs(head_lin_vel[2]) < lin_deadband) head_lin_vel[2] = 0;
@@ -431,24 +417,19 @@ void pico_native_tracker::step_ctrl_filter(int hand, const float pos_m[3], const
 				}
 			}
 
-			// One-Euro adaptive filter, same rationale as step_head_filter.
-			// Controllers have more positional noise than the HMD (6DOF optical
-			// tracking vs SLAM-fused IMU), so min_cutoff is lower (1.0 Hz vs
-			// 1.2 Hz) for stronger rest smoothing.
-			float fdt = (float)dt;
-			ctrl_lin_vel[hand][0] = ctrl_lin_filter[hand][0].filter(lvx, fdt);
-			ctrl_lin_vel[hand][1] = ctrl_lin_filter[hand][1].filter(lvy, fdt);
-			ctrl_lin_vel[hand][2] = ctrl_lin_filter[hand][2].filter(lvz, fdt);
-			ctrl_ang_vel[hand][0] = ctrl_ang_filter[hand][0].filter(avx, fdt);
-			ctrl_ang_vel[hand][1] = ctrl_ang_filter[hand][1].filter(avy, fdt);
-			ctrl_ang_vel[hand][2] = ctrl_ang_filter[hand][2].filter(avz, fdt);
+			// Raw finite differencing, no velocity filter. Same rationale as
+			// step_head_filter: the server's polynomial interpolator handles
+			// noise, and filtering adds lag that biases the fit.
+			ctrl_lin_vel[hand][0] = lvx;
+			ctrl_lin_vel[hand][1] = lvy;
+			ctrl_lin_vel[hand][2] = lvz;
+			ctrl_ang_vel[hand][0] = avx;
+			ctrl_ang_vel[hand][1] = avy;
+			ctrl_ang_vel[hand][2] = avz;
 
-			// Velocity deadband. Controllers are the worse case for "shaky when
-			// still" because optical 6DOF tracking has more low-frequency drift
-			// than IMU-fused head tracking. The deadband zeroes residual noise
-			// so the server's prediction holds the pose rock-steady at rest.
-			constexpr float lin_deadband = 0.008f;  // m/s -> 0.24mm at 30ms
-			constexpr float ang_deadband = 0.015f;  // rad/s -> 0.045deg at 30ms
+			// Wider deadband for controllers (more optical tracking noise).
+			constexpr float lin_deadband = 0.02f;
+			constexpr float ang_deadband = 0.03f;
 			if (std::abs(ctrl_lin_vel[hand][0]) < lin_deadband) ctrl_lin_vel[hand][0] = 0;
 			if (std::abs(ctrl_lin_vel[hand][1]) < lin_deadband) ctrl_lin_vel[hand][1] = 0;
 			if (std::abs(ctrl_lin_vel[hand][2]) < lin_deadband) ctrl_lin_vel[hand][2] = 0;

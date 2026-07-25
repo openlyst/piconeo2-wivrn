@@ -212,9 +212,8 @@ private:
 	bool height_calibrated = false;
 	bool hw_velocity_valid = false;
 
-	// One-Euro filters for head velocity components. min_cutoff=1.2 Hz gives
-	// strong smoothing at rest (kills the "still but shaking" jitter), beta=0.05
-	// keeps it responsive enough during head turns without overshoot.
+	// One-Euro filters for head velocity (kept for HW velocity path reset,
+	// not used in the finite-differencing path).
 	one_euro_filter head_lin_filter[3]{{1.2f, 0.05f}, {1.2f, 0.05f}, {1.2f, 0.05f}};
 	one_euro_filter head_ang_filter[3]{{1.2f, 0.05f}, {1.2f, 0.05f}, {1.2f, 0.05f}};
 
@@ -241,10 +240,7 @@ public:
 	neo2::quat ctrl_smooth_orient[2]{{0, 0, 0, 1}, {0, 0, 0, 1}};
 	bool ctrl_smooth_init[2]{false, false};
 
-	// One-Euro filters for controller velocity. Controllers have more sensor
-	// noise than the HMD (6DOF from optical tracking vs IMU-fused SLAM), so
-	// min_cutoff is lower (1.0 Hz) for stronger rest smoothing. beta=0.04
-	// keeps swing responsive enough for aiming.
+	// One-Euro filters for controller velocity (unused now, kept for compatibility).
 	one_euro_filter ctrl_lin_filter[2][3]{{{1.0f, 0.04f}, {1.0f, 0.04f}, {1.0f, 0.04f}},
 	                                      {{1.0f, 0.04f}, {1.0f, 0.04f}, {1.0f, 0.04f}}};
 	one_euro_filter ctrl_ang_filter[2][3]{{{1.0f, 0.04f}, {1.0f, 0.04f}, {1.0f, 0.04f}},
