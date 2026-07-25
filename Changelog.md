@@ -7,6 +7,7 @@
 - Adds MIT-licensed submodule for license compliance (This is only for the ALVR shim)
 - Fixed stereo IPD mismatch
 - Fixed springing HMD tracking
+- Fixed HMD shake by adding light EMA smoothing (tau=25ms) on head position only; controllers and orientation untouched
 - Fixed passthrough warping at the edges of the view
 - Fixed race conditions on stream lifecycle
 - Fixed lobby status text mislabeling "Disconnected" as "Connecting"
