@@ -3,16 +3,17 @@
 - Reimplements Eye tracking
 - Adds foveated streaming
 - Adds controller models
-- Adds MIT-licensed submodule for license compliance
+- Ports the exact same prediction model that the official streaming assistant uses.
+- Adds MIT-licensed submodule for license compliance (This is only for the ALVR shim)
 - Fixed stereo IPD mismatch
 - Fixed springing HMD tracking
 - Fixed passthrough warping at the edges of the view
 - Fixed race conditions on stream lifecycle
 - Fixed lobby status text mislabeling "Disconnected" as "Connecting"
-- Fixed crashing when loading some unity games like Anthro Heat.
-- Fixed controllers not tracking when only one is connected 
+- Fixed crashing when loading some Unity games like Anthro Heat.
+- Fixed controllers not tracking when only one is connected
 - Passthrough is now off by default
-- Dynamic bitrate removed 
+- Dynamic bitrate removed
 - "Lower resolution for wireless" option removed
 - Resolution slider now is %'ge
 
@@ -108,8 +109,8 @@
 
 ### Known bugs
 - Holding down buttons can get stuck
-- Stream 1 has a stutter however way less then the PVR version
-- Pointer in lobby doesnt work you have to pair from the PC
+- Stream 1 has a stutter however way less than the PVR version
+- Pointer in lobby doesn't work you have to pair from the PC
 - Beat saber might be flipped upside down depending on your pc
 
 # RC1 (PVR)
