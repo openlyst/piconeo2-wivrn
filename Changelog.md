@@ -1,5 +1,6 @@
 # [1.0.0]() (Unreleased)
 
+- Adds smoothing to 6-dof users HMD. ([MR !231](https://gitlab.com/HttpAnimations/piconeo2-wivrn/-/merge_requests/231))
 
 # [Beta 1.1](https://github.com/openlyst/piconeo2-wivrn/releases/download/Beta-1.1-(Unreleased)/wivrn-pvr-Beta-1.1-.Unreleased.apk)
 

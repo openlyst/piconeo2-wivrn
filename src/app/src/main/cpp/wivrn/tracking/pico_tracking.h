@@ -212,13 +212,11 @@ private:
 	bool height_calibrated = false;
 	bool hw_velocity_valid = false;
 
-	// Light position smoothing for the HMD. The SLAM position samples carry
-	// small per-sample noise that the server's polynomial extrapolator
-	// amplifies into visible shake when looking at a fixed object. A short-tau
-	// EMA (tau=0.025s) knocks that down without adding perceptible lag.
-	// Controllers are NOT smoothed here -- they already feel right.
-	float head_smooth_pos[3]{0, 0, 0};
-	bool head_smooth_pos_init = false;
+	// HMD position is sent raw. Any position filter (fixed EMA or One-Euro)
+	// either lags behind orientation during turns (eye swim) or keeps drifting
+	// after the head stops (the filter catching up to where the head actually
+	// is). Jitter is handled upstream by the velocity One-Euro + deadband and
+	// the server's polynomial extrapolator, so no position filter is needed.
 
 	// One-Euro filters for head velocity components. min_cutoff=1.2 Hz gives
 	// strong smoothing at rest (kills the "still but shaking" jitter), beta=0.05

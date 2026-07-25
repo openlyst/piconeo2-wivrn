@@ -693,37 +693,17 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 
 	neo2::quat hq = neo2::normalize_quat({h_orient[0], h_orient[1], h_orient[2], h_orient[3]});
 
-	// Light EMA on head position only. SLAM position samples carry per-sample
-	// noise that the server's polynomial extrapolator amplifies into visible
-	// shake when you're looking at a fixed object. tau=0.025s at the 300Hz
-	// uplink rate gives alpha ~= 0.125 -- enough to knock down the noise
-	// without adding perceptible lag. Orientation is left untouched (the IMU
-	// fusion already produces clean quaternions) and controllers are not
-	// touched here.
-	constexpr float k_pos_tau = 0.025f;
-	constexpr float k_dt = 1.0f / 300.0f;
-	const float k_pos_alpha = 1.0f - expf(-k_dt / k_pos_tau);
-	if (!head_smooth_pos_init)
-	{
-		head_smooth_pos[0] = h_pos[0];
-		head_smooth_pos[1] = h_pos[1];
-		head_smooth_pos[2] = h_pos[2];
-		head_smooth_pos_init = true;
-	}
-	else
-	{
-		head_smooth_pos[0] += (h_pos[0] - head_smooth_pos[0]) * k_pos_alpha;
-		head_smooth_pos[1] += (h_pos[1] - head_smooth_pos[1]) * k_pos_alpha;
-		head_smooth_pos[2] += (h_pos[2] - head_smooth_pos[2]) * k_pos_alpha;
-	}
-
+	// Head position is sent raw. See note in pico_tracking.h: any position
+	// filter either causes eye swim during turns or drift after stopping.
+	// Jitter is handled by the velocity One-Euro + deadband and the server's
+	// polynomial extrapolator.
 	XrPosef head_pose;
 	head_pose.orientation = neo2::to_xr_quat(hq);
 	float h_offset = floor_relative.load() ? 0.0f : height_offset.load();
 	head_pose.position = {
-		head_smooth_pos[0],
-		head_smooth_pos[1] + h_offset,
-		head_smooth_pos[2]};
+		h_pos[0],
+		h_pos[1] + h_offset,
+		h_pos[2]};
 
 	// Pico Neo 2 has a square ~101 degree per-eye FOV. The OpenXR runtime
 	// may report wider values; use the known-correct value from the Pico SDK.
