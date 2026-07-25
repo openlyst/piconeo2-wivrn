@@ -1,6 +1,6 @@
 # [1.0.0]() (Unreleased)
 
-- Remove HMD position smoothing filter, fixing eye swim during head turns and drift after stopping. Jitter is handled by the velocity One-Euro + deadband and the server's polynomial extrapolator.
+- Remove HMD position smoothing filter, fixing eye swim during head turns and drift after stopping. Jitter is handled by the velocity One-Euro + deadband and the server's polynomial extrapolator. ([MR !231](https://gitlab.com/HttpAnimations/piconeo2-wivrn/-/merge_requests/231))
 
 # [Beta 1.1](https://github.com/openlyst/piconeo2-wivrn/releases/download/Beta-1.1-(Unreleased)/wivrn-pvr-Beta-1.1-.Unreleased.apk)
 
