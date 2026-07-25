@@ -151,6 +151,23 @@ void pico_native_tracker::set_head_pose(const float orient[4], const float pos[3
 		head_prev_orient = hq;
 		head_prev_ts = ts;
 		head_filter_init = true;
+		// Reset One-Euro state so it re-initializes cleanly if we later
+		// fall back to finite-differenced velocity.
+		for (int i = 0; i < 3; i++)
+		{
+			head_lin_filter[i].reset();
+			head_ang_filter[i].reset();
+		}
+		// Deadband hw velocity too: even IMU-fused velocity has small noise
+		// at rest that the server will extrapolate into jitter.
+		constexpr float lin_db = 0.01f;
+		constexpr float ang_db = 0.01f;
+		if (std::abs(head_lin_vel[0]) < lin_db) head_lin_vel[0] = 0;
+		if (std::abs(head_lin_vel[1]) < lin_db) head_lin_vel[1] = 0;
+		if (std::abs(head_lin_vel[2]) < lin_db) head_lin_vel[2] = 0;
+		if (std::abs(head_ang_vel[0]) < ang_db) head_ang_vel[0] = 0;
+		if (std::abs(head_ang_vel[1]) < ang_db) head_ang_vel[1] = 0;
+		if (std::abs(head_ang_vel[2]) < ang_db) head_ang_vel[2] = 0;
 	}
 	else
 	{
@@ -334,21 +351,35 @@ void pico_native_tracker::step_head_filter(const float pos[3], const neo2::quat 
 				avx = delta.x * k; avy = delta.y * k; avz = delta.z * k;
 			}
 
-			// EMA smoothing, tau=0.08s. Was 0.66s, which left the filtered
-			// velocity lagging real head motion by well over half a second: after
-			// you stopped turning your head, the server kept extrapolating with a
-			// stale non-zero velocity for a while, so the rendered world kept
-			// drifting after the vestibular system said "stopped". That mismatch
-			// is a textbook motion-sickness trigger. 0.08s tracks real motion
-			// closely while still knocking down per-sample jitter, matching the
-			// controller filter's responsiveness (tau=0.05s, see step_ctrl_filter).
-			const float a = 1.0f - expf(-(float)dt / 0.08f);
-			head_lin_vel[0] += (lvx - head_lin_vel[0]) * a;
-			head_lin_vel[1] += (lvy - head_lin_vel[1]) * a;
-			head_lin_vel[2] += (lvz - head_lin_vel[2]) * a;
-			head_ang_vel[0] += (avx - head_ang_vel[0]) * a;
-			head_ang_vel[1] += (avy - head_ang_vel[1]) * a;
-			head_ang_vel[2] += (avz - head_ang_vel[2]) * a;
+			// One-Euro adaptive filter replaces the old fixed-tau EMA. The EMA
+			// with tau=0.08s was a compromise: smooth enough at rest to hide
+			// some jitter, but it lagged real motion by ~80ms and still let
+			// per-sample noise through during slow drift. One-Euro scales its
+			// cutoff with speed, so it's far smoother when the head is still
+			// (kills the "shaky when not moving" complaint) and equally
+			// responsive when turning.
+			float fdt = (float)dt;
+			head_lin_vel[0] = head_lin_filter[0].filter(lvx, fdt);
+			head_lin_vel[1] = head_lin_filter[1].filter(lvy, fdt);
+			head_lin_vel[2] = head_lin_filter[2].filter(lvz, fdt);
+			head_ang_vel[0] = head_ang_filter[0].filter(avx, fdt);
+			head_ang_vel[1] = head_ang_filter[1].filter(avy, fdt);
+			head_ang_vel[2] = head_ang_filter[2].filter(avz, fdt);
+
+			// Velocity deadband: when the filtered velocity is small enough that
+			// extrapolating it over the prediction horizon (typically 20-40ms)
+			// would move the pose by less than ~0.2mm / 0.05deg, zero it out.
+			// This is the single most effective fix for "shaky when completely
+			// still": without it, residual noise of e.g. 0.005 m/s extrapolated
+			// 30ms forward produces 0.15mm of wander every frame.
+			constexpr float lin_deadband = 0.01f;  // m/s -> 0.3mm at 30ms
+			constexpr float ang_deadband = 0.01f;  // rad/s -> 0.03deg at 30ms
+			if (std::abs(head_lin_vel[0]) < lin_deadband) head_lin_vel[0] = 0;
+			if (std::abs(head_lin_vel[1]) < lin_deadband) head_lin_vel[1] = 0;
+			if (std::abs(head_lin_vel[2]) < lin_deadband) head_lin_vel[2] = 0;
+			if (std::abs(head_ang_vel[0]) < ang_deadband) head_ang_vel[0] = 0;
+			if (std::abs(head_ang_vel[1]) < ang_deadband) head_ang_vel[1] = 0;
+			if (std::abs(head_ang_vel[2]) < ang_deadband) head_ang_vel[2] = 0;
 		}
 	}
 	head_prev_pos[0] = pos[0];
@@ -400,15 +431,30 @@ void pico_native_tracker::step_ctrl_filter(int hand, const float pos_m[3], const
 				}
 			}
 
-			// EMA smoothing, tau=0.08s. Was 0.05s which let too much per-sample
-			// jitter through, causing prediction overshoot on micro-noise.
-			const float a = 1.0f - expf(-(float)dt / 0.08f);
-			ctrl_lin_vel[hand][0] += (lvx - ctrl_lin_vel[hand][0]) * a;
-			ctrl_lin_vel[hand][1] += (lvy - ctrl_lin_vel[hand][1]) * a;
-			ctrl_lin_vel[hand][2] += (lvz - ctrl_lin_vel[hand][2]) * a;
-			ctrl_ang_vel[hand][0] += (avx - ctrl_ang_vel[hand][0]) * a;
-			ctrl_ang_vel[hand][1] += (avy - ctrl_ang_vel[hand][1]) * a;
-			ctrl_ang_vel[hand][2] += (avz - ctrl_ang_vel[hand][2]) * a;
+			// One-Euro adaptive filter, same rationale as step_head_filter.
+			// Controllers have more positional noise than the HMD (6DOF optical
+			// tracking vs SLAM-fused IMU), so min_cutoff is lower (1.0 Hz vs
+			// 1.2 Hz) for stronger rest smoothing.
+			float fdt = (float)dt;
+			ctrl_lin_vel[hand][0] = ctrl_lin_filter[hand][0].filter(lvx, fdt);
+			ctrl_lin_vel[hand][1] = ctrl_lin_filter[hand][1].filter(lvy, fdt);
+			ctrl_lin_vel[hand][2] = ctrl_lin_filter[hand][2].filter(lvz, fdt);
+			ctrl_ang_vel[hand][0] = ctrl_ang_filter[hand][0].filter(avx, fdt);
+			ctrl_ang_vel[hand][1] = ctrl_ang_filter[hand][1].filter(avy, fdt);
+			ctrl_ang_vel[hand][2] = ctrl_ang_filter[hand][2].filter(avz, fdt);
+
+			// Velocity deadband. Controllers are the worse case for "shaky when
+			// still" because optical 6DOF tracking has more low-frequency drift
+			// than IMU-fused head tracking. The deadband zeroes residual noise
+			// so the server's prediction holds the pose rock-steady at rest.
+			constexpr float lin_deadband = 0.008f;  // m/s -> 0.24mm at 30ms
+			constexpr float ang_deadband = 0.015f;  // rad/s -> 0.045deg at 30ms
+			if (std::abs(ctrl_lin_vel[hand][0]) < lin_deadband) ctrl_lin_vel[hand][0] = 0;
+			if (std::abs(ctrl_lin_vel[hand][1]) < lin_deadband) ctrl_lin_vel[hand][1] = 0;
+			if (std::abs(ctrl_lin_vel[hand][2]) < lin_deadband) ctrl_lin_vel[hand][2] = 0;
+			if (std::abs(ctrl_ang_vel[hand][0]) < ang_deadband) ctrl_ang_vel[hand][0] = 0;
+			if (std::abs(ctrl_ang_vel[hand][1]) < ang_deadband) ctrl_ang_vel[hand][1] = 0;
+			if (std::abs(ctrl_ang_vel[hand][2]) < ang_deadband) ctrl_ang_vel[hand][2] = 0;
 		}
 	}
 	ctrl_prev_pos[hand][0] = pos_m[0];
@@ -702,26 +748,27 @@ void pico_native_tracker::transmit_tracking(int64_t headset_ns)
 			cs[h].position[2] * 0.001f + grip_world[2],
 		};
 
-		// Light EMA on position and slerp on orientation to knock down
-		// high-frequency sensor noise without adding noticeable lag.
-		// tau=0.015s at 150Hz uplink -> alpha ~0.1, just enough to smooth
-		// per-sample jitter while tracking real motion within one frame.
+		// One-Euro on position and slerp on orientation. The old fixed-tau EMA
+		// (tau=0.015s) was too light to kill rest jitter. One-Euro smooths hard
+		// at rest (low min_cutoff=2Hz) and opens up the cutoff when the
+		// controller is moving, so there's no perceptible lag during swings.
 		if (!ctrl_smooth_init[h])
 		{
 			ctrl_smooth_pos[h][0] = pos_m[0];
 			ctrl_smooth_pos[h][1] = pos_m[1];
 			ctrl_smooth_pos[h][2] = pos_m[2];
 			ctrl_smooth_orient[h] = cq;
+			ctrl_pos_filter[h][0].reset();
+			ctrl_pos_filter[h][1].reset();
+			ctrl_pos_filter[h][2].reset();
 			ctrl_smooth_init[h] = true;
 		}
 		else
 		{
-			constexpr float pos_tau = 0.015f;
 			float dt_smooth = 1.0f / 150.0f;
-			float pa = 1.0f - expf(-dt_smooth / pos_tau);
-			ctrl_smooth_pos[h][0] += (pos_m[0] - ctrl_smooth_pos[h][0]) * pa;
-			ctrl_smooth_pos[h][1] += (pos_m[1] - ctrl_smooth_pos[h][1]) * pa;
-			ctrl_smooth_pos[h][2] += (pos_m[2] - ctrl_smooth_pos[h][2]) * pa;
+			ctrl_smooth_pos[h][0] = ctrl_pos_filter[h][0].filter(pos_m[0], dt_smooth);
+			ctrl_smooth_pos[h][1] = ctrl_pos_filter[h][1].filter(pos_m[1], dt_smooth);
+			ctrl_smooth_pos[h][2] = ctrl_pos_filter[h][2].filter(pos_m[2], dt_smooth);
 
 			constexpr float orient_tau = 0.02f;
 			float oa = 1.0f - expf(-dt_smooth / orient_tau);

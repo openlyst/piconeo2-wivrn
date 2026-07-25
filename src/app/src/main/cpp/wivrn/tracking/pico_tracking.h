@@ -82,6 +82,62 @@ inline quat slerp_quat(const quat & a, const quat & b, float t)
 }
 } // namespace neo2
 
+// One-Euro filter: adaptive low-pass that smooths aggressively when the
+// signal is slow (kills jitter at rest) and lightly when it's fast (preserves
+// responsiveness during motion). This is the standard de-jitter filter used
+// in VR/AR tracking. A fixed-tau EMA can't do both at once; One-Euro does by
+// scaling its cutoff frequency with the speed of the signal.
+struct one_euro_filter
+{
+	float min_cutoff; // Hz, cutoff at zero speed (lower = smoother at rest)
+	float beta;       // speed coefficient (higher = less lag at speed)
+	float dcutoff;    // Hz, cutoff for the speed estimate itself
+
+	one_euro_filter(float min_cutoff = 1.5f, float beta = 0.08f, float dcutoff = 1.0f)
+		: min_cutoff(min_cutoff), beta(beta), dcutoff(dcutoff) {}
+
+	void reset()
+	{
+		prev_initialized = false;
+		prev_value = 0.0f;
+		prev_derivative = 0.0f;
+	}
+
+	float filter(float x, float dt)
+	{
+		if (dt <= 0.0f || dt > 0.1f)
+			return x;
+		if (!prev_initialized)
+		{
+			prev_value = x;
+			prev_derivative = 0.0f;
+			prev_initialized = true;
+			return x;
+		}
+
+		float dx = (x - prev_value) / dt;
+		float d_alpha = alpha(dcutoff, dt);
+		prev_derivative = prev_derivative + d_alpha * (dx - prev_derivative);
+
+		float cutoff = min_cutoff + beta * std::abs(prev_derivative);
+		float a = alpha(cutoff, dt);
+		prev_value = prev_value + a * (x - prev_value);
+
+		return prev_value;
+	}
+
+private:
+	static float alpha(float cutoff, float dt)
+	{
+		float tau = 1.0f / (2.0f * 3.14159265f * cutoff);
+		return 1.0f / (1.0f + tau / dt);
+	}
+
+	bool prev_initialized = false;
+	float prev_value = 0.0f;
+	float prev_derivative = 0.0f;
+};
+
 struct controller_sample
 {
 	float orientation[4]{};
@@ -156,6 +212,12 @@ private:
 	bool height_calibrated = false;
 	bool hw_velocity_valid = false;
 
+	// One-Euro filters for head velocity components. min_cutoff=1.2 Hz gives
+	// strong smoothing at rest (kills the "still but shaking" jitter), beta=0.05
+	// keeps it responsive enough during head turns without overshoot.
+	one_euro_filter head_lin_filter[3]{{1.2f, 0.05f}, {1.2f, 0.05f}, {1.2f, 0.05f}};
+	one_euro_filter head_ang_filter[3]{{1.2f, 0.05f}, {1.2f, 0.05f}, {1.2f, 0.05f}};
+
 	// Prediction offset from server's tracking_control
 	std::atomic<int64_t> prediction_ns{0};
 	std::atomic<int64_t> base_prediction_ns{0};
@@ -178,6 +240,21 @@ public:
 	float ctrl_smooth_pos[2][3]{{0, 0, 0}, {0, 0, 0}};
 	neo2::quat ctrl_smooth_orient[2]{{0, 0, 0, 1}, {0, 0, 0, 1}};
 	bool ctrl_smooth_init[2]{false, false};
+
+	// One-Euro filters for controller velocity. Controllers have more sensor
+	// noise than the HMD (6DOF from optical tracking vs IMU-fused SLAM), so
+	// min_cutoff is lower (1.0 Hz) for stronger rest smoothing. beta=0.04
+	// keeps swing responsive enough for aiming.
+	one_euro_filter ctrl_lin_filter[2][3]{{{1.0f, 0.04f}, {1.0f, 0.04f}, {1.0f, 0.04f}},
+	                                      {{1.0f, 0.04f}, {1.0f, 0.04f}, {1.0f, 0.04f}}};
+	one_euro_filter ctrl_ang_filter[2][3]{{{1.0f, 0.04f}, {1.0f, 0.04f}, {1.0f, 0.04f}},
+	                                      {{1.0f, 0.04f}, {1.0f, 0.04f}, {1.0f, 0.04f}}};
+
+	// One-Euro filters on controller position itself. The old fixed EMA
+	// (tau=0.015s) was too light to kill rest jitter. One-Euro with a low
+	// min_cutoff smooths aggressively at rest and opens up when moving.
+	one_euro_filter ctrl_pos_filter[2][3]{{{2.0f, 0.01f}, {2.0f, 0.01f}, {2.0f, 0.01f}},
+	                                      {{2.0f, 0.01f}, {2.0f, 0.01f}, {2.0f, 0.01f}}};
 
 	struct input_state
 	{
