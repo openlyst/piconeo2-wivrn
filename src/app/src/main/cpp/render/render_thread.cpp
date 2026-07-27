@@ -3025,7 +3025,12 @@ void *renderThread(void *) {
             gStreamingMode.store(true);
             // Servers tab is hidden while streaming; fall back to Settings.
             if (gSettingsCat == 0) gSettingsCat = 1;
-            hudAnchored = false;   // re-anchor the lobby HUD next time we return to it
+            // Re-anchor the lobby HUD next time we return to the non-streaming
+            // lobby. Don't reset while the manual lobby overlay is open, or the
+            // panel re-anchors in front of the head every frame and follows the
+            // HMD instead of staying world-locked.
+            if (!gManualLobby.load())
+                hudAnchored = false;
             // Free the lobby eye-texture ring (~94 MB) while streaming; rebuilt
             // lazily when we next return to the lobby. DEFER the free, arm a
             // countdown, then free only once the warp ring has been refilled with
@@ -3290,9 +3295,26 @@ void *renderThread(void *) {
                     // color clear, only depth). The video keeps playing underneath.
                     if (gManualLobby.load()) {
                         gStreamingMode.store(true);   // show streaming tabs in sidebar
-                        // Compute view/projection from the head pose + stream FOV.
-                        Mat4 hRot = quatToMat4(qx, qy, qz, qw);
-                        Mat4 invRot = mat4Transpose3x3(hRot);
+                        // The PVR warp only does rotational time warp: it reprojects
+                        // the frame from the server's render orientation (gSwapVP) to
+                        // the live display orientation. The overlay must be drawn at
+                        // the SERVER's orientation so the warp's reprojection keeps it
+                        // world-locked. Drawing it at the current head orientation
+                        // causes the warp to shift it every frame -> stutter.
+                        // Position uses the current head pose since the warp doesn't
+                        // reproject position. Anchoring still uses the current head
+                        // orientation to place the panel in front of the user.
+                        XrPosef srvPoses[2];
+                        bool haveSrv = wivrn_get_server_pose(srvPoses);
+                        float vqx = qx, vqy = qy, vqz = qz, vqw = qw;
+                        if (haveSrv) {
+                            vqx = srvPoses[0].orientation.x;
+                            vqy = srvPoses[0].orientation.y;
+                            vqz = srvPoses[0].orientation.z;
+                            vqw = srvPoses[0].orientation.w;
+                        }
+                        Mat4 hRot = quatToMat4(qx, qy, qz, qw);  // current head orient for anchoring
+                        Mat4 invRot = mat4Transpose3x3(quatToMat4(vqx, vqy, vqz, vqw));  // server orient for view
                         Mat4 viewBase = mat4Mul(invRot, mat4Translate(-px, -py, -pz));
                         float lobbyFovDeg = (fEyeTextureFov0 > 1.0f) ? fEyeTextureFov0 : 101.0f;
                         float fovy = lobbyFovDeg * (float)M_PI / 180.0f;

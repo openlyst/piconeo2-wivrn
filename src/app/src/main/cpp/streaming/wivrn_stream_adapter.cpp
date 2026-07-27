@@ -144,5 +144,9 @@ bool wivrn_get_server_pose(XrPosef out[2])
     std::lock_guard<std::mutex> lk(gServerPoseMutex);
     out[0] = gLastServerPoses[0];
     out[1] = gLastServerPoses[1];
-    return (gLastServerPoses[0].orientation.w != 0 || gLastServerPoses[0].orientation.x != 0);
+    // Validate by squared norm so valid 180° orientations like (0,1,0,0)
+    // return true. The old (w != 0 || x != 0) check rejected those.
+    const auto & o = gLastServerPoses[0].orientation;
+    float n2 = o.x * o.x + o.y * o.y + o.z * o.z + o.w * o.w;
+    return n2 > 1e-6f;
 }

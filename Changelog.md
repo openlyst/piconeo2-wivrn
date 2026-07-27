@@ -1,6 +1,7 @@
 # [1.0.0]() (Unreleased)
 
 - Adds smoothing to 6-dof users HMD. ([MR !231](https://gitlab.com/HttpAnimations/piconeo2-wivrn/-/merge_requests/231))
+- Streaming UI no longer follows the HMD. ([MR !232](https://gitlab.com/HttpAnimations/piconeo2-wivrn/-/merge_requests/232))
 
 # [Beta 1.1](https://github.com/openlyst/piconeo2-wivrn/releases/download/Beta-1.1-(Unreleased)/wivrn-pvr-Beta-1.1-.Unreleased.apk)
 
